@@ -28,15 +28,27 @@ Ensure you are using Python 3.10+:
 pip install -r requirements.txt
 ```
 
-### Manual Run
-You can run the pipeline locally to test it. Note that `fetch_nvd_intel.py` will be much faster if you provide an `NVD_API_KEY` (you can request one from NIST).
+### Local Query Tool (For Users & Agents)
+We provide a bash utility specifically designed for developers and AI agents to quickly parse the intelligence feed:
 
 ```bash
-export NVD_API_KEY="your-nist-api-key"
+# Get the total count of advisories
+bash scripts/query_feed.sh count
 
-# Pipe the fetching script into the merger
-python3 scripts/fetch_nvd_intel.py | python3 scripts/merge_intel.py
+# Return only critical severity advisories
+bash scripts/query_feed.sh critical
+
+# Return advisories published in the last 7 days
+bash scripts/query_feed.sh recent
 ```
+
+## AI Agent Accessibility
+
+This repository is built to be intuitively readable by AI Coding Assistants (like Claude Code, Cursor, OpenClaw, etc.).
+
+If you are an autonomous agent operating in this repository, please read **[`AGENTS.md`](AGENTS.md)** for your instructions and constraints.
+
+We also distribute the `prismor-feed` skill natively compatible with the OpenClaw ecosystem. Agents can ingest the raw GitHub files from `skills/prismor-feed/SKILL.md` to learn how to subscribe to our continuous zero-day feed and protect the environments they are orchestrating.
 
 ## Community Engagement & Contributing
 
