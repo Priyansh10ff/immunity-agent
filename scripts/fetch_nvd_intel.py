@@ -32,7 +32,7 @@ def map_cvss_to_severity(cvss_score):
         return "low"
 
 def map_cwe_to_type(cwes):
-    """Simplified mapping of standard CWEs to Prismorsec AI threat types."""
+    """Simplified mapping of standard CWEs to Prismor AI threat types."""
     # This is a very basic mapping. In a real system, this would be much more comprehensive
     # and likely use NLP to analyze the description.
     cwe_mapping = {

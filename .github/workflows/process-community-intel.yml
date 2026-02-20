@@ -12,5 +12,6 @@ jobs:
     steps:
       - name: Acknowledge Intelligence Submission
         run: |
-            echo "This workflow will eventually parse community-submitted GitHub Issues tagged with 'threat-intel', format them into the Prismorsec Threat Object Schema, and open a PR against the advisories/immunity-feed.json file."
+            echo "A community member has submitted a threat intelligence report via the threat-intel.yml template."
             echo "Issue title: ${{ github.event.issue.title }}"
+            echo "Action Required: A core maintainer must review this issue, validate the schema fields, and merge it via a PR to advisories/immunity-feed.json."

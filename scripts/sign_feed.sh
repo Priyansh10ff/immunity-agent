@@ -5,8 +5,8 @@ FEED_FILE="advisories/immunity-feed.json"
 SIG_FILE="advisories/immunity-feed.json.sig"
 
 # The private key will be injected via environment variable in CI
-if [ -z "$PRISMORSEC_SIGNING_PRIVATE_KEY" ]; then
-    echo "Error: PRISMORSEC_SIGNING_PRIVATE_KEY environment variable is not set."
+if [ -z "$PRISMOR_SIGNING_PRIVATE_KEY" ]; then
+    echo "Error: PRISMOR_SIGNING_PRIVATE_KEY environment variable is not set."
     exit 1
 fi
 
@@ -14,7 +14,7 @@ echo "Signing $FEED_FILE..."
 
 # Create a temporary file for the private key
 PRIVATE_KEY_FILE=$(mktemp)
-echo "$PRISMORSEC_SIGNING_PRIVATE_KEY" > "$PRIVATE_KEY_FILE"
+echo "$PRISMOR_SIGNING_PRIVATE_KEY" > "$PRIVATE_KEY_FILE"
 
 # Ensure correct permissions
 chmod 600 "$PRIVATE_KEY_FILE"

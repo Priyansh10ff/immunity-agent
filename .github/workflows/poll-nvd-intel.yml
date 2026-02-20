@@ -38,7 +38,7 @@ jobs:
 
       - name: Sign the Feed
         env:
-          PRISMORSEC_SIGNING_PRIVATE_KEY: ${{ secrets.PRISMORSEC_SIGNING_PRIVATE_KEY }}
+          PRISMOR_SIGNING_PRIVATE_KEY: ${{ secrets.PRISMOR_SIGNING_PRIVATE_KEY }}
         run: |
           chmod +x scripts/sign_feed.sh
           bash scripts/sign_feed.sh
@@ -57,7 +57,7 @@ jobs:
       - name: Commit and Push Changes
         if: steps.check_changes.outputs.has_changes == 'true'
         run: |
-          git config --global user.name "Prismorsec Bot"
+          git config --global user.name "Prismor Bot"
           git config --global user.email "contact@prismor.dev"
           git add advisories/immunity-feed.json advisories/immunity-feed.json.sig
           git commit -m "Automated update: NVD Threat Intelligence fetched and signed"

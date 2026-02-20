@@ -1,10 +1,32 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# Environment variables
+.env
+.env.local
+
+# Key pairs and secrets
 *.pem
 *.pub
-venv/
-__pycache__/
+*.key
+signature.bin
+
+# Temporary files & logs
+*.log
 *.bin
-*.pem
-*.pub
-venv/
-__pycache__/
-*.bin
+tmp/
+temp/
+
+# IDEs and OS files
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store

@@ -35,7 +35,7 @@ def merge_threats(existing_feed, new_threats):
         existing_feed = {
             "version": "1.1.0",
             "updated": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-            "description": "Prismorsec Agent Immunity Intelligence Feed",
+            "description": "Prismor Agent Immunity Intelligence Feed",
             "advisories": []
         }
     
@@ -48,7 +48,7 @@ def merge_threats(existing_feed, new_threats):
         threat_id = threat["id"]
         if threat_id in existing_advisories:
             # Simplistic merge: overwrite with new data from NVD.
-            # In a robust system, we would retain manual overrides or specific Prismorsec analysis.
+            # In a robust system, we would retain manual overrides or specific Prismor analysis.
             existing_advisories[threat_id] = threat
             updated_count += 1
         else:
