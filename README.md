@@ -26,9 +26,22 @@ The same skill file covers both. Your agent does not need separate configuration
 The skill is dynamic. It can self-improve its own instructions as your use case evolves, and the update mechanism is optimized to be token-efficient so your agent only processes what has changed.
 
 ```mermaid
+%%{init: {"flowchart": {"curve": "stepBefore"}}}%%
 flowchart TD
-    A[Daily Feed: NVD + AI Community Intel] --> B[Your Agent: Secure Code & Sessions]
-    B <--> C[Dynamic Skill Self-Improvement]
+    NVD[GitHub Actions: Daily NVD + Community Intel]
+    SKILL[SKILL.md]
+    AGENT[Your Local AI Agent]
+    CODE[Secure Code Generation\nFlags supply chain CVEs]
+    SESSION[Secure Agentic Sessions\nDetects prompt injections and jailbreaks]
+    IMPROVE[Dynamic Skill Self-Improvement\nToken-efficient updates]
+
+    NVD --> SKILL
+    SKILL --> AGENT
+    AGENT --> CODE
+    AGENT --> SESSION
+    CODE --> IMPROVE
+    SESSION --> IMPROVE
+    IMPROVE --> SKILL
 ```
 
 ## How to Use
