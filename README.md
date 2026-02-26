@@ -1,90 +1,127 @@
-# Prismorsec Agent Immunity Intelligence Pipeline
+# immunity-agent
 
 ![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)
-![GitHub Issues](https://img.shields.io/github/issues/prismor/prismor-immunity)
+![GitHub Issues](https://img.shields.io/github/issues/prismorsec/immunity-agent)
 ![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)
+[![Discord](https://img.shields.io/discord/1234567890?logo=discord&label=Discord&color=5865F2)](https://discord.gg/8rBwhz6T)
 
-This repository hosts the public, continuous security intelligence feed for the [Prismor](https://prismor.dev). Acting as an open-source "autoimmune system", it automatically polls the National Vulnerability Database (NVD) for CVEs impacting the AI agent ecosystem, merges community-submitted novel threat intel, and cryptographically signs the output for safe distribution.
+## The Problem
 
-## Directory Structure
+AI coding agents are writing and running code every day, but they have no built-in awareness of the vulnerabilities specific to the AI ecosystem: prompt injections, jailbreaks, and CVEs in the frameworks they themselves depend on. They are powerful but flying blind on security.
 
-- `.github/workflows/`: CI/CD pipelines defining the automated polling, processing, and signing logic.
-- `advisories/`: The final, published intelligence feed (`immunity-feed.json`) and its Ed25519 signature (`immunity-feed.json.sig`).
-- `schemas/`: The JSON schema defining the shape of a Prismor Threat Object.
-- `scripts/`: The core Python and Bash logic to fetch, translate, validate, and sign the intelligence data.
+At the same time, developers have no simple way to hand their agent a living security reference and say "use this when you write and review code." Static guides go outdated the moment they are written. A feed that updates itself does not.
 
-## The Intelligence Pipeline Architecture
+## The Two Use Cases This Solves
 
-1. **Extraction**: `scripts/fetch_nvd_intel.py` queries the NVD using specific AI ecosystem keywords (`LangChain`, `OpenAI`, `Prompt Injection`, etc.). It handles rate limits and transforms the raw data (mapping CVSS to Prismor severity tiers and inferring threat types from CWEs).
-2. **Merging**: The python script pipes the JSON array to `scripts/merge_intel.py`, which deduplicates the existing `immunity-feed.json` by ID, updates the `updated` timestamp, and rigorously enforces the JSON Schema (`schemas/threat-object.schema.json`).
-3. **Cryptographic Sealing**: Finally, `scripts/sign_feed.sh` uses OpenSSL and a protected environment variable containing a private Ed25519 key to generate a detached base64-encoded signature.
+**1. Secure code generation.** When your agent writes or reviews code, it checks the live feed for known supply chain vulnerabilities in your dependencies, flagging insecure patterns before they reach your codebase.
 
-## Development & Testing
+**2. Secure agent sessions.** When your agent is executing tasks autonomously, it is aware of prompt injection techniques, jailbreak vectors, and CVEs that could compromise the session itself, not just the code it produces.
 
-### Python Setup
-Ensure you are using Python 3.10+:
+The same skill file covers both. Your agent does not need separate configuration for each.
 
-```bash
-pip install -r requirements.txt
+## The Solution
+
+**immunity-agent** is an open-source intelligence pipeline that gives any AI coding agent a continuously refreshed security skill. It polls the National Vulnerability Database daily for CVEs affecting the AI ecosystem, merges community-submitted threat intelligence, cryptographically signs the output, and publishes it all to a single file your agent can read.
+
+The skill is dynamic. It can self-improve its own instructions as your use case evolves, and the update mechanism is optimized to be token-efficient so your agent only processes what has changed.
+
+```mermaid
+flowchart TD
+    A[Clone immunity-agent] --> B[Point your agent to skills/prismor-feed/SKILL.md]
+    B --> C{Agent reads the skill}
+    C --> D[Fetches the live immunity feed from GitHub]
+    D --> E1[Secure code generation: flags supply chain CVEs while writing code]
+    D --> E2[Secure agent sessions: detects prompt injections and jailbreak vectors]
+    E1 --> F[Feed updates daily via GitHub Actions]
+    E2 --> F
+    F --> D
+    C --> G[Agent self-improves SKILL.md based on your use case]
+    G --> C
 ```
 
-### Local Query Tool (For Users & Agents)
-We provide a bash utility specifically designed for developers and AI agents to quickly parse the intelligence feed:
+## How to Use
+
+### 1. Clone the repository
 
 ```bash
-# Get the total count of advisories
+git clone https://github.com/prismorsec/immunity-agent.git
+cd immunity-agent
+```
+
+### 2. Point your agent to the skill
+
+Tell your AI coding agent of choice (Claude Code, Cursor, Windsurf, Copilot, or any other) to read the skill file:
+
+```
+Read skills/prismor-feed/SKILL.md and follow its instructions.
+```
+
+That is all your agent needs. The skill file tells it how to fetch the live feed, parse it, and apply it whether it is writing code or running an autonomous session.
+
+### 3. Query the feed directly
+
+```bash
+# Install Python dependencies
+pip install -r requirements.txt
+
+# Count all tracked advisories
 bash scripts/query_feed.sh count
 
-# Return only critical severity advisories
+# List only critical severity advisories
 bash scripts/query_feed.sh critical
 
-# Return advisories published in the last 7 days
+# Show advisories published in the last 7 days
 bash scripts/query_feed.sh recent
 ```
 
-## AI Agent Accessibility
+### 4. Verify the feed is genuine
 
-This repository is built to be intuitively readable by AI Coding Assistants (like Claude Code, Cursor, OpenClaw, etc.).
-
-If you are an autonomous agent operating in this repository, please read **[`AGENTS.md`](AGENTS.md)** for your instructions and constraints.
-
-We also distribute the `prismor-feed` skill natively compatible with the OpenClaw ecosystem. Agents can ingest the raw GitHub files from `skills/prismor-feed/SKILL.md` to learn how to subscribe to our continuous zero-day feed and protect the environments they are orchestrating.
-
-## Community Engagement & Contributing
-
-We actively welcome community involvement! 
-
-If you have discovered a novel threat vector (e.g., a new jailbreak or prompt injection technique not yet tracked by NVD), please submit it using our **Threat Intelligence Issue Template**. The core Prismor team reviews these submissions and merges them into the global feed.
-
-Please refer to the [Contributing Guide](CONTRIBUTING.md) for full details on how to get involved, and read our [Code of Conduct](CODE_OF_CONDUCT.md).
-
-## Cryptographic Setup (Generating Keypairs)
-
-For clients to trust the feed, it is signed with a private Ed25519 key managed in GitHub secrets (`PRISMOR_SIGNING_PRIVATE_KEY`).
-
-To generate a new keypair exactly compatible with this pipeline:
-
-1. **Generate the private key:**
-   ```bash
-   openssl genpkey -algorithm ed25519 -out private.pem
-   ```
-   **Important:** Store the contents of `private.pem` securely as the `PRISMOR_SIGNING_PRIVATE_KEY` repository secret in GitHub. Never commit this file.
-
-2. **Generate the public key (for distribution):**
-   ```bash
-   openssl pkey -in private.pem -pubout -out public.pub
-   ```
-   The contents of `public.pub` should be hardcoded or distributed to the Prismor scanners running in production so they can verify the `immunity-feed.json.sig` file.
-
-## Client Verification Protocol
-
-Clients downloading `immunity-feed.json` and `immunity-feed.json.sig` must verify authenticity before applying any security policies:
+The feed is signed with an Ed25519 key on every update. Before trusting any advisory programmatically, verify it:
 
 ```bash
-# Example verification using the standard openssl command line
-# Decode the base64 signature back to raw binary bytes first
+# Decode the signature
 openssl base64 -d -A -in advisories/immunity-feed.json.sig -out signature.bin
 
-openssl pkeyutl -verify -pubin -inkey public.pub -rawin -in advisories/immunity-feed.json -sigfile signature.bin
+# Verify against the public key
+openssl pkeyutl -verify -pubin -inkey public.pub -rawin \
+  -in advisories/immunity-feed.json -sigfile signature.bin
 ```
-If the output says `Signature Verified Successfully`, the feed is genuine and unmanipulated.
+
+A `Signature Verified Successfully` response means the feed is authentic and unmodified.
+
+## Why immunity-agent
+
+There are other open-source security skills and vulnerability databases out there. Here is how this one is different.
+
+**It never goes obsolete.** Most skills are markdown files written once and forgotten. immunity-agent is backed by a live pipeline. Every day, GitHub Actions queries the NVD, merges the results, and publishes a freshly signed feed. Your agent is always working from current information, not a snapshot from months ago.
+
+**The skill itself can self-improve.** Your agent is designed to update `SKILL.md` based on what it learns about your specific stack and use case. This is not possible with a static guide or a one-time audit tool.
+
+**It is written for agents, not just humans.** The feed format, the query scripts, and the SKILL.md instructions are all designed to be parsed and acted on by an AI agent without human intervention. Other repositories document vulnerabilities for people to read. This one is a machine-readable input for your agent's decision-making.
+
+**It covers the AI ecosystem specifically.** General vulnerability databases cover everything. This feed filters for CVEs and threat patterns that affect AI frameworks: LangChain, LlamaIndex, OpenAI SDKs, prompt injection patterns, jailbreaks, and similar vectors that standard dependency scanners miss.
+
+**Token efficiency matters.** The self-improvement loop is lean. Your agent fetches only what it needs and updates only what has changed, keeping context usage low.
+
+## Repository Layout
+
+| Path | What it does |
+|------|--------------|
+| `skills/prismor-feed/SKILL.md` | The skill your agent reads and can self-improve |
+| `advisories/immunity-feed.json` | The signed, live intelligence feed |
+| `advisories/immunity-feed.json.sig` | Ed25519 signature for the feed |
+| `scripts/fetch_nvd_intel.py` | Queries NVD for AI ecosystem CVEs |
+| `scripts/merge_intel.py` | Deduplicates and validates new advisories |
+| `scripts/sign_feed.sh` | Produces the cryptographic signature |
+| `scripts/query_feed.sh` | Convenience query tool for humans and agents |
+| `schemas/threat-object.schema.json` | JSON Schema governing the advisory format |
+| `.github/workflows/` | GitHub Actions pipelines that run everything daily |
+| `AGENTS.md` | Instructions specifically for AI agents operating in this repo |
+
+## Community and Enterprise
+
+Join the community on [Discord](https://discord.gg/8rBwhz6T) to submit threat intel, share findings, and discuss how you are using immunity-agent in your own agent setups.
+
+For enterprise-grade security across your entire codebase, check out [Prismor](https://prismor.dev), the full platform built on this intelligence feed.
+
+If you have discovered a novel threat vector, a new jailbreak pattern, or a CVE not yet in the feed, open an issue using the Threat Intelligence template. See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
