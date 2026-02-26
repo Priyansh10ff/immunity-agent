@@ -27,16 +27,8 @@ The skill is dynamic. It can self-improve its own instructions as your use case 
 
 ```mermaid
 flowchart TD
-    A[Clone immunity-agent] --> B[Point your agent to skills/prismor-feed/SKILL.md]
-    B --> C{Agent reads the skill}
-    C --> D[Fetches the live immunity feed from GitHub]
-    D --> E1[Secure code generation: flags supply chain CVEs while writing code]
-    D --> E2[Secure agent sessions: detects prompt injections and jailbreak vectors]
-    E1 --> F[Feed updates daily via GitHub Actions]
-    E2 --> F
-    F --> D
-    C --> G[Agent self-improves SKILL.md based on your use case]
-    G --> C
+    A[Daily Feed: NVD + AI Community Intel] --> B[Your Agent: Secure Code & Sessions]
+    B <--> C[Dynamic Skill Self-Improvement]
 ```
 
 ## How to Use
