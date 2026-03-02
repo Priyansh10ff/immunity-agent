@@ -1,0 +1,95 @@
+{
+    "name": "llm-security",
+    "version": "1.0.0",
+    "description": "Security guidelines for LLM applications based on OWASP Top 10 for LLM 2025. Covers prompt injection, sensitive disclosure, excessive agency, output handling, supply chain, and more.",
+    "author": "prismor",
+    "license": "Apache-2.0",
+    "homepage": "https://github.com/prismorsec/immunity-agent",
+    "attribution": "Rules adapted from https://github.com/semgrep/skills (Apache-2.0). Thank you Semgrep!",
+    "keywords": [
+        "security",
+        "llm",
+        "ai",
+        "prompt-injection",
+        "owasp",
+        "rag",
+        "agents",
+        "ai-security",
+        "genai"
+    ],
+    "sbom": {
+        "files": [
+            {
+                "path": "SKILL.md",
+                "required": true,
+                "description": "LLM security skill index and agent instructions"
+            },
+            {
+                "path": "rules/prompt-injection.md",
+                "required": false,
+                "description": "LLM01: Prompt injection prevention"
+            },
+            {
+                "path": "rules/sensitive-disclosure.md",
+                "required": false,
+                "description": "LLM02: Sensitive information disclosure prevention"
+            },
+            {
+                "path": "rules/supply-chain.md",
+                "required": false,
+                "description": "LLM03: Supply chain security"
+            },
+            {
+                "path": "rules/data-poisoning.md",
+                "required": false,
+                "description": "LLM04: Data and model poisoning prevention"
+            },
+            {
+                "path": "rules/output-handling.md",
+                "required": false,
+                "description": "LLM05: Improper output handling prevention"
+            },
+            {
+                "path": "rules/excessive-agency.md",
+                "required": false,
+                "description": "LLM06: Excessive agency control"
+            },
+            {
+                "path": "rules/system-prompt-leakage.md",
+                "required": false,
+                "description": "LLM07: System prompt leakage prevention"
+            },
+            {
+                "path": "rules/vector-embedding.md",
+                "required": false,
+                "description": "LLM08: Vector and embedding weaknesses"
+            },
+            {
+                "path": "rules/misinformation.md",
+                "required": false,
+                "description": "LLM09: Misinformation and hallucinations mitigation"
+            },
+            {
+                "path": "rules/unbounded-consumption.md",
+                "required": false,
+                "description": "LLM10: Unbounded consumption prevention"
+            }
+        ]
+    },
+    "openclaw": {
+        "emoji": "🤖",
+        "category": "security",
+        "triggers": [
+            "prompt injection",
+            "llm security",
+            "ai security",
+            "rag security",
+            "agent security",
+            "owasp llm",
+            "check llm",
+            "llm vulnerability",
+            "genai security",
+            "excessive agency"
+        ]
+    }
+}

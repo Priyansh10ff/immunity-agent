@@ -1,0 +1,163 @@
+{
+    "name": "code-security",
+    "version": "1.0.0",
+    "description": "Security guidelines for writing secure code. Covers OWASP Top 10 vulnerabilities, infrastructure-as-code (Terraform), container security (Docker/K8s), and CI/CD security (GitHub Actions).",
+    "author": "prismor",
+    "license": "Apache-2.0",
+    "homepage": "https://github.com/prismorsec/immunity-agent",
+    "attribution": "Rules adapted from https://github.com/semgrep/skills (Apache-2.0). Thank you Semgrep!",
+    "keywords": [
+        "security",
+        "code-review",
+        "owasp",
+        "sql-injection",
+        "xss",
+        "command-injection",
+        "vulnerability",
+        "agents",
+        "ai",
+        "terraform",
+        "kubernetes",
+        "docker",
+        "github-actions"
+    ],
+    "sbom": {
+        "files": [
+            {
+                "path": "SKILL.md",
+                "required": true,
+                "description": "Code security skill index and agent instructions"
+            },
+            {
+                "path": "rules/sql-injection.md",
+                "required": false,
+                "description": "SQL injection prevention rules"
+            },
+            {
+                "path": "rules/command-injection.md",
+                "required": false,
+                "description": "Command injection prevention rules"
+            },
+            {
+                "path": "rules/xss.md",
+                "required": false,
+                "description": "XSS prevention rules"
+            },
+            {
+                "path": "rules/path-traversal.md",
+                "required": false,
+                "description": "Path traversal prevention rules"
+            },
+            {
+                "path": "rules/secrets.md",
+                "required": false,
+                "description": "Hardcoded secrets prevention rules"
+            },
+            {
+                "path": "rules/insecure-crypto.md",
+                "required": false,
+                "description": "Insecure cryptography prevention rules"
+            },
+            {
+                "path": "rules/ssrf.md",
+                "required": false,
+                "description": "SSRF prevention rules"
+            },
+            {
+                "path": "rules/insecure-transport.md",
+                "required": false,
+                "description": "Insecure transport prevention rules"
+            },
+            {
+                "path": "rules/xxe.md",
+                "required": false,
+                "description": "XXE prevention rules"
+            },
+            {
+                "path": "rules/insecure-deserialization.md",
+                "required": false,
+                "description": "Insecure deserialization prevention rules"
+            },
+            {
+                "path": "rules/code-injection.md",
+                "required": false,
+                "description": "Code injection (eval/exec) prevention rules"
+            },
+            {
+                "path": "rules/memory-safety.md",
+                "required": false,
+                "description": "Memory safety (C/C++) rules"
+            },
+            {
+                "path": "rules/authentication-jwt.md",
+                "required": false,
+                "description": "JWT authentication security rules"
+            },
+            {
+                "path": "rules/csrf.md",
+                "required": false,
+                "description": "CSRF prevention rules"
+            },
+            {
+                "path": "rules/prototype-pollution.md",
+                "required": false,
+                "description": "Prototype pollution prevention rules"
+            },
+            {
+                "path": "rules/unsafe-functions.md",
+                "required": false,
+                "description": "Unsafe function avoidance rules"
+            },
+            {
+                "path": "rules/terraform-aws.md",
+                "required": false,
+                "description": "AWS Terraform security rules"
+            },
+            {
+                "path": "rules/terraform-azure.md",
+                "required": false,
+                "description": "Azure Terraform security rules"
+            },
+            {
+                "path": "rules/terraform-gcp.md",
+                "required": false,
+                "description": "GCP Terraform security rules"
+            },
+            {
+                "path": "rules/kubernetes.md",
+                "required": false,
+                "description": "Kubernetes security rules"
+            },
+            {
+                "path": "rules/docker.md",
+                "required": false,
+                "description": "Docker security rules"
+            },
+            {
+                "path": "rules/github-actions.md",
+                "required": false,
+                "description": "GitHub Actions security rules"
+            }
+        ]
+    },
+    "openclaw": {
+        "emoji": "🔒",
+        "category": "security",
+        "triggers": [
+            "code review",
+            "security review",
+            "check for vulnerabilities",
+            "sql injection",
+            "xss",
+            "command injection",
+            "path traversal",
+            "hardcoded secrets",
+            "secure code",
+            "owasp",
+            "terraform",
+            "kubernetes",
+            "docker",
+            "github actions"
+        ]
+    }
+}

@@ -1,13 +1,12 @@
 # immunity-agent
 
 ![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)
-![GitHub Issues](https://img.shields.io/github/issues/prismorsec/immunity-agent)
 ![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)
-[![Discord](https://img.shields.io/discord/1234567890?logo=discord&label=Discord&color=5865F2)](https://discord.gg/8rBwhz6T)
+[![Discord](https://img.shields.io/badge/Discord-Join%20Us-5865F2?logo=discord&logoColor=white)](https://discord.gg/8rBwhz6T)
 
 ## The Problem
 
-AI coding agents are writing and running code every day, but they have no built-in awareness of the vulnerabilities specific to the AI ecosystem: prompt injections, jailbreaks, and CVEs in the frameworks they themselves depend on. They are powerful but flying blind on security.
+AI coding agents write and run code without awareness of the vulnerabilities they might be introducing or the prompt injections that could compromise their own session. They are powerful but flying blind on security.
 
 At the same time, developers have no simple way to hand their agent a living security reference and say "use this when you write and review code." Static guides go outdated the moment they are written. A feed that updates itself does not.
 
@@ -29,7 +28,7 @@ The skill is dynamic. It can self-improve its own instructions as your use case 
 %%{init: {"flowchart": {"curve": "stepBefore"}}}%%
 flowchart TD
     NVD[GitHub Actions: Daily NVD + Community Intel]
-    SKILL[SKILL.md]
+    SKILL[skills/security.md]
     AGENT[Your Local AI Agent]
     CODE[Secure Code Generation\nFlags supply chain CVEs]
     SESSION[Secure Agentic Sessions\nDetects prompt injections and jailbreaks]
@@ -53,30 +52,47 @@ git clone https://github.com/prismorsec/immunity-agent.git
 cd immunity-agent
 ```
 
-### 2. Point your agent to the skill
+### 2. Point your agent to the skills
 
-Tell your AI coding agent of choice (Claude Code, Cursor, Windsurf, Copilot, or any other) to read the skill file:
+Tell your AI coding agent of choice (Claude Code, Cursor, Windsurf, Copilot, or any other) to read the master skill file:
+
+```
+Read skills/security.md and follow its instructions.
+```
+
+That is all your agent needs. The single entry point tells it how to load the live threat feed, apply code security rules, and defend against LLM-specific attacks, whether it is writing code or running an autonomous session.
+
+You can also load individual skills for more targeted coverage:
+
+**Live threat intelligence feed** (CVEs, prompt injections, jailbreaks affecting AI frameworks):
 
 ```
 Read skills/prismor-feed/SKILL.md and follow its instructions.
 ```
 
-That is all your agent needs. The skill file tells it how to fetch the live feed, parse it, and apply it whether it is writing code or running an autonomous session.
+**Secure code generation and code review** (SQL injection, XSS, command injection, secrets, SSRF, and more):
+
+```
+Read skills/code-security/SKILL.md and apply its rules when writing or reviewing code.
+```
+
+**LLM application security** (prompt injection, excessive agency, output handling, and the full OWASP Top 10 for LLM 2025):
+
+```
+Read skills/llm-security/SKILL.md and apply its rules when building or reviewing AI applications.
+```
 
 ### 3. Query the feed directly
 
 ```bash
-# Install Python dependencies
-pip install -r requirements.txt
-
 # Count all tracked advisories
-bash scripts/query_feed.sh count
+bash scripts/query.sh count
 
 # List only critical severity advisories
-bash scripts/query_feed.sh critical
+bash scripts/query.sh critical
 
 # Show advisories published in the last 7 days
-bash scripts/query_feed.sh recent
+bash scripts/query.sh recent
 ```
 
 ### 4. Verify the feed is genuine
@@ -100,9 +116,9 @@ There are other open-source security skills and vulnerability databases out ther
 
 **It never goes obsolete.** Most skills are markdown files written once and forgotten. immunity-agent is backed by a live pipeline. Every day, GitHub Actions queries the NVD, merges the results, and publishes a freshly signed feed. Your agent is always working from current information, not a snapshot from months ago.
 
-**The skill itself can self-improve.** Your agent is designed to update `SKILL.md` based on what it learns about your specific stack and use case. This is not possible with a static guide or a one-time audit tool.
+**The skill itself can self-improve.** Your agent is designed to update `skills/security.md` based on what it learns about your specific stack and use case. This is not possible with a static guide or a one-time audit tool.
 
-**It is written for agents, not just humans.** The feed format, the query scripts, and the SKILL.md instructions are all designed to be parsed and acted on by an AI agent without human intervention. Other repositories document vulnerabilities for people to read. This one is a machine-readable input for your agent's decision-making.
+**It is written for agents, not just humans.** The feed format, the query scripts, and the skill instructions are all designed to be parsed and acted on by an AI agent without human intervention. Other repositories document vulnerabilities for people to read. This one is a machine-readable input for your agent's decision-making.
 
 **It covers the AI ecosystem specifically.** General vulnerability databases cover everything. This feed filters for CVEs and threat patterns that affect AI frameworks: LangChain, LlamaIndex, OpenAI SDKs, prompt injection patterns, jailbreaks, and similar vectors that standard dependency scanners miss.
 
@@ -112,16 +128,23 @@ There are other open-source security skills and vulnerability databases out ther
 
 | Path | What it does |
 |------|--------------|
-| `skills/prismor-feed/SKILL.md` | The skill your agent reads and can self-improve |
+| `skills/security.md` | Master entry point — loads all security skills in one go |
+| `skills/prismor-feed/SKILL.md` | Live threat intelligence skill — CVEs, prompt injections, jailbreaks |
+| `skills/code-security/SKILL.md` | Secure coding rules: SQL injection, XSS, command injection, IaC, and more |
+| `skills/code-security/rules/` | 22 individual rule files covering OWASP Top 10, containers, and CI/CD |
+| `skills/llm-security/SKILL.md` | LLM application security based on OWASP Top 10 for LLM 2025 |
+| `skills/llm-security/rules/` | Rules covering all 10 OWASP Top 10 LLM risks |
 | `advisories/immunity-feed.json` | The signed, live intelligence feed |
 | `advisories/immunity-feed.json.sig` | Ed25519 signature for the feed |
-| `scripts/fetch_nvd_intel.py` | Queries NVD for AI ecosystem CVEs |
-| `scripts/merge_intel.py` | Deduplicates and validates new advisories |
-| `scripts/sign_feed.sh` | Produces the cryptographic signature |
-| `scripts/query_feed.sh` | Convenience query tool for humans and agents |
-| `schemas/threat-object.schema.json` | JSON Schema governing the advisory format |
-| `.github/workflows/` | GitHub Actions pipelines that run everything daily |
-| `AGENTS.md` | Instructions specifically for AI agents operating in this repo |
+| `scripts/query.sh` | Convenience query tool for humans and agents |
+| `pipeline/` | Internal pipeline scripts (NVD fetcher, merger, signer) — runs via GitHub Actions |
+| `.github/workflows/` | GitHub Actions pipelines that run the pipeline daily |
+
+## Credits
+
+The code security and LLM security skill rules are adapted from the [Semgrep Skills repository](https://github.com/semgrep/skills), an excellent open-source collection of security guidelines for AI coding agents maintained by the Semgrep team. If you are building security tooling for AI agents, their work is well worth exploring. The original rules are licensed under Apache-2.0.
+
+We also give major credit to the **OWASP Foundation** for their authoritative [OWASP Top 10](https://owasp.org/www-project-top-ten/) and [OWASP Top 10 for LLM Applications](https://genai.owasp.org/llm-top-10/) projects, which form the structural basis of these security guidelines.
 
 ## Community and Enterprise
 
@@ -129,4 +152,4 @@ Join the community on [Discord](https://discord.gg/8rBwhz6T) to submit threat in
 
 For enterprise-grade security across your entire codebase, check out [Prismor](https://prismor.dev), the full platform built on this intelligence feed.
 
-If you have discovered a novel threat vector, a new jailbreak pattern, or a CVE not yet in the feed, open an issue using the Threat Intelligence template. See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
+If you have discovered a novel threat vector, a new jailbreak pattern, or a CVE not yet in the feed, open an issue using the Threat Intelligence template.

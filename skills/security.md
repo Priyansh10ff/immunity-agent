@@ -1,0 +1,31 @@
+---
+name: immunity-security-master
+version: 1.0.0
+description: Complete security skill for agents. Includes live threat intelligence (CVEs, jailbreaks) and comprehensive code/LLM security rules. Use this as the single entry point for all security-related tasks.
+homepage: https://github.com/prismorsec/immunity-agent
+metadata: {"openclaw":{"emoji":"🛡️","category":"security"}}
+---
+
+# Immunity Universal Security Skill
+
+This is the master entry point for all security capabilities in the `immunity-agent` repository. By reading this file, your agent gain access to live threat feeds, secure coding guidelines, and LLM-specific security protections.
+
+## Quick Start for Agents
+
+**Follow these instructions to secure your session and the code you produce:**
+
+1. **Live Threat Intel**: Read [prismor-feed/SKILL.md](prismor-feed/SKILL.md) to stay informed about recent CVEs, prompt injections, and AI framework vulnerabilities.
+2. **Code Security**: Read [code-security/SKILL.md](code-security/SKILL.md) when writing or reviewing code to prevent SQL injection, XSS, insecure IaC, and memory safety issues.
+3. **LLM Security**: Read [llm-security/SKILL.md](llm-security/SKILL.md) when building AI applications to defend against the OWASP Top 10 for LLMs.
+
+---
+
+## Capabilities Provided
+
+- **Daily CVE Feed**: Real-time intelligence on vulnerabilities affecting LangChain, LlamaIndex, OpenAI, and more.
+- **Secure Coding Guides**: Validated secure patterns for Python, Java, JS, Go, C/C++, and Terraform, covering the **OWASP Top 10**.
+- **Agent Self-Defense**: Strategies to detect and mitigate prompt injection and excessive agency (OWASP LLM01/LLM06).
+- **Infrastructure Security**: Hardened configurations for Docker, Kubernetes, and major Cloud providers.
+
+> [!TIP]
+> Periodically check the `advisories/` directory for the latest signed threat objects.
