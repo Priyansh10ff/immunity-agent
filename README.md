@@ -120,21 +120,6 @@ There are other open-source security skills and vulnerability databases out ther
 
 **Token efficiency matters.** The self-improvement loop is lean. Your agent fetches only what it needs and updates only what has changed, keeping context usage low.
 
-## Repository Layout
-
-| Path | What it does |
-|------|--------------|
-| `skills/security.md` | Master entry point — loads all security skills in one go |
-| `skills/prismor-feed/SKILL.md` | Live threat intelligence skill — CVEs, prompt injections, jailbreaks |
-| `skills/code-security/SKILL.md` | Secure coding rules: SQL injection, XSS, command injection, IaC, and more |
-| `skills/code-security/rules/` | 22 individual rule files covering OWASP Top 10, containers, and CI/CD |
-| `skills/llm-security/SKILL.md` | LLM application security based on OWASP Top 10 for LLM 2025 |
-| `skills/llm-security/rules/` | Rules covering all 10 OWASP Top 10 LLM risks |
-| `advisories/immunity-feed.json` | The signed, live intelligence feed |
-| `advisories/immunity-feed.json.sig` | Ed25519 signature for the feed |
-| `scripts/query.sh` | Convenience query tool for humans and agents |
-| `pipeline/` | Internal pipeline scripts (NVD fetcher, merger, signer) — runs via GitHub Actions |
-| `.github/workflows/` | GitHub Actions pipelines that run the pipeline daily |
 
 ## Credits
 
