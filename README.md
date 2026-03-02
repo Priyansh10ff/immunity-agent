@@ -27,16 +27,21 @@ The skill is dynamic. It can self-improve its own instructions as your use case 
 ```mermaid
 %%{init: {"flowchart": {"curve": "stepBefore"}}}%%
 flowchart TD
-    subgraph PRISMOR [Prismor Live Feed]
+    subgraph PRISMOR ["Prismor Live Feed"]
         direction TB
-        SOURCES[External Sources\nNVD, CVE, GitHub] -->|Daily Polling| PIPE[Intelligence Pipeline\nFetch, Merge & Sign]
-        PIPE --> FEED[advisories/\nSigned JSON Feed]
+        SOURCES["NVD and GitHub Sources"] -->|Daily Polling| PIPE["Intelligence Pipeline"]
+        PIPE --> FEED["advisories (Signed JSON Feed)"]
     end
 
-    USER([User]) -->|Clones| REPO[Local immunity-agent\nClone of this repo]
+    USER([User]) -->|Clones| REPO["Local immunity-agent Repo"]
     FEED -->|Fetched via Git| REPO
-    REPO -->|Reads skills/security.md| AGENT[Your LLM Agent\nClaude, Cursor, etc.]
-    AGENT -->|Secures| CODE[Your Project Code\nVulnerability-free generation]
+    REPO -->|Reads security.md| AGENT["AI Coding Agent"]
+    AGENT -->|Secures| CODE["Your Project Code"]
+
+    click PIPE "/pipeline" "Intelligence Pipeline"
+    click FEED "/advisories" "Signed JSON Feed"
+    click REPO "/" "Repository Root"
+    click AGENT "/skills/security.md" "Master Security Skill"
 ```
 
 ## How to Use
