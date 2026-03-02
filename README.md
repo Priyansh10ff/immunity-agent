@@ -27,20 +27,16 @@ The skill is dynamic. It can self-improve its own instructions as your use case 
 ```mermaid
 %%{init: {"flowchart": {"curve": "stepBefore"}}}%%
 flowchart TD
-    NVD[GitHub Actions: Daily NVD + Community Intel]
-    SKILL[skills/security.md]
-    AGENT[Your Local AI Agent]
-    CODE[Secure Code Generation\nFlags supply chain CVEs]
-    SESSION[Secure Agentic Sessions\nDetects prompt injections and jailbreaks]
-    IMPROVE[Dynamic Skill Self-Improvement\nToken-efficient updates]
+    subgraph PRISMOR [Prismor Live Feed]
+        direction TB
+        SOURCES[External Sources\nNVD, CVE, GitHub] -->|Daily Polling| PIPE[Intelligence Pipeline\nFetch, Merge & Sign]
+        PIPE --> FEED[advisories/\nSigned JSON Feed]
+    end
 
-    NVD --> SKILL
-    SKILL --> AGENT
-    AGENT --> CODE
-    AGENT --> SESSION
-    CODE --> IMPROVE
-    SESSION --> IMPROVE
-    IMPROVE --> SKILL
+    USER([User]) -->|Clones| REPO[Local immunity-agent\nClone of this repo]
+    FEED -->|Fetched via Git| REPO
+    REPO -->|Reads skills/security.md| AGENT[Your LLM Agent\nClaude, Cursor, etc.]
+    AGENT -->|Secures| CODE[Your Project Code\nVulnerability-free generation]
 ```
 
 ## How to Use
@@ -144,7 +140,7 @@ There are other open-source security skills and vulnerability databases out ther
 
 The code security and LLM security skill rules are adapted from the [Semgrep Skills repository](https://github.com/semgrep/skills), an excellent open-source collection of security guidelines for AI coding agents maintained by the Semgrep team. If you are building security tooling for AI agents, their work is well worth exploring. The original rules are licensed under Apache-2.0.
 
-We also give major credit to the **OWASP Foundation** for their authoritative [OWASP Top 10](https://owasp.org/www-project-top-ten/) and [OWASP Top 10 for LLM Applications](https://genai.owasp.org/llm-top-10/) projects, which form the structural basis of these security guidelines.
+We also acknowledge the **OWASP Foundation** for the [OWASP Top 10](https://owasp.org/www-project-top-ten/) and [OWASP Top 10 for LLM Applications](https://genai.owasp.org/llm-top-10/) projects. These community efforts help shape the broader security landscape and provide helpful reference points for our own guidelines.
 
 ## Community and Enterprise
 
