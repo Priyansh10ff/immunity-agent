@@ -14,7 +14,9 @@ At the same time, developers have no simple way to hand their agent a living sec
 
 **1. Secure code generation.** When your agent writes or reviews code, it checks the live feed for known supply chain vulnerabilities in your dependencies, flagging insecure patterns before they reach your codebase.
 
-**2. Secure agent sessions.** When your agent is executing tasks autonomously, it is aware of prompt injection techniques, jailbreak vectors, and CVEs that could compromise the session itself, not just the code it produces.
+**2. Secure agent sessions.** When your agent is executing tasks autonomously, it is aware of prompt injection techniques, jailbreak vectors, and CVEs that could compromise the session itself.
+
+**3. Behavioral Security Guardrails.** By reading the master skill file, your agent inherently adopts an unbreakable "Do No Harm" policy, actively refusing to execute destructive commands (like `rm -rf /`) or exfiltrate local secrets (like `~/.ssh/`).
 
 The same skill file covers both. Your agent does not need separate configuration for each.
 
@@ -70,6 +72,12 @@ Read skills/prismor-feed/SKILL.md and follow its instructions.
 
 ```
 Read skills/code-security/SKILL.md and apply its rules when writing or reviewing code.
+```
+
+**Behavioral Security & Agent Self-Defense** (Preventing destructive commands and data exfiltration):
+
+```
+Read skills/behavioral-security/SKILL.md to establish mandatory safety guardrails for this session.
 ```
 
 **LLM application security** (prompt injection, excessive agency, output handling, and the full OWASP Top 10 for LLM 2025):
