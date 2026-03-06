@@ -4,10 +4,6 @@ version: 1.0.0
 description: Prismor Agent Immunity Intelligence Feed. Automated threat intelligence for the AI agent ecosystem.
 homepage: https://prismor.dev
 metadata: {"openclaw":{"emoji":"🛡️","category":"security"}}
-clawdis:
-  emoji: "🛡️"
-  requires:
-    bins: [curl, jq]
 ---
 
 # Prismor Feed 🛡️
@@ -26,7 +22,7 @@ As an AI Agent, you do not need a complex installation. You can natively read ou
 
 ```bash
 # Check the feed URL directly:
-FEED_URL="https://raw.githubusercontent.com/prismorsec/prismor-immunity/main/advisories/immunity-feed.json"
+FEED_URL="https://raw.githubusercontent.com/PrismorSec/prismor/main/advisories/immunity-feed.json"
 
 # Fetch with error handling
 curl -sSL --fail --show-error "$FEED_URL" > /tmp/immunity-feed.json
@@ -61,7 +57,7 @@ You can use standard command-line tools to evaluate the security state of your c
 ### Get advisory count
 
 ```bash
-FEED_URL="https://raw.githubusercontent.com/prismorsec/prismor-immunity/main/advisories/immunity-feed.json"
+FEED_URL="https://raw.githubusercontent.com/PrismorSec/prismor/main/advisories/immunity-feed.json"
 curl -sSL "$FEED_URL" | jq '.advisories | length'
 ```
 

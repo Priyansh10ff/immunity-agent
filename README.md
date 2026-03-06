@@ -1,4 +1,4 @@
-# immunity-agent
+# Prismor
 
 ![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)
 ![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)
@@ -10,7 +10,7 @@ AI coding agents write and run code without awareness of the vulnerabilities the
 
 At the same time, developers have no simple way to hand their agent a living security reference and say "use this when you write and review code." Static guides go outdated the moment they are written. A feed that updates itself does not.
 
-## The Two Use Cases This Solves
+## The Three Use Cases This Solves
 
 **1. Secure code generation.** When your agent writes or reviews code, it checks the live feed for known supply chain vulnerabilities in your dependencies, flagging insecure patterns before they reach your codebase.
 
@@ -18,11 +18,11 @@ At the same time, developers have no simple way to hand their agent a living sec
 
 **3. Behavioral Security Guardrails.** By reading the master skill file, your agent inherently adopts an unbreakable "Do No Harm" policy, actively refusing to execute destructive commands (like `rm -rf /`) or exfiltrate local secrets (like `~/.ssh/`).
 
-The same skill file covers both. Your agent does not need separate configuration for each.
+The same skill file covers all use cases. Your agent does not need separate configuration for each.
 
 ## The Solution
 
-**immunity-agent** is an open-source intelligence pipeline that gives any AI coding agent a continuously refreshed security skill. It polls the National Vulnerability Database daily for CVEs affecting the AI ecosystem, merges community-submitted threat intelligence, cryptographically signs the output, and publishes it all to a single file your agent can read.
+**Prismor** is an open-source intelligence pipeline that gives any AI coding agent a continuously refreshed security skill. It polls the National Vulnerability Database daily for CVEs affecting the AI ecosystem, merges community-submitted threat intelligence, cryptographically signs the output, and publishes it all to a single file your agent can read.
 
 The skill is dynamic. It can self-improve its own instructions as your use case evolves, and the update mechanism is optimized to be token-efficient so your agent only processes what has changed.
 
@@ -35,7 +35,7 @@ flowchart TD
         P --> F["advisories (Signed JSON Feed)"]
     end
 
-    U([User]) --> R["Local immunity-agent Repo"]
+    U([User]) --> R["Local Prismor Repo"]
     F --> R
     R --> A["AI Coding Agent"]
     A --> C["Your Project Code"]
@@ -46,8 +46,8 @@ flowchart TD
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/prismorsec/immunity-agent.git
-cd immunity-agent
+git clone https://github.com/PrismorSec/prismor.git
+cd prismor
 ```
 
 ### 2. Point your agent to the skills
@@ -114,11 +114,11 @@ openssl pkeyutl -verify -pubin -inkey public.pub -rawin \
 
 A `Signature Verified Successfully` response means the feed is authentic and unmodified.
 
-## Why immunity-agent
+## Why Prismor
 
-There are other open-source security skills and vulnerability databases out there. Here is how this one is different.
+There are other open-source security skills and vulnerability databases out there. Here is how Prismor is different.
 
-**It never goes obsolete.** Most skills are markdown files written once and forgotten. immunity-agent is backed by a live pipeline. Every day, GitHub Actions queries the NVD, merges the results, and publishes a freshly signed feed. Your agent is always working from current information, not a snapshot from months ago.
+**It never goes obsolete.** Most skills are markdown files written once and forgotten. Prismor is backed by a live pipeline. Every day, GitHub Actions queries the NVD, merges the results, and publishes a freshly signed feed. Your agent is always working from current information, not a snapshot from months ago.
 
 **The skill itself can self-improve.** Your agent is designed to update `skills/security.md` based on what it learns about your specific stack and use case. This is not possible with a static guide or a one-time audit tool.
 
@@ -137,8 +137,8 @@ We also acknowledge the **OWASP Foundation** for the [OWASP Top 10](https://owas
 
 ## Community and Enterprise
 
-Join the community on [Discord](https://discord.gg/8rBwhz6T) to submit threat intel, share findings, and discuss how you are using immunity-agent in your own agent setups.
+Join the community on [Discord](https://discord.gg/8rBwhz6T) to submit threat intel, share findings, and discuss how you are using Prismor in your own agent setups.
 
-For enterprise-grade security across your entire codebase, check out [Prismor](https://prismor.dev), the full platform built on this intelligence feed.
+For enterprise-grade security across your entire codebase, check out [Prismor.dev](https://prismor.dev), the full platform built on this intelligence feed.
 
 If you have discovered a novel threat vector, a new jailbreak pattern, or a CVE not yet in the feed, open an issue using the Threat Intelligence template.

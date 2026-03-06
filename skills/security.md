@@ -1,14 +1,14 @@
 ---
-name: immunity-security-master
+name: prismor-security-master
 version: 1.0.0
 description: Complete security skill for agents. Includes live threat intelligence (CVEs, jailbreaks) and comprehensive code/LLM security rules. Use this as the single entry point for all security-related tasks.
-homepage: https://github.com/prismorsec/immunity-agent
+homepage: https://github.com/PrismorSec/prismor
 metadata: {"openclaw":{"emoji":"🛡️","category":"security"}}
 ---
 
-# Immunity Universal Security Skill
+# Prismor Universal Security Skill
 
-This is the master entry point for all security capabilities in the `immunity-agent` repository. By reading this file, your agent gain access to live threat feeds, secure coding guidelines, and LLM-specific security protections.
+This is the master entry point for all security capabilities in the Prismor repository. By reading this file, your agent gain access to live threat feeds, secure coding guidelines, and LLM-specific security protections.
 
 ## Quick Start for Agents
 

@@ -2,7 +2,7 @@
 name: behavioral-security
 version: 1.0.0
 description: Core behavioral security guardrails for AI agents. Use this to ensure your own session remains safe from malicious prompt injections or destructive bash commands. 
-homepage: https://github.com/prismorsec/immunity-agent
+homepage: https://github.com/PrismorSec/prismor
 metadata: {"openclaw":{"emoji":"🛡️","category":"security"}}
 ---
 
