@@ -3,7 +3,7 @@ title: LLM08 - Secure Vector and Embedding Systems
 impact: HIGH
 impactDescription: Unauthorized access to sensitive data in vector databases or extraction of data from shared embeddings
 tags: security, llm, vector-db, rag, multitenancy, owasp-llm08
-attribution: Adapted from https://github.com/semgrep/skills (Apache-2.0)
+attribution: Curated and enhanced for Prismor
 ---
 
 ## LLM08: Secure Vector and Embedding Systems

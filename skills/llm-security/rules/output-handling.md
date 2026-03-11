@@ -3,7 +3,7 @@ title: LLM05 - Prevent Improper Output Handling
 impact: CRITICAL
 impactDescription: LLM outputs used directly in downstream systems can lead to XSS, SQL injection, command injection, and SSRF
 tags: security, llm, output-handling, owasp-llm05
-attribution: Adapted from https://github.com/semgrep/skills (Apache-2.0)
+attribution: Curated and enhanced for Prismor
 ---
 
 ## LLM05: Prevent Improper Output Handling
@@ -170,4 +170,4 @@ def run_suggested_command(user_request: str):
 **References:**
 - [OWASP LLM05:2025 Improper Output Handling](https://genai.owasp.org/llmrisk/llm05-improper-output-handling/)
 - [OWASP XSS Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Cross_Site_Scripting_Prevention_Cheat_Sheet.html)
-- [Semgrep Skills](https://github.com/semgrep/skills)
+- [Prismor](https://github.com/PrismorSec/prismor)

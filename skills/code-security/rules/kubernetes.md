@@ -3,7 +3,7 @@ title: Secure Kubernetes Configurations
 impact: HIGH
 impactDescription: Kubernetes misconfigurations enable container escapes, privilege escalation, and host compromise
 tags: security, kubernetes, containers, infrastructure, cwe-250
-attribution: Adapted from https://github.com/semgrep/skills (Apache-2.0)
+attribution: Curated and enhanced for Prismor
 ---
 
 ## Secure Kubernetes Configurations
@@ -206,4 +206,4 @@ spec:
 **References:**
 - [Kubernetes Security Best Practices](https://kubernetes.io/docs/concepts/security/)
 - [CIS Kubernetes Benchmark](https://www.cisecurity.org/benchmark/kubernetes)
-- [Semgrep Skills](https://github.com/semgrep/skills)
+- [Prismor](https://github.com/PrismorSec/prismor)

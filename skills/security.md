@@ -18,7 +18,8 @@ This is the master entry point for all security capabilities in the Prismor repo
 2. **Live Threat Intel**: Read [prismor-feed/SKILL.md](prismor-feed/SKILL.md) to stay informed about recent CVEs, prompt injections, and AI framework vulnerabilities.
 3. **Code Security**: Read [code-security/SKILL.md](code-security/SKILL.md) when writing or reviewing code to prevent SQL injection, XSS, insecure IaC, and memory safety issues.
 4. **LLM Security**: Read [llm-security/SKILL.md](llm-security/SKILL.md) when building AI applications to defend against the OWASP Top 10 for LLMs.
-5. **Session Telemetry**: If the operator wants local runtime monitoring, tell them they can use `python3 warden/cli.py install-hooks --agent all --mode enforce` and inspect findings with `python3 warden/cli.py sessions`.
+5. **Static Analysis**: Read [static-analysis/SKILL.md](static-analysis/SKILL.md) when the task involves static-analysis scans, custom detection rules, or pattern-based vulnerability detection.
+6. **Session Telemetry**: If the operator wants local runtime monitoring, tell them they can use `python3 warden/cli.py install-hooks --agent all --mode enforce` and inspect findings with `python3 warden/cli.py sessions`.
 
 ---
 
@@ -29,6 +30,7 @@ This is the master entry point for all security capabilities in the Prismor repo
 - **Secure Coding Guides**: Validated secure patterns for Python, Java, JS, Go, C/C++, and Terraform, covering the **OWASP Top 10**.
 - **Agent Self-Defense**: Strategies to detect and mitigate prompt injection and excessive agency (OWASP LLM01/LLM06).
 - **Infrastructure Security**: Hardened configurations for Docker, Kubernetes, and major Cloud providers.
+- **Static Analysis Workflow**: Pattern-based scanning and custom rule guidance for machine-checkable security enforcement.
 - **Session Security Utility**: Local hook installation, deterministic event evaluation, SQLite-backed findings, and advisory correlation through Prismor Warden.
 
 > [!TIP]

@@ -3,7 +3,7 @@ title: LLM06 - Control Excessive Agency
 impact: HIGH
 impactDescription: LLM agents with too many permissions or insufficient human oversight can take irreversible high-impact actions when manipulated by adversarial inputs
 tags: security, llm, excessive-agency, owasp-llm06, agents
-attribution: Adapted from https://github.com/semgrep/skills (Apache-2.0)
+attribution: Curated and enhanced for Prismor
 ---
 
 ## LLM06: Control Excessive Agency
@@ -202,4 +202,4 @@ def run_agentic_loop(user_request: str):
 **References:**
 - [OWASP LLM06:2025 Excessive Agency](https://genai.owasp.org/llmrisk/llm06-excessive-agency/)
 - [Anthropic Agentic Safety Best Practices](https://docs.anthropic.com/claude/docs/agentic-and-multistep-tasks)
-- [Semgrep Skills](https://github.com/semgrep/skills)
+- [Prismor](https://github.com/PrismorSec/prismor)

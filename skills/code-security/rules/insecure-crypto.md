@@ -3,7 +3,7 @@ title: Prevent Insecure Cryptography
 impact: HIGH
 impactDescription: Weak algorithms allow attackers to decrypt data, forge signatures, and crack password hashes
 tags: security, crypto, cwe-327, cwe-328, owasp-a02
-attribution: Adapted from https://github.com/semgrep/skills (Apache-2.0)
+attribution: Curated and enhanced for Prismor
 ---
 
 ## Prevent Insecure Cryptography
@@ -196,4 +196,4 @@ kg.init(256);
 - [CWE-327: Broken Cryptographic Algorithm](https://cwe.mitre.org/data/definitions/327.html)
 - [OWASP Cryptographic Storage Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Cryptographic_Storage_Cheat_Sheet.html)
 - [OWASP Password Storage Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html)
-- [Semgrep Skills](https://github.com/semgrep/skills)
+- [Prismor](https://github.com/PrismorSec/prismor)

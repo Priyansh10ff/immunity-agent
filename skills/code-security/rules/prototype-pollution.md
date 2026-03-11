@@ -3,7 +3,7 @@ title: Prevent Prototype Pollution
 impact: HIGH
 impactDescription: Attackers can modify Object.prototype to inject properties that exist on every object, enabling privilege escalation
 tags: security, prototype-pollution, javascript, cwe-915
-attribution: Adapted from https://github.com/semgrep/skills (Apache-2.0)
+attribution: Curated and enhanced for Prismor
 ---
 
 ## Prevent Prototype Pollution
@@ -124,4 +124,4 @@ function safeMerge(target, untrustedSource) {
 - [CWE-915: Prototype Pollution](https://cwe.mitre.org/data/definitions/915.html)
 - [OWASP Mass Assignment Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Mass_Assignment_Cheat_Sheet.html)
 - [Snyk: Prototype Pollution](https://learn.snyk.io/lesson/prototype-pollution/)
-- [Semgrep Skills](https://github.com/semgrep/skills)
+- [Prismor](https://github.com/PrismorSec/prismor)

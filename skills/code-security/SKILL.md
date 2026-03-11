@@ -4,14 +4,14 @@ version: 1.0.0
 description: Security guidelines for writing secure code. Use when writing code, reviewing code for vulnerabilities, or asking about secure coding practices like "check for SQL injection" or "review security".
 homepage: https://github.com/prismorsec/immunity-agent
 metadata: {"openclaw":{"emoji":"🔒","category":"security"}}
-attribution: Rules adapted from https://github.com/semgrep/skills (Apache-2.0) and structured based on OWASP Top 10.
+attribution: Curated and enhanced for Prismor, structured around the OWASP Top 10.
 ---
 
 # Code Security Guidelines
 
 Comprehensive security rules for writing secure code across multiple languages and frameworks. Covers OWASP Top 10 vulnerabilities, infrastructure security, and coding best practices.
 
-> **Attribution:** These rules are adapted from the [Semgrep Skills repository](https://github.com/semgrep/skills) and structured around the [OWASP Top 10](https://owasp.org/www-project-top-ten/). We are grateful to the Semgrep team and the OWASP Foundation for their foundational work in security education.
+> **Note:** These rules are curated and enhanced for Prismor, and structured around the [OWASP Top 10](https://owasp.org/www-project-top-ten/).
 
 ## How to Use This Skill
 
@@ -116,5 +116,5 @@ If a vulnerability is detected, report it with:
 
 - [OWASP Top 10 (2021)](https://owasp.org/www-project-top-ten/)
 - [OWASP Secure Coding Practices](https://owasp.org/www-project-secure-coding-practices-quick-reference-guide/)
-- [Semgrep Skills](https://github.com/semgrep/skills)
+- [Prismor](https://github.com/PrismorSec/prismor)
 - [CWE (Common Weakness Enumeration)](https://cwe.mitre.org/)

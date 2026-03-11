@@ -3,7 +3,7 @@ title: Prevent SQL Injection
 impact: CRITICAL
 impactDescription: Attackers can read, modify, or delete database data
 tags: security, sql, database, cwe-89, owasp-a03
-attribution: Adapted from https://github.com/semgrep/skills (Apache-2.0)
+attribution: Curated and enhanced for Prismor
 ---
 
 ## Prevent SQL Injection
@@ -235,4 +235,4 @@ public void GetUser(string userInput)
 - [CWE-89: SQL Injection](https://cwe.mitre.org/data/definitions/89.html)
 - [OWASP SQL Injection Prevention](https://cheatsheetseries.owasp.org/cheatsheets/SQL_Injection_Prevention_Cheat_Sheet.html)
 - [OWASP A03:2021 Injection](https://owasp.org/Top10/A03_2021-Injection/)
-- [Semgrep Skills](https://github.com/semgrep/skills)
+- [Prismor](https://github.com/PrismorSec/prismor)

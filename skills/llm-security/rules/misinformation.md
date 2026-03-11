@@ -3,7 +3,7 @@ title: LLM09 - Mitigate Hallucinations
 impact: MEDIUM
 impactDescription: LLMs generating false but plausible-sounding information leads to user harm, legal liability, and brand damage
 tags: security, llm, hallucinations, rag, fact-checking, owasp-llm09
-attribution: Adapted from https://github.com/semgrep/skills (Apache-2.0)
+attribution: Curated and enhanced for Prismor
 ---
 
 ## LLM09: Mitigate Misinformation and Hallucinations

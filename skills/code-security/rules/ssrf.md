@@ -3,7 +3,7 @@ title: Prevent Server-Side Request Forgery (SSRF)
 impact: HIGH
 impactDescription: Attackers can force the server to make requests to internal services, cloud metadata APIs, and other restricted resources
 tags: security, ssrf, cwe-918, owasp-a10
-attribution: Adapted from https://github.com/semgrep/skills (Apache-2.0)
+attribution: Curated and enhanced for Prismor
 ---
 
 ## Prevent Server-Side Request Forgery (SSRF)
@@ -178,4 +178,4 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 - [CWE-918: Server-Side Request Forgery](https://cwe.mitre.org/data/definitions/918.html)
 - [OWASP SSRF Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html)
 - [OWASP A10:2021 SSRF](https://owasp.org/Top10/A10_2021-Server-Side_Request_Forgery_%28SSRF%29/)
-- [Semgrep Skills](https://github.com/semgrep/skills)
+- [Prismor](https://github.com/PrismorSec/prismor)

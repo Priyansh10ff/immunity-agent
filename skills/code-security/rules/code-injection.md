@@ -3,7 +3,7 @@ title: Prevent Code Injection
 impact: CRITICAL
 impactDescription: Remote code execution via eval/exec allows attackers to run arbitrary code
 tags: security, code-injection, rce, cwe-94, cwe-95, owasp-a03
-attribution: Adapted from https://github.com/semgrep/skills (Apache-2.0)
+attribution: Curated and enhanced for Prismor
 ---
 
 ## Prevent Code Injection
@@ -140,4 +140,4 @@ $filesize = trim(shell_exec('stat -c %s ' . escapeshellarg($fullpath)));
 - [CWE-95: Eval Injection](https://cwe.mitre.org/data/definitions/95.html)
 - [OWASP Code Injection](https://owasp.org/www-community/attacks/Code_Injection)
 - [MDN: Never use eval()](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/eval#never_use_eval!)
-- [Semgrep Skills](https://github.com/semgrep/skills)
+- [Prismor](https://github.com/PrismorSec/prismor)

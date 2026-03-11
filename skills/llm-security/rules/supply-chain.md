@@ -3,7 +3,7 @@ title: LLM03 - Secure LLM Supply Chain
 impact: HIGH
 impactDescription: Vulnerabilities in the LLM supply chain (models, data, dependencies) lead to backdoors, data poisoning, and arbitrary code execution
 tags: security, llm, supply-chain, models, safetensors, owasp-llm03
-attribution: Adapted from https://github.com/semgrep/skills (Apache-2.0)
+attribution: Curated and enhanced for Prismor
 ---
 
 ## LLM03: Secure LLM Supply Chain

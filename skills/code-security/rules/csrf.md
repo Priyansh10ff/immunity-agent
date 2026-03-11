@@ -3,7 +3,7 @@ title: Prevent Cross-Site Request Forgery (CSRF)
 impact: HIGH
 impactDescription: Attackers force authenticated users to perform unwanted actions without their knowledge
 tags: security, csrf, cwe-352, owasp-a01
-attribution: Adapted from https://github.com/semgrep/skills (Apache-2.0)
+attribution: Curated and enhanced for Prismor
 ---
 
 ## Prevent Cross-Site Request Forgery (CSRF)
@@ -138,4 +138,4 @@ end
 **References:**
 - [CWE-352: CSRF](https://cwe.mitre.org/data/definitions/352.html)
 - [OWASP CSRF Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html)
-- [Semgrep Skills](https://github.com/semgrep/skills)
+- [Prismor](https://github.com/PrismorSec/prismor)

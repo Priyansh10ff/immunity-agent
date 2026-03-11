@@ -3,7 +3,7 @@ title: Avoid Unsafe Functions
 impact: HIGH
 impactDescription: Unsafe functions with no bounds checking lead to buffer overflows, memory corruption, and arbitrary code execution
 tags: security, unsafe-functions, memory, c, cpp, cwe-120, cwe-676
-attribution: Adapted from https://github.com/semgrep/skills (Apache-2.0)
+attribution: Curated and enhanced for Prismor
 ---
 
 ## Avoid Unsafe Functions
@@ -186,4 +186,4 @@ intPtr = (*int)(unsafe.Pointer(addressHolder))
 **References:**
 - [CWE-120: Buffer Copy without Checking Size](https://cwe.mitre.org/data/definitions/120.html)
 - [CERT C Coding Standard](https://wiki.sei.cmu.edu/confluence/display/c/SEI+CERT+C+Coding+Standard)
-- [Semgrep Skills](https://github.com/semgrep/skills)
+- [Prismor](https://github.com/PrismorSec/prismor)

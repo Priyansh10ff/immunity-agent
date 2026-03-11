@@ -3,7 +3,7 @@ title: Prevent Hardcoded Secrets
 impact: CRITICAL
 impactDescription: Credentials exposed in source code can be harvested from version control history, giving attackers full access to services
 tags: security, secrets, credentials, cwe-798, owasp-a02
-attribution: Adapted from https://github.com/semgrep/skills (Apache-2.0)
+attribution: Curated and enhanced for Prismor
 ---
 
 ## Prevent Hardcoded Secrets
@@ -195,4 +195,4 @@ JWT_SECRET=your-jwt-secret-here
 - [CWE-798: Hardcoded Credentials](https://cwe.mitre.org/data/definitions/798.html)
 - [OWASP A02:2021 Cryptographic Failures](https://owasp.org/Top10/A02_2021-Cryptographic_Failures/)
 - [GitHub Docs: Secret Scanning](https://docs.github.com/en/code-security/secret-scanning)
-- [Semgrep Skills](https://github.com/semgrep/skills)
+- [Prismor](https://github.com/PrismorSec/prismor)

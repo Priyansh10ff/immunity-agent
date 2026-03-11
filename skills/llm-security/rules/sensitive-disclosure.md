@@ -3,7 +3,7 @@ title: LLM02 - Prevent Sensitive Information Disclosure
 impact: CRITICAL
 impactDescription: LLMs may leak PII, credentials, proprietary data, or system configuration through their outputs
 tags: security, llm, sensitive-disclosure, pii, owasp-llm02
-attribution: Adapted from https://github.com/semgrep/skills (Apache-2.0)
+attribution: Curated and enhanced for Prismor
 ---
 
 ## LLM02: Prevent Sensitive Information Disclosure
@@ -152,4 +152,4 @@ If asked about passwords or secrets, redirect the user to IT support.
 **References:**
 - [OWASP LLM02:2025 Sensitive Information Disclosure](https://genai.owasp.org/llmrisk/llm02-sensitive-information-disclosure/)
 - [Microsoft Presidio — PII Detection](https://microsoft.github.io/presidio/)
-- [Semgrep Skills](https://github.com/semgrep/skills)
+- [Prismor](https://github.com/PrismorSec/prismor)

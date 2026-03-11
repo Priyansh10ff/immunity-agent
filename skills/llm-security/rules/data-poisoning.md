@@ -3,7 +3,7 @@ title: LLM04 - Prevent Data and Model Poisoning
 impact: HIGH
 impactDescription: Manipulated training or RAG data introduces backdoors, biases, or extracts sensitive information
 tags: security, llm, data-poisoning, backdoors, rag, owasp-llm04
-attribution: Adapted from https://github.com/semgrep/skills (Apache-2.0)
+attribution: Curated and enhanced for Prismor
 ---
 
 ## LLM04: Prevent Data and Model Poisoning

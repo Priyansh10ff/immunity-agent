@@ -3,7 +3,7 @@ title: Prevent Insecure Transport
 impact: HIGH
 impactDescription: Data transmitted without TLS can be intercepted or modified by network attackers via man-in-the-middle attacks
 tags: security, tls, https, cwe-319, owasp-a02
-attribution: Adapted from https://github.com/semgrep/skills (Apache-2.0)
+attribution: Curated and enhanced for Prismor
 ---
 
 ## Prevent Insecure Transport
@@ -164,4 +164,4 @@ conn.setReadTimeout(5000);
 - [CWE-295: Improper Certificate Validation](https://cwe.mitre.org/data/definitions/295.html)
 - [CWE-319: Cleartext Transmission of Sensitive Information](https://cwe.mitre.org/data/definitions/319.html)
 - [OWASP Transport Layer Security Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Transport_Layer_Security_Cheat_Sheet.html)
-- [Semgrep Skills](https://github.com/semgrep/skills)
+- [Prismor](https://github.com/PrismorSec/prismor)

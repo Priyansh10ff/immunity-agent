@@ -3,7 +3,7 @@ title: Secure GCP Terraform Configurations
 impact: HIGH
 impactDescription: Cloud misconfigurations in GCP lead to data exposure, privilege escalation, and unauthorized access
 tags: security, terraform, gcp, gke, iam, kubernetes, infrastructure, iac
-attribution: Adapted from https://github.com/semgrep/skills (Apache-2.0)
+attribution: Curated and enhanced for Prismor
 ---
 
 ## Secure GCP Terraform Configurations
@@ -177,4 +177,4 @@ resource "google_dns_managed_zone" "strong" {
 **References:**
 - [Google Cloud Security Best Practices](https://cloud.google.com/security/best-practices)
 - [CIS Google Cloud Platform Foundation Benchmark](https://www.cisecurity.org/benchmark/google_cloud_computing_platform)
-- [Semgrep Skills](https://github.com/semgrep/skills)
+- [Prismor](https://github.com/PrismorSec/prismor)

@@ -3,7 +3,7 @@ title: Secure Azure Terraform Configurations
 impact: HIGH
 impactDescription: Misconfigurations in Azure infrastructure lead to data breaches and unauthorized access
 tags: security, terraform, azure, infrastructure, iac
-attribution: Adapted from https://github.com/semgrep/skills (Apache-2.0)
+attribution: Curated and enhanced for Prismor
 ---
 
 ## Secure Azure Terraform Configurations
@@ -154,4 +154,4 @@ resource "azurerm_role_definition" "good" {
 
 **References:**
 - [Azure Security Benchmark](https://docs.microsoft.com/en-us/security/benchmark/azure/)
-- [Semgrep Skills](https://github.com/semgrep/skills)
+- [Prismor](https://github.com/PrismorSec/prismor)

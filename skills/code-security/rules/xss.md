@@ -3,7 +3,7 @@ title: Prevent Cross-Site Scripting (XSS)
 impact: CRITICAL
 impactDescription: Attackers can inject malicious scripts into web pages viewed by other users, stealing session tokens and user data
 tags: security, xss, cwe-79, owasp-a03
-attribution: Adapted from https://github.com/semgrep/skills (Apache-2.0)
+attribution: Curated and enhanced for Prismor
 ---
 
 ## Prevent Cross-Site Scripting (XSS)
@@ -176,4 +176,4 @@ function Comment({ userContent }) {
 - [CWE-79: Cross-Site Scripting](https://cwe.mitre.org/data/definitions/79.html)
 - [OWASP XSS Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Cross_Site_Scripting_Prevention_Cheat_Sheet.html)
 - [OWASP A03:2021 Injection](https://owasp.org/Top10/A03_2021-Injection/)
-- [Semgrep Skills](https://github.com/semgrep/skills)
+- [Prismor](https://github.com/PrismorSec/prismor)

@@ -3,7 +3,7 @@ title: Prevent Insecure Deserialization
 impact: CRITICAL
 impactDescription: Remote code execution — deserializing untrusted data can trigger arbitrary code execution
 tags: security, deserialization, rce, cwe-502, owasp-a08
-attribution: Adapted from https://github.com/semgrep/skills (Apache-2.0)
+attribution: Curated and enhanced for Prismor
 ---
 
 ## Prevent Insecure Deserialization
@@ -187,4 +187,4 @@ $object = json_decode($_GET["data"], true);  // Safe: returns associative array
 - [CWE-502: Deserialization of Untrusted Data](https://cwe.mitre.org/data/definitions/502.html)
 - [OWASP Deserialization Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Deserialization_Cheat_Sheet.html)
 - [OWASP A08:2021 Software and Data Integrity Failures](https://owasp.org/Top10/A08_2021-Software_and_Data_Integrity_Failures/)
-- [Semgrep Skills](https://github.com/semgrep/skills)
+- [Prismor](https://github.com/PrismorSec/prismor)

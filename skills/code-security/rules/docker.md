@@ -3,7 +3,7 @@ title: Secure Docker Configurations
 impact: HIGH
 impactDescription: Insecure Dockerfiles and daemon configurations enable container breakouts and image poisoning
 tags: security, docker, containers, infrastructure, cicd
-attribution: Adapted from https://github.com/semgrep/skills (Apache-2.0)
+attribution: Curated and enhanced for Prismor
 ---
 
 ## Secure Docker Configurations
@@ -96,4 +96,4 @@ RUN apt-get install openssh-server -y  # VULNERABLE: increases attack surface
 **References:**
 - [Docker Security Best Practices](https://docs.docker.com/develop/develop-images/dockerfile_best-practices/)
 - [CIS Docker Benchmark](https://www.cisecurity.org/benchmark/docker)
-- [Semgrep Skills](https://github.com/semgrep/skills)
+- [Prismor](https://github.com/PrismorSec/prismor)

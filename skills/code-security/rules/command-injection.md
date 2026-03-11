@@ -3,7 +3,7 @@ title: Prevent Command Injection
 impact: CRITICAL
 impactDescription: Remote code execution allowing attackers to run arbitrary commands on the host system
 tags: security, command-injection, cwe-78, cwe-94
-attribution: Adapted from https://github.com/semgrep/skills (Apache-2.0)
+attribution: Curated and enhanced for Prismor
 ---
 
 ## Prevent Command Injection
@@ -163,4 +163,4 @@ end
 - [CWE-78: OS Command Injection](https://cwe.mitre.org/data/definitions/78.html)
 - [OWASP Command Injection](https://owasp.org/www-community/attacks/Command_Injection)
 - [OWASP A03:2021 Injection](https://owasp.org/Top10/A03_2021-Injection)
-- [Semgrep Skills](https://github.com/semgrep/skills)
+- [Prismor](https://github.com/PrismorSec/prismor)

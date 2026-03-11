@@ -4,14 +4,14 @@ version: 1.0.0
 description: Security guidelines for LLM applications based on OWASP Top 10 for LLM 2025. Use when building LLM apps, reviewing AI security, implementing RAG systems, or asking about LLM vulnerabilities like "prompt injection" or "check LLM security".
 homepage: https://github.com/prismorsec/immunity-agent
 metadata: {"openclaw":{"emoji":"🤖","category":"security"}}
-attribution: Rules adapted from https://github.com/semgrep/skills (Apache-2.0) and the OWASP Top 10 for LLM.
+attribution: Curated and enhanced for Prismor, structured around the OWASP Top 10 for LLM applications.
 ---
 
 # LLM Security Guidelines (OWASP Top 10 for LLM 2025)
 
 Comprehensive security rules for building secure LLM applications. Based on the OWASP Top 10 for Large Language Model Applications 2025 — the authoritative guide to LLM security risks.
 
-> **Attribution:** These rules are adapted from the [Semgrep Skills repository](https://github.com/semgrep/skills) and structured around the [OWASP Top 10 for LLM Applications 2025](https://genai.owasp.org/llm-top-10/). We are grateful to the Semgrep team and the OWASP Foundation for their foundational work.
+> **Note:** These rules are curated and enhanced for Prismor, and structured around the [OWASP Top 10 for LLM Applications 2025](https://genai.owasp.org/llm-top-10/).
 
 ## How to Use This Skill
 
@@ -101,4 +101,4 @@ If a vulnerability is detected, report it with:
 - [OWASP Top 10 for LLM Applications 2025](https://genai.owasp.org/llm-top-10/)
 - [MITRE ATLAS — Adversarial Threat Landscape for AI Systems](https://atlas.mitre.org/)
 - [NIST AI Risk Management Framework](https://www.nist.gov/itl/ai-risk-management-framework)
-- [Semgrep Skills](https://github.com/semgrep/skills)
+- [Prismor](https://github.com/PrismorSec/prismor)

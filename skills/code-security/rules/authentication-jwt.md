@@ -3,7 +3,7 @@ title: Secure JWT Authentication
 impact: HIGH
 impactDescription: Authentication bypass and token forgery — attackers can impersonate any user
 tags: security, authentication, jwt, cwe-287, cwe-347, owasp-a07
-attribution: Adapted from https://github.com/semgrep/skills (Apache-2.0)
+attribution: Curated and enhanced for Prismor
 ---
 
 ## Secure JWT Authentication
@@ -115,4 +115,4 @@ public class TokenHandler {
 - [OWASP A07:2021 Identification and Authentication Failures](https://owasp.org/Top10/A07_2021-Identification_and_Authentication_Failures/)
 - [CWE-347: Improper Verification of Cryptographic Signature](https://cwe.mitre.org/data/definitions/347)
 - [jwt.io — Introduction to JWT](https://jwt.io/introduction)
-- [Semgrep Skills](https://github.com/semgrep/skills)
+- [Prismor](https://github.com/PrismorSec/prismor)

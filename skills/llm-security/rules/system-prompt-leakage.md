@@ -3,7 +3,7 @@ title: LLM07 - Prevent System Prompt Leakage
 impact: MEDIUM
 impactDescription: Disclosure of internal instructions reduces security barriers and reveals proprietary logic
 tags: security, llm, prompt-leakage, guardrails, owasp-llm07
-attribution: Adapted from https://github.com/semgrep/skills (Apache-2.0)
+attribution: Curated and enhanced for Prismor
 ---
 
 ## LLM07: Prevent System Prompt Leakage

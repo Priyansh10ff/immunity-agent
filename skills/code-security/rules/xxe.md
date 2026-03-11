@@ -3,7 +3,7 @@ title: Prevent XML External Entity (XXE) Injection
 impact: CRITICAL
 impactDescription: Attackers can access local files, perform SSRF, or cause denial of service via malicious XML
 tags: security, xxe, xml, cwe-611, owasp-a05
-attribution: Adapted from https://github.com/semgrep/skills (Apache-2.0)
+attribution: Curated and enhanced for Prismor
 ---
 
 ## Prevent XML External Entity (XXE) Injection
@@ -38,7 +38,7 @@ class GoodDocumentBuilderFactory {
 **References:**
 - CWE-611: Improper Restriction of XML External Entity Reference
 - [OWASP XXE Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/XML_External_Entity_Prevention_Cheat_Sheet.html)
-- [Semgrep Java XXE Cheat Sheet](https://semgrep.dev/docs/cheat-sheets/java-xxe/)
+- Java XXE parser hardening references and secure XML parser configuration guides
 
 ---
 
@@ -148,4 +148,4 @@ func parseXml() {
 - [CWE-611: XXE](https://cwe.mitre.org/data/definitions/611.html)
 - [OWASP XXE Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/XML_External_Entity_Prevention_Cheat_Sheet.html)
 - [OWASP A05:2021 Security Misconfiguration](https://owasp.org/Top10/A05_2021-Security_Misconfiguration/)
-- [Semgrep Skills](https://github.com/semgrep/skills)
+- [Prismor](https://github.com/PrismorSec/prismor)

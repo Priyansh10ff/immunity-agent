@@ -3,7 +3,7 @@ title: Prevent Path Traversal
 impact: CRITICAL
 impactDescription: Attackers can read or overwrite arbitrary files on the server, including credentials and configuration files
 tags: security, path-traversal, cwe-22, owasp-a01
-attribution: Adapted from https://github.com/semgrep/skills (Apache-2.0)
+attribution: Curated and enhanced for Prismor
 ---
 
 ## Prevent Path Traversal
@@ -174,4 +174,4 @@ func serveFile(w http.ResponseWriter, r *http.Request) {
 - [CWE-22: Path Traversal](https://cwe.mitre.org/data/definitions/22.html)
 - [OWASP Path Traversal](https://owasp.org/www-community/attacks/Path_Traversal)
 - [OWASP A01:2021 Broken Access Control](https://owasp.org/Top10/A01_2021-Broken_Access_Control/)
-- [Semgrep Skills](https://github.com/semgrep/skills)
+- [Prismor](https://github.com/PrismorSec/prismor)

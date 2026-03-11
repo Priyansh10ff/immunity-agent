@@ -3,7 +3,7 @@ title: Secure AWS Terraform Configurations
 impact: HIGH
 impactDescription: Cloud misconfigurations expose data, enable privilege escalation, and create unauthorized access vectors
 tags: security, terraform, aws, infrastructure, iac, s3, iam, ec2
-attribution: Adapted from https://github.com/semgrep/skills (Apache-2.0)
+attribution: Curated and enhanced for Prismor
 ---
 
 ## Secure AWS Terraform Configurations
@@ -120,4 +120,4 @@ provider "aws" {
 **References:**
 - [AWS Security Best Practices](https://aws.amazon.com/security/security-learning/)
 - [CIS AWS Foundations Benchmark](https://www.cisecurity.org/benchmark/amazon_web_services)
-- [Semgrep Skills](https://github.com/semgrep/skills)
+- [Prismor](https://github.com/PrismorSec/prismor)

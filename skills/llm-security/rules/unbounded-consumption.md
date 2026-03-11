@@ -3,7 +3,7 @@ title: LLM10 - Prevent Unbounded Consumption
 impact: HIGH
 impactDescription: Uncontrolled LLM resource usage leads to denial of service, runaway cloud costs, and model theft through repeated extractions
 tags: security, llm, unbounded-consumption, rate-limiting, dos, owasp-llm10
-attribution: Adapted from https://github.com/semgrep/skills (Apache-2.0)
+attribution: Curated and enhanced for Prismor
 ---
 
 ## LLM10: Prevent Unbounded Consumption
@@ -208,4 +208,4 @@ def run_agent(task: str):
 **References:**
 - [OWASP LLM10:2025 Unbounded Consumption](https://genai.owasp.org/llmrisk/llm10-unbounded-consumption/)
 - [OpenAI Usage Limits Documentation](https://platform.openai.com/docs/guides/rate-limits)
-- [Semgrep Skills](https://github.com/semgrep/skills)
+- [Prismor](https://github.com/PrismorSec/prismor)

@@ -3,7 +3,7 @@ title: Ensure Memory Safety
 impact: CRITICAL
 impactDescription: Memory vulnerabilities in C/C++ lead to arbitrary code execution, data corruption, and denial of service
 tags: security, memory-safety, buffer-overflow, c, cpp, cwe-415, cwe-416, cwe-119
-attribution: Adapted from https://github.com/semgrep/skills (Apache-2.0)
+attribution: Curated and enhanced for Prismor
 ---
 
 ## Ensure Memory Safety
@@ -121,7 +121,7 @@ void safe_printf(char *user_input) {
 2. **Use bounded string functions** — `strncpy`, `snprintf` instead of `strcpy`, `sprintf`; prefer `strncpy_s` / `snprintf`
 3. **Never use user input as format strings** — always use a fixed format string literal
 4. **Validate array indices** — explicitly check bounds before accessing arrays
-5. **Use static analysis tools** — Semgrep, Coverity, AddressSanitizer, Valgrind
+5. **Use static analysis tools** — Coverity, AddressSanitizer, Valgrind, and equivalent memory-safety analyzers
 6. **Consider memory-safe languages** — Rust, Go, or managed languages eliminate entire classes of memory bugs
 
 **Unsafe functions to avoid:**
@@ -139,4 +139,4 @@ void safe_printf(char *user_input) {
 - [CWE-119: Buffer Overflow](https://cwe.mitre.org/data/definitions/119.html)
 - [CWE-415: Double Free](https://cwe.mitre.org/data/definitions/415.html)
 - [CWE-416: Use After Free](https://cwe.mitre.org/data/definitions/416.html)
-- [Semgrep Skills](https://github.com/semgrep/skills)
+- [Prismor](https://github.com/PrismorSec/prismor)

@@ -3,7 +3,7 @@ title: LLM01 - Prevent Prompt Injection
 impact: CRITICAL
 impactDescription: Attackers manipulate LLM behavior via malicious inputs, overriding system instructions and causing unauthorized actions
 tags: security, llm, prompt-injection, owasp-llm01
-attribution: Adapted from https://github.com/semgrep/skills (Apache-2.0)
+attribution: Curated and enhanced for Prismor
 ---
 
 ## LLM01: Prevent Prompt Injection
@@ -188,4 +188,4 @@ def process_request(user_input: str) -> str:
 - [OWASP LLM01:2025 Prompt Injection](https://genai.owasp.org/llmrisk/llm01-prompt-injection/)
 - [MITRE ATLAS T0051 — LLM Prompt Injection](https://atlas.mitre.org/techniques/AML.T0051)
 - [Anthropic Prompt Injection Guide](https://docs.anthropic.com/claude/docs/prompt-injection)
-- [Semgrep Skills](https://github.com/semgrep/skills)
+- [Prismor](https://github.com/PrismorSec/prismor)

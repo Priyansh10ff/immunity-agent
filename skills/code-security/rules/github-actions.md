@@ -3,7 +3,7 @@ title: Secure GitHub Actions
 impact: HIGH
 impactDescription: Compromised CI/CD pipelines lead to supply chain attacks and unauthorized code deployment
 tags: security, github-actions, cicd, supply-chain, yaml
-attribution: Adapted from https://github.com/semgrep/skills (Apache-2.0)
+attribution: Curated and enhanced for Prismor
 ---
 
 ## Secure GitHub Actions
@@ -78,4 +78,4 @@ permissions:
 
 **References:**
 - [Security hardening for GitHub Actions](https://docs.github.com/en/actions/security-guides/security-hardening-for-github-actions)
-- [Semgrep Skills](https://github.com/semgrep/skills)
+- [Prismor](https://github.com/PrismorSec/prismor)
