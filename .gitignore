@@ -23,6 +23,7 @@ signature.bin
 *.bin
 tmp/
 temp/
+.prismor-warden/
 
 # IDEs and OS files
 .vscode/

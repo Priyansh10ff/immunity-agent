@@ -4,27 +4,43 @@
 ![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)
 [![Discord](https://img.shields.io/badge/Discord-Join%20Us-5865F2?logo=discord&logoColor=white)](https://discord.gg/8rBwhz6T)
 
-## The Problem
+Prismor is a unified security package for AI coding agents.
+
+It gives you three things that work together:
+
+- a signed threat-intelligence feed for the AI ecosystem
+- reusable security skills for agents
+- a local Warden utility for live session monitoring and blocking
+
+## Why It Exists
 
 AI coding agents write and run code without awareness of the vulnerabilities they might be introducing or the prompt injections that could compromise their own session. They are powerful but flying blind on security.
 
 At the same time, developers have no simple way to hand their agent a living security reference and say "use this when you write and review code." Static guides go outdated the moment they are written. A feed that updates itself does not.
 
-## The Three Use Cases This Solves
+## What Prismor Includes
 
-**1. Secure code generation.** When your agent writes or reviews code, it checks the live feed for known supply chain vulnerabilities in your dependencies, flagging insecure patterns before they reach your codebase.
+### 1. Signed threat feed
 
-**2. Secure agent sessions.** When your agent is executing tasks autonomously, it is aware of prompt injection techniques, jailbreak vectors, and CVEs that could compromise the session itself.
+Prismor maintains a signed advisory feed in [`advisories/immunity-feed.json`](advisories/immunity-feed.json) covering AI-specific vulnerabilities, prompt-injection patterns, jailbreaks, unsafe tool execution, and dependency issues.
 
-**3. Behavioral Security Guardrails.** By reading the master skill file, your agent inherently adopts an unbreakable "Do No Harm" policy, actively refusing to execute destructive commands (like `rm -rf /`) or exfiltrate local secrets (like `~/.ssh/`).
+### 2. Security skills
 
-The same skill file covers all use cases. Your agent does not need separate configuration for each.
+Prismor ships agent-readable skills in [`skills/`](skills/) so an assistant can adopt secure coding, LLM application security, behavioral guardrails, and live-feed awareness without you rewriting policy every session.
 
-## The Solution
+### 3. Warden runtime utility
 
-**Prismor** is an open-source intelligence pipeline that gives any AI coding agent a continuously refreshed security skill. It polls the National Vulnerability Database daily for CVEs affecting the AI ecosystem, merges community-submitted threat intelligence, cryptographically signs the output, and publishes it all to a single file your agent can read.
+Prismor Warden lives in [`warden/`](warden/) and gives you local runtime control:
 
-The skill is dynamic. It can self-improve its own instructions as your use case evolves, and the update mechanism is optimized to be token-efficient so your agent only processes what has changed.
+- install hooks into supported agents
+- capture local security-relevant events
+- block obviously dangerous pre-action behavior in `enforce` mode
+- store sessions and findings in SQLite
+- correlate runtime findings with the local Prismor advisory feed
+
+## Architecture
+
+Prismor is an open-source security layer around the full AI-agent lifecycle: what the agent knows, how it behaves, and what it does at runtime.
 
 ```mermaid
 %%{init: {"flowchart": {"curve": "stepBefore"}}}%%
@@ -35,99 +51,126 @@ flowchart TD
         P --> F["advisories (Signed JSON Feed)"]
     end
 
+    F --> SK["Security Skills"]
+    F --> W["Warden Runtime Utility"]
     U([User]) --> R["Local Prismor Repo"]
     F --> R
     R --> A["AI Coding Agent"]
+    W --> A
+    SK --> A
     A --> C["Your Project Code"]
 ```
 
-## How to Use
+## Quick Start
 
-### 1. Clone the repository
+### 1. Clone Prismor
 
 ```bash
 git clone https://github.com/PrismorSec/prismor.git
 cd prismor
 ```
 
-### 2. Point your agent to the skills
+### 2. Give your agent the Prismor security skill
 
-Tell your AI coding agent of choice (Claude Code, Cursor, Windsurf, Copilot, or any other) to read the master skill file:
+Tell your agent:
 
-```
+```text
 Read skills/security.md and follow its instructions.
 ```
 
-That is all your agent needs. The single entry point tells it how to load the live threat feed, apply code security rules, and defend against LLM-specific attacks, whether it is writing code or running an autonomous session.
+That single entry point loads the behavioral guardrails, live threat feed guidance, secure coding guidance, and LLM security rules.
 
-You can also load individual skills for more targeted coverage:
-
-**Live threat intelligence feed** (CVEs, prompt injections, jailbreaks affecting AI frameworks):
-
-```
-Read skills/prismor-feed/SKILL.md and follow its instructions.
-```
-
-**Secure code generation and code review** (SQL injection, XSS, command injection, secrets, SSRF, and more):
-
-```
-Read skills/code-security/SKILL.md and apply its rules when writing or reviewing code.
-```
-
-**Behavioral Security & Agent Self-Defense** (Preventing destructive commands and data exfiltration):
-
-```
-Read skills/behavioral-security/SKILL.md to establish mandatory safety guardrails for this session.
-```
-
-**LLM application security** (prompt injection, excessive agency, output handling, and the full OWASP Top 10 for LLM 2025):
-
-```
-Read skills/llm-security/SKILL.md and apply its rules when building or reviewing AI applications.
-```
-
-### 3. Query the feed directly
+### 3. Query the local feed
 
 ```bash
-# Count all tracked advisories
 bash scripts/query.sh count
-
-# List only critical severity advisories
 bash scripts/query.sh critical
-
-# Show advisories published in the last 7 days
 bash scripts/query.sh recent
 ```
 
-### 4. Verify the feed is genuine
+### 4. Use Warden for local session security
 
-The feed is signed with an Ed25519 key on every update. Before trusting any advisory programmatically, verify it:
+Prismor now includes a local utility for securing live agent sessions:
 
 ```bash
-# Decode the signature
-openssl base64 -d -A -in advisories/immunity-feed.json.sig -out signature.bin
+python3 warden/cli.py analyze --input warden/examples/sample-session.jsonl
+python3 warden/cli.py ingest --input warden/examples/sample-session.jsonl
+python3 warden/cli.py install-hooks --agent all --workspace "$(pwd)" --mode enforce
+python3 warden/cli.py sessions --workspace "$(pwd)"
+```
 
-# Verify against the public key
+See [`warden/README.md`](warden/README.md) for the Warden-specific reference.
+
+## How To Use Prismor
+
+### Use case 1: Secure an agent before it starts working
+
+Point the agent at [`skills/security.md`](skills/security.md):
+
+- [`skills/behavioral-security/SKILL.md`](skills/behavioral-security/SKILL.md)
+- [`skills/prismor-feed/SKILL.md`](skills/prismor-feed/SKILL.md)
+- [`skills/code-security/SKILL.md`](skills/code-security/SKILL.md)
+- [`skills/llm-security/SKILL.md`](skills/llm-security/SKILL.md)
+
+This is the lowest-friction way to adopt Prismor.
+
+### Use case 2: Inspect the threat feed directly
+
+Use the feed when you want raw intelligence:
+
+- count advisories
+- list critical issues
+- inspect recently published items
+- verify signatures before programmatic trust
+
+```bash
+openssl base64 -d -A -in advisories/immunity-feed.json.sig -out signature.bin
 openssl pkeyutl -verify -pubin -inkey public.pub -rawin \
   -in advisories/immunity-feed.json -sigfile signature.bin
 ```
 
-A `Signature Verified Successfully` response means the feed is authentic and unmodified.
+### Use case 3: Monitor live runtime behavior with Warden
+
+Warden is useful when you want Prismor to do more than provide guidance:
+
+- install hooks into supported agents
+- capture local security-relevant session events
+- block obviously dangerous pre-action behavior in enforce mode
+- store session findings in SQLite for review
+- correlate local findings with the Prismor advisory feed
+
+Core commands:
+
+```bash
+python3 warden/cli.py analyze --input warden/examples/sample-session.jsonl
+python3 warden/cli.py ingest --input warden/examples/sample-session.jsonl --workspace "$(pwd)"
+python3 warden/cli.py sessions --workspace "$(pwd)"
+python3 warden/cli.py session --workspace "$(pwd)" --session-id <id>
+python3 warden/cli.py install-hooks --agent all --workspace "$(pwd)" --scope project --mode enforce
+```
+
+## Repository Layout
+
+```text
+prismor/
+├── advisories/   # Signed AI-security feed
+├── pipeline/     # Feed generation and signing pipeline
+├── scripts/      # Feed query helpers
+├── skills/       # Agent-readable security skills
+└── warden/       # Local session-security runtime utility
+```
 
 ## Why Prismor
 
-There are other open-source security skills and vulnerability databases out there. Here is how Prismor is different.
-
 **It never goes obsolete.** Most skills are markdown files written once and forgotten. Prismor is backed by a live pipeline. Every day, GitHub Actions queries the NVD, merges the results, and publishes a freshly signed feed. Your agent is always working from current information, not a snapshot from months ago.
 
-**The skill itself can self-improve.** Your agent is designed to update `skills/security.md` based on what it learns about your specific stack and use case. This is not possible with a static guide or a one-time audit tool.
+**It covers build-time and runtime.** The skills shape agent behavior before work starts, and Warden lets you inspect or block risky behavior while the session is live.
 
 **It is written for agents, not just humans.** The feed format, the query scripts, and the skill instructions are all designed to be parsed and acted on by an AI agent without human intervention. Other repositories document vulnerabilities for people to read. This one is a machine-readable input for your agent's decision-making.
 
 **It covers the AI ecosystem specifically.** General vulnerability databases cover everything. This feed filters for CVEs and threat patterns that affect AI frameworks: LangChain, LlamaIndex, OpenAI SDKs, prompt injection patterns, jailbreaks, and similar vectors that standard dependency scanners miss.
 
-**Token efficiency matters.** The self-improvement loop is lean. Your agent fetches only what it needs and updates only what has changed, keeping context usage low.
-
+**It stays local when you want it to.** Warden uses local hooks, local JSONL logs, and local SQLite. You do not need a hosted service to get runtime protections.
 
 ## Credits
 

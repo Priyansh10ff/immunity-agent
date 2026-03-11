@@ -2,7 +2,7 @@
 set -e
 
 # AI Agent Script for querying the Prismor Agent Immunity Feed
-# Usage: ./query_feed.sh [all|critical|count|recent]
+# Usage: ./scripts/query.sh [all|critical|count|recent]
 
 FEED_FILE="advisories/immunity-feed.json"
 COMMAND=${1:-"count"}
@@ -34,7 +34,7 @@ case "$COMMAND" in
         cat "$FEED_FILE" | jq --arg since "$WEEK_AGO" '.advisories[] | select(.published > $since)'
         ;;
     *)
-        echo "Usage: ./query_feed.sh [all|critical|count|recent]"
+        echo "Usage: ./scripts/query.sh [all|critical|count|recent]"
         exit 1
         ;;
 esac

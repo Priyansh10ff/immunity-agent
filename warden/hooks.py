@@ -1,0 +1,294 @@
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+from pathlib import Path
+from typing import Any, Dict, List
+
+from warden.store import append_session_event, read_session_events, save_session_snapshot
+
+
+def install_hooks(*, repo_root: Path, workspace: Path, agent: str, scope: str, mode: str) -> List[Dict[str, str]]:
+    agents = ["claude", "cursor", "windsurf"] if agent == "all" else [agent]
+    results = []
+    for current_agent in agents:
+        config_path = _config_path(current_agent, scope, workspace)
+        config = _read_json(config_path)
+        command = _dispatcher_command(repo_root=repo_root, workspace=workspace, agent=current_agent, mode=mode)
+        if current_agent == "claude":
+            config = _merge_claude(config, command, workspace)
+        elif current_agent == "cursor":
+            config = _merge_cursor(config, command)
+        else:
+            config = _merge_windsurf(config, command, workspace)
+
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
+        results.append({"agent": current_agent, "configPath": str(config_path)})
+    return results
+
+
+def normalize_payload(*, agent: str, payload: Dict[str, Any], workspace: Path) -> Dict[str, Any]:
+    session_id = (
+        payload.get("session_id")
+        or payload.get("sessionId")
+        or payload.get("trajectory_id")
+        or payload.get("trajectoryId")
+        or payload.get("execution_id")
+        or payload.get("executionId")
+        or _ephemeral_session_id(agent, workspace)
+    )
+
+    if agent == "claude":
+        event = _normalize_claude(payload, session_id)
+    elif agent == "windsurf":
+        event = _normalize_windsurf(payload, session_id)
+    else:
+        event = _normalize_cursor(payload, session_id)
+    return {"sessionId": session_id, "event": event}
+
+
+def record_hook_event(
+    *,
+    workspace: Path,
+    session_id: str,
+    event: Dict[str, Any],
+    analysis: Dict[str, Any],
+    agent: str,
+) -> None:
+    append_session_event(workspace, session_id, event)
+    events = read_session_events(workspace, session_id)
+    save_session_snapshot(
+        workspace=workspace,
+        session_id=session_id,
+        agent=agent,
+        source="hook",
+        repo_url=event.get("repo_url"),
+        events=events,
+        analysis=analysis,
+    )
+
+
+def should_block(findings: List[Dict[str, Any]], event: Dict[str, Any]) -> Dict[str, Any] | None:
+    if not _is_pre_action(str(event.get("agent_event", ""))):
+        return None
+
+    preferred_categories = {
+        "destructive_command",
+        "secret_exfiltration",
+        "secret_access",
+        "remote_execution",
+        "prompt_injection",
+    }
+    for finding in findings:
+        if finding.get("category") in preferred_categories:
+            if event.get("type") == "file_read" and finding.get("category") != "secret_access":
+                continue
+            return finding
+    return None
+
+
+def _config_path(agent: str, scope: str, workspace: Path) -> Path:
+    home = Path.home()
+    if scope == "project":
+        if agent == "claude":
+            return workspace / ".claude" / "settings.json"
+        if agent == "cursor":
+            return workspace / ".cursor" / "hooks.json"
+        return workspace / ".windsurf" / "hooks.json"
+
+    if agent == "claude":
+        return home / ".claude" / "settings.json"
+    if agent == "cursor":
+        return home / ".cursor" / "hooks.json"
+    return home / ".codeium" / "windsurf" / "hooks.json"
+
+
+def _dispatcher_command(*, repo_root: Path, workspace: Path, agent: str, mode: str) -> str:
+    script_path = repo_root / "warden" / "cli.py"
+    return f'python3 "{script_path}" hook-dispatch --agent {agent} --workspace "{workspace}" --mode {mode}'
+
+
+def _merge_claude(config: Dict[str, Any], command: str, workspace: Path) -> Dict[str, Any]:
+    hooks = dict(config.get("hooks", {}))
+    hooks["UserPromptSubmit"] = _merge_claude_entries(
+        hooks.get("UserPromptSubmit", []),
+        {"matcher": "*", "hooks": [{"type": "command", "command": command}]},
+    )
+    hooks["PreToolUse"] = _merge_claude_entries(
+        hooks.get("PreToolUse", []),
+        {"matcher": "Bash|Read|Edit|MultiEdit|Write|WebFetch|WebSearch", "hooks": [{"type": "command", "command": command}]},
+    )
+    hooks["PostToolUse"] = _merge_claude_entries(
+        hooks.get("PostToolUse", []),
+        {"matcher": "Bash|Read|Edit|MultiEdit|Write|WebFetch|WebSearch", "hooks": [{"type": "command", "command": command}]},
+    )
+    hooks["Stop"] = _merge_claude_entries(
+        hooks.get("Stop", []),
+        {"matcher": "*", "hooks": [{"type": "command", "command": command}]},
+    )
+    env = dict(config.get("env", {}))
+    env["PRISMOR_WARDEN_WORKSPACE"] = str(workspace)
+    return {**config, "hooks": hooks, "env": env}
+
+
+def _merge_cursor(config: Dict[str, Any], command: str) -> Dict[str, Any]:
+    hooks = dict(config.get("hooks", {}))
+    for event_name in [
+        "beforeSubmitPrompt",
+        "beforeShellCommand",
+        "afterShellCommand",
+        "beforeFileWrite",
+        "afterFileWrite",
+    ]:
+        hooks[event_name] = _merge_simple_command_entries(hooks.get(event_name, []), command)
+    return {**config, "version": config.get("version", 1), "hooks": hooks}
+
+
+def _merge_windsurf(config: Dict[str, Any], command: str, workspace: Path) -> Dict[str, Any]:
+    hooks = dict(config.get("hooks", {}))
+    for event_name in [
+        "pre_user_prompt",
+        "pre_read_code",
+        "post_read_code",
+        "pre_write_code",
+        "post_write_code",
+        "pre_run_command",
+        "post_run_command",
+        "pre_mcp_tool_use",
+        "post_mcp_tool_use",
+        "post_cascade_response",
+    ]:
+        hooks[event_name] = _merge_windsurf_entries(hooks.get(event_name, []), command, workspace)
+    return {**config, "hooks": hooks}
+
+
+def _merge_claude_entries(entries: List[Dict[str, Any]], new_entry: Dict[str, Any]) -> List[Dict[str, Any]]:
+    next_entries = list(entries)
+    existing = next((entry for entry in next_entries if entry.get("matcher") == new_entry["matcher"]), None)
+    if existing is None:
+        next_entries.append(new_entry)
+        return next_entries
+
+    existing_commands = {hook.get("command") for hook in existing.get("hooks", [])}
+    for hook in new_entry["hooks"]:
+        if hook.get("command") not in existing_commands:
+            existing.setdefault("hooks", []).append(hook)
+    return next_entries
+
+
+def _merge_simple_command_entries(entries: List[Dict[str, Any]], command: str) -> List[Dict[str, Any]]:
+    next_entries = list(entries)
+    if not any(entry.get("command") == command for entry in next_entries):
+        next_entries.append({"command": command})
+    return next_entries
+
+
+def _merge_windsurf_entries(entries: List[Dict[str, Any]], command: str, workspace: Path) -> List[Dict[str, Any]]:
+    next_entries = list(entries)
+    if not any(entry.get("command") == command for entry in next_entries):
+        next_entries.append(
+            {
+                "command": command,
+                "show_output": False,
+                "working_directory": str(workspace),
+            }
+        )
+    return next_entries
+
+
+def _read_json(path: Path) -> Dict[str, Any]:
+    if not path.exists():
+        return {}
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _normalize_claude(payload: Dict[str, Any], session_id: str) -> Dict[str, Any]:
+    hook_event = payload.get("hook_event_name", "unknown")
+    tool_name = payload.get("tool_name", "")
+    tool_input = payload.get("tool_input", {})
+    base = {
+        "ts": payload.get("timestamp"),
+        "session_id": session_id,
+        "agent": "claude",
+        "agent_event": hook_event,
+        "metadata": {"cwd": payload.get("cwd"), "tool_name": tool_name, "raw": payload},
+    }
+    if hook_event == "UserPromptSubmit":
+        return {**base, "type": "prompt", "prompt": payload.get("prompt", "")}
+    if tool_name == "Bash":
+        return {**base, "type": "shell", "command": tool_input.get("command", ""), "stdout": payload.get("stdout", ""), "stderr": payload.get("stderr", "")}
+    if tool_name == "Read":
+        return {**base, "type": "file_read", "path": tool_input.get("file_path") or tool_input.get("path", "")}
+    if tool_name in {"Edit", "MultiEdit", "Write"}:
+        return {
+            **base,
+            "type": "file_write",
+            "path": tool_input.get("file_path") or tool_input.get("path", ""),
+            "content": _join_edits(tool_input.get("edits", [])) or tool_input.get("content", ""),
+        }
+    if tool_name in {"WebFetch", "WebSearch"}:
+        return {**base, "type": "network", "url": tool_input.get("url", ""), "response": payload.get("response", "")}
+    return {**base, "type": "tool_result", "response": json.dumps(payload)}
+
+
+def _normalize_windsurf(payload: Dict[str, Any], session_id: str) -> Dict[str, Any]:
+    hook_event = payload.get("agent_action_name", "unknown")
+    tool_info = payload.get("tool_info", {})
+    base = {
+        "ts": payload.get("timestamp"),
+        "session_id": session_id,
+        "agent": "windsurf",
+        "agent_event": hook_event,
+        "metadata": {"execution_id": payload.get("execution_id"), "raw": payload},
+    }
+    if hook_event == "pre_user_prompt":
+        return {**base, "type": "prompt", "prompt": tool_info.get("prompt", "")}
+    if "run_command" in hook_event:
+        return {**base, "type": "shell", "command": tool_info.get("command", ""), "stdout": tool_info.get("stdout", ""), "stderr": tool_info.get("stderr", "")}
+    if "read_code" in hook_event:
+        return {**base, "type": "file_read", "path": tool_info.get("file_path", "")}
+    if "write_code" in hook_event:
+        return {**base, "type": "file_write", "path": tool_info.get("file_path", ""), "content": _join_edits(tool_info.get("edits", []))}
+    return {**base, "type": "tool_result", "response": json.dumps(payload)}
+
+
+def _normalize_cursor(payload: Dict[str, Any], session_id: str) -> Dict[str, Any]:
+    hook_event = (
+        payload.get("hook_event_name")
+        or payload.get("hookEventName")
+        or payload.get("event_name")
+        or payload.get("eventName")
+        or payload.get("event")
+        or "unknown"
+    )
+    base = {
+        "ts": payload.get("timestamp"),
+        "session_id": session_id,
+        "agent": "cursor",
+        "agent_event": hook_event,
+        "metadata": {"raw": payload},
+    }
+    if "prompt" in hook_event.lower():
+        return {**base, "type": "prompt", "prompt": payload.get("prompt") or payload.get("message", "")}
+    if "shell" in hook_event.lower():
+        return {**base, "type": "shell", "command": payload.get("command") or payload.get("commandLine") or ""}
+    if "write" in hook_event.lower():
+        return {**base, "type": "file_write", "path": payload.get("path") or payload.get("filePath") or "", "content": payload.get("content", "")}
+    if "read" in hook_event.lower():
+        return {**base, "type": "file_read", "path": payload.get("path") or payload.get("filePath") or ""}
+    return {**base, "type": "tool_result", "response": json.dumps(payload)}
+
+
+def _ephemeral_session_id(agent: str, workspace: Path) -> str:
+    digest = hashlib.sha1(f"{agent}:{workspace}:{os.getpid()}".encode("utf-8")).hexdigest()[:12]
+    return f"{agent}-{digest}"
+
+
+def _join_edits(edits: List[Dict[str, Any]]) -> str:
+    return "\n".join(edit.get("new_string") or edit.get("newText") or "" for edit in edits if isinstance(edit, dict))
+
+
+def _is_pre_action(agent_event: str) -> bool:
+    return agent_event.startswith("pre") or agent_event in {"PreToolUse", "UserPromptSubmit"}
