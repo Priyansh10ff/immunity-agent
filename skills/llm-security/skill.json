@@ -4,7 +4,7 @@
     "description": "Security guidelines for LLM applications based on OWASP Top 10 for LLM 2025. Covers prompt injection, sensitive disclosure, excessive agency, output handling, supply chain, and more.",
     "author": "prismor",
     "license": "Apache-2.0",
-    "homepage": "https://github.com/prismorsec/immunity-agent",
+    "homepage": "https://github.com/PrismorSec/prismor",
     "attribution": "Curated and enhanced for Prismor.",
     "keywords": [
         "security",

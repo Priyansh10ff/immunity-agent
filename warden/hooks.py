@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List
 
-from warden.store import append_session_event, read_session_events, save_session_snapshot
+from warden.store import append_session_event
 
 
 def install_hooks(*, repo_root: Path, workspace: Path, agent: str, scope: str, mode: str) -> List[Dict[str, str]]:
@@ -29,6 +29,27 @@ def install_hooks(*, repo_root: Path, workspace: Path, agent: str, scope: str, m
     return results
 
 
+def uninstall_hooks(*, repo_root: Path, workspace: Path, agent: str, scope: str) -> List[Dict[str, Any]]:
+    agents = ["claude", "cursor", "windsurf"] if agent == "all" else [agent]
+    results = []
+    for current_agent in agents:
+        config_path = _config_path(current_agent, scope, workspace)
+        removed = False
+        if config_path.exists():
+            config = _read_json(config_path)
+            marker = str(repo_root / "warden" / "cli.py")
+            if current_agent == "claude":
+                config, removed = _strip_claude(config, marker)
+            elif current_agent == "cursor":
+                config, removed = _strip_cursor(config, marker)
+            else:
+                config, removed = _strip_windsurf(config, marker)
+            if removed:
+                config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
+        results.append({"agent": current_agent, "configPath": str(config_path), "removed": removed})
+    return results
+
+
 def normalize_payload(*, agent: str, payload: Dict[str, Any], workspace: Path) -> Dict[str, Any]:
     session_id = (
         payload.get("session_id")
@@ -47,27 +68,6 @@ def normalize_payload(*, agent: str, payload: Dict[str, Any], workspace: Path) -
     else:
         event = _normalize_cursor(payload, session_id)
     return {"sessionId": session_id, "event": event}
-
-
-def record_hook_event(
-    *,
-    workspace: Path,
-    session_id: str,
-    event: Dict[str, Any],
-    analysis: Dict[str, Any],
-    agent: str,
-) -> None:
-    append_session_event(workspace, session_id, event)
-    events = read_session_events(workspace, session_id)
-    save_session_snapshot(
-        workspace=workspace,
-        session_id=session_id,
-        agent=agent,
-        source="hook",
-        repo_url=event.get("repo_url"),
-        events=events,
-        analysis=analysis,
-    )
 
 
 def should_block(findings: List[Dict[str, Any]], event: Dict[str, Any]) -> Dict[str, Any] | None:
@@ -162,6 +162,57 @@ def _merge_windsurf(config: Dict[str, Any], command: str, workspace: Path) -> Di
     ]:
         hooks[event_name] = _merge_windsurf_entries(hooks.get(event_name, []), command, workspace)
     return {**config, "hooks": hooks}
+
+
+def _strip_claude(config: Dict[str, Any], marker: str) -> tuple[Dict[str, Any], bool]:
+    hooks = dict(config.get("hooks", {}))
+    removed = False
+    for event_name in list(hooks.keys()):
+        entries = hooks[event_name]
+        if not isinstance(entries, list):
+            continue
+        cleaned = []
+        for entry in entries:
+            inner_hooks = entry.get("hooks", [])
+            filtered = [h for h in inner_hooks if marker not in h.get("command", "")]
+            if len(filtered) < len(inner_hooks):
+                removed = True
+            if filtered:
+                cleaned.append({**entry, "hooks": filtered})
+        hooks[event_name] = cleaned
+    env = dict(config.get("env", {}))
+    if "PRISMOR_WARDEN_WORKSPACE" in env:
+        del env["PRISMOR_WARDEN_WORKSPACE"]
+        removed = True
+    return {**config, "hooks": hooks, "env": env}, removed
+
+
+def _strip_cursor(config: Dict[str, Any], marker: str) -> tuple[Dict[str, Any], bool]:
+    hooks = dict(config.get("hooks", {}))
+    removed = False
+    for event_name in list(hooks.keys()):
+        entries = hooks[event_name]
+        if not isinstance(entries, list):
+            continue
+        filtered = [e for e in entries if marker not in e.get("command", "")]
+        if len(filtered) < len(entries):
+            removed = True
+        hooks[event_name] = filtered
+    return {**config, "hooks": hooks}, removed
+
+
+def _strip_windsurf(config: Dict[str, Any], marker: str) -> tuple[Dict[str, Any], bool]:
+    hooks = dict(config.get("hooks", {}))
+    removed = False
+    for event_name in list(hooks.keys()):
+        entries = hooks[event_name]
+        if not isinstance(entries, list):
+            continue
+        filtered = [e for e in entries if marker not in e.get("command", "")]
+        if len(filtered) < len(entries):
+            removed = True
+        hooks[event_name] = filtered
+    return {**config, "hooks": hooks}, removed
 
 
 def _merge_claude_entries(entries: List[Dict[str, Any]], new_entry: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -291,4 +342,9 @@ def _join_edits(edits: List[Dict[str, Any]]) -> str:
 
 
 def _is_pre_action(agent_event: str) -> bool:
-    return agent_event.startswith("pre") or agent_event in {"PreToolUse", "UserPromptSubmit"}
+    lower = agent_event.lower()
+    return (
+        lower.startswith("pre")
+        or lower.startswith("before")
+        or agent_event in {"PreToolUse", "UserPromptSubmit"}
+    )

@@ -1,0 +1,26 @@
+# CLAUDE.md Template — Add Prismor Security to Your Project
+#
+# Copy this section into your project's CLAUDE.md file.
+# Replace PRISMOR_PATH with the path to your local Prismor clone.
+#
+# Quick setup:
+#   git clone https://github.com/PrismorSec/prismor.git ~/.prismor
+#   Then add the block below to your project's CLAUDE.md
+#
+# Or use the automated setup:
+#   bash ~/.prismor/scripts/init.sh /path/to/your/project
+
+## Security (Prismor)
+
+At the start of every session, read `PRISMOR_PATH/skills/security.md` and follow its instructions.
+
+This loads:
+- Behavioral guardrails (deny-listed commands, secret protection, anti-prompt-injection)
+- Live threat intelligence feed (daily-updated, signed CVE data for AI frameworks)
+- Secure coding rules (OWASP Top 10 with multi-language code examples)
+- LLM security rules (OWASP Top 10 for LLMs 2025)
+
+For runtime protection, install Warden hooks:
+```
+python3 PRISMOR_PATH/warden/cli.py install-hooks --agent claude --workspace . --mode observe
+```

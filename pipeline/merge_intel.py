@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 import jsonschema
 
 FEED_FILE_PATH = "advisories/immunity-feed.json"
-SCHEMA_FILE_PATH = "schemas/threat-object.schema.json"
+SCHEMA_FILE_PATH = os.path.join(os.path.dirname(__file__), "schemas", "threat-object.schema.json")
 
 def load_json_file(filepath):
     """Loads a JSON file if it exists, otherwise returns None."""

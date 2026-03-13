@@ -23,12 +23,22 @@ MANIFEST_LANGUAGE_MAP = [
 ]
 
 PROMPT_INJECTION_PATTERN = re.compile(
-    r"(ignore (all|any|previous) instructions|reveal (your|the) system prompt|developer instructions|exfiltrat(e|ion)|print .*secret|show .*token|bypass guardrails|jailbreak)",
+    r"(ignore\s+(all\s+)?(any\s+)?(previous\s+)?instructions|reveal (your|the) system prompt|developer instructions|exfiltrat(e|ion)|print .*secret|show .*token|bypass guardrails|jailbreak)",
     re.IGNORECASE,
 )
 
 DESTRUCTIVE_COMMAND_PATTERN = re.compile(
-    r"\b(rm\s+-rf\s+/|sudo\s+rm\b|chmod\s+777\b|chown\s+-R\b|mkfs\b|dd\s+if=.*of=/dev/|shutdown\b|reboot\b|launchctl\s+unload\b)\b",
+    r"(?:"
+    r"rm\s+(?:-[a-zA-Z]*f[a-zA-Z]*\s+|(?:-[a-zA-Z]+\s+)*)(?:/\s*$|/\s+)"  # rm -rf / (root only, not /tmp/foo)
+    r"|sudo\s+rm\b"
+    r"|chmod\s+777\b"
+    r"|chown\s+-R\b"
+    r"|mkfs\b"
+    r"|dd\s+if=.*of=/dev/"
+    r"|shutdown\b"
+    r"|reboot\b"
+    r"|launchctl\s+unload\b"
+    r")",
     re.IGNORECASE,
 )
 
@@ -56,7 +66,7 @@ def is_manifest_path(file_path: str = "") -> bool:
     return infer_manifest_language(file_path) is not None
 
 
-def evaluate_event(event: Dict[str, Any], index: int) -> List[Dict[str, Any]]:
+def evaluate_event(event: Dict[str, Any], index: int, session_id: str = "") -> List[Dict[str, Any]]:
     findings: List[Dict[str, Any]] = []
     event_type = str(event.get("type", "")).lower()
     command = str(event.get("command", ""))
@@ -83,6 +93,7 @@ def evaluate_event(event: Dict[str, Any], index: int) -> List[Dict[str, Any]]:
                 title="Prompt-injection or system-prompt extraction pattern detected",
                 evidence=_truncate(combined_text),
                 event_index=index,
+                session_id=session_id,
             )
         )
 
@@ -95,6 +106,7 @@ def evaluate_event(event: Dict[str, Any], index: int) -> List[Dict[str, Any]]:
                 title="Potentially destructive shell command detected",
                 evidence=command,
                 event_index=index,
+                session_id=session_id,
             )
         )
 
@@ -107,6 +119,7 @@ def evaluate_event(event: Dict[str, Any], index: int) -> List[Dict[str, Any]]:
                 title="Remote fetch-and-execute pattern detected",
                 evidence=command,
                 event_index=index,
+                session_id=session_id,
             )
         )
 
@@ -119,6 +132,7 @@ def evaluate_event(event: Dict[str, Any], index: int) -> List[Dict[str, Any]]:
                 title="Likely secret exfiltration command detected",
                 evidence=command,
                 event_index=index,
+                session_id=session_id,
             )
         )
 
@@ -131,6 +145,7 @@ def evaluate_event(event: Dict[str, Any], index: int) -> List[Dict[str, Any]]:
                 title=f"{'Sensitive file access' if event_type == 'file_read' else 'Sensitive file write'} detected",
                 evidence=file_path,
                 event_index=index,
+                session_id=session_id,
             )
         )
 
@@ -143,6 +158,7 @@ def evaluate_event(event: Dict[str, Any], index: int) -> List[Dict[str, Any]]:
                 title="Write to high-risk file path detected",
                 evidence=file_path,
                 event_index=index,
+                session_id=session_id,
             )
         )
 
@@ -155,6 +171,7 @@ def evaluate_event(event: Dict[str, Any], index: int) -> List[Dict[str, Any]]:
                 title="Network call to a suspicious sink detected",
                 evidence=url,
                 event_index=index,
+                session_id=session_id,
             )
         )
 
@@ -169,9 +186,11 @@ def _finding(
     title: str,
     evidence: str,
     event_index: int,
+    session_id: str = "",
 ) -> Dict[str, Any]:
+    prefixed_id = f"{session_id}:{finding_id}" if session_id else finding_id
     return {
-        "id": finding_id,
+        "id": prefixed_id,
         "severity": severity,
         "category": category,
         "title": title,

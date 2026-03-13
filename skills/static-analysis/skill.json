@@ -1,0 +1,43 @@
+{
+    "name": "static-analysis",
+    "version": "1.0.0",
+    "description": "Static analysis guidance for pattern-based security scans and custom detection rules. Use when scanning code for security bugs, creating custom rules, or enforcing secure coding patterns.",
+    "author": "prismor",
+    "license": "Apache-2.0",
+    "homepage": "https://github.com/PrismorSec/prismor",
+    "keywords": [
+        "security",
+        "static-analysis",
+        "code-scanning",
+        "custom-rules",
+        "pattern-matching",
+        "taint-analysis",
+        "sarif",
+        "vulnerability-detection"
+    ],
+    "sbom": {
+        "files": [
+            {
+                "path": "SKILL.md",
+                "required": true,
+                "description": "Static analysis workflow and custom rule authoring guidance"
+            }
+        ]
+    },
+    "openclaw": {
+        "emoji": "🔍",
+        "category": "security",
+        "triggers": [
+            "static analysis",
+            "code scanning",
+            "security scan",
+            "custom rules",
+            "vulnerability scan",
+            "audit code",
+            "detect vulnerabilities",
+            "write detection rule",
+            "sarif",
+            "pattern matching"
+        ]
+    }
+}

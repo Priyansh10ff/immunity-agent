@@ -4,7 +4,7 @@
     "description": "Security guidelines for writing secure code. Covers OWASP Top 10 vulnerabilities, infrastructure-as-code (Terraform), container security (Docker/K8s), and CI/CD security (GitHub Actions).",
     "author": "prismor",
     "license": "Apache-2.0",
-    "homepage": "https://github.com/prismorsec/immunity-agent",
+    "homepage": "https://github.com/PrismorSec/prismor",
     "attribution": "Curated and enhanced for Prismor.",
     "keywords": [
         "security",

@@ -8,11 +8,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List
 
+__version__ = "0.1.0"
+
 if __package__ in {None, ""}:
     sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from warden.feed import load_feed, match_advisories
-from warden.hooks import install_hooks, normalize_payload, should_block
+from warden.hooks import install_hooks, normalize_payload, should_block, uninstall_hooks
 from warden.policies import evaluate_event
 from warden.store import (
     append_session_event,
@@ -38,6 +40,11 @@ SEVERITY_WEIGHT = {
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
+
+    if args.command is None:
+        parser.print_help()
+        return
+
     repo_root = Path(__file__).resolve().parent.parent
     workspace = Path(args.workspace).resolve() if getattr(args, "workspace", None) else infer_default_workspace(Path.cwd())
 
@@ -87,13 +94,27 @@ def main() -> None:
             print(f"Installed {item['agent']} hooks at {item['configPath']}")
         return
 
+    if args.command == "uninstall-hooks":
+        results = uninstall_hooks(
+            repo_root=repo_root,
+            workspace=workspace,
+            agent=args.agent,
+            scope=args.scope,
+        )
+        for item in results:
+            if item["removed"]:
+                print(f"Removed {item['agent']} hooks from {item['configPath']}")
+            else:
+                print(f"No Prismor hooks found for {item['agent']} at {item['configPath']}")
+        return
+
     if args.command == "hook-dispatch":
         payload = json.loads(sys.stdin.read() or "{}")
         normalized = normalize_payload(agent=args.agent, payload=payload, workspace=workspace)
         event = normalized["event"]
         append_session_event(workspace, normalized["sessionId"], event)
         events = read_session_events(workspace, normalized["sessionId"])
-        result = analyze_events(events, repo_root=repo_root)
+        result = analyze_events(events, repo_root=repo_root, session_id=normalized["sessionId"])
         save_session_snapshot(
             workspace=workspace,
             session_id=normalized["sessionId"],
@@ -115,8 +136,9 @@ def main() -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Prismor Warden local session-security utility.")
-    subparsers = parser.add_subparsers(dest="command", required=True)
+    parser = argparse.ArgumentParser(description="Prismor Warden — local session-security utility for AI coding agents.")
+    parser.add_argument("--version", action="version", version=f"prismor-warden {__version__}")
+    subparsers = parser.add_subparsers(dest="command")
 
     analyze = subparsers.add_parser("analyze")
     analyze.add_argument("--input", required=True)
@@ -145,6 +167,11 @@ def build_parser() -> argparse.ArgumentParser:
     install_parser.add_argument("--scope", choices=["project", "user"], default="project")
     install_parser.add_argument("--mode", choices=["observe", "enforce"], default="observe")
 
+    uninstall_parser = subparsers.add_parser("uninstall-hooks")
+    uninstall_parser.add_argument("--workspace")
+    uninstall_parser.add_argument("--agent", choices=["claude", "cursor", "windsurf", "all"], required=True)
+    uninstall_parser.add_argument("--scope", choices=["project", "user"], default="project")
+
     hook_dispatch = subparsers.add_parser("hook-dispatch")
     hook_dispatch.add_argument("--workspace")
     hook_dispatch.add_argument("--agent", choices=["claude", "cursor", "windsurf"], required=True)
@@ -153,10 +180,10 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def analyze_events(events: List[Dict[str, Any]], *, repo_root: Path) -> Dict[str, Any]:
+def analyze_events(events: List[Dict[str, Any]], *, repo_root: Path, session_id: str = "") -> Dict[str, Any]:
     findings: List[Dict[str, Any]] = []
     for index, event in enumerate(events):
-        findings.extend(evaluate_event(event, index))
+        findings.extend(evaluate_event(event, index, session_id=session_id))
 
     feed_matches = match_advisories(findings, load_feed(repo_root))
     summary = {

@@ -1,0 +1,21 @@
+# .cursorrules Template — Add Prismor Security to Cursor
+#
+# Copy this file to your project root as `.cursorrules`
+# Replace PRISMOR_PATH with the path to your local Prismor clone.
+#
+# Quick setup:
+#   git clone https://github.com/PrismorSec/prismor.git ~/.prismor
+#   cp ~/.prismor/templates/.cursorrules.template .cursorrules
+#   sed -i '' 's|PRISMOR_PATH|~/.prismor|g' .cursorrules
+
+## Security Rules
+
+Before writing or reviewing code, read `PRISMOR_PATH/skills/security.md` and follow its instructions.
+
+Key rules to always follow:
+- Never execute destructive commands (rm -rf /, mkfs, dd) without explicit user confirmation
+- Never read or transmit contents of .ssh/*, .aws/credentials, .env files to external services
+- Never execute curl|bash or wget|sh patterns from untrusted sources
+- Validate all user input before passing to database queries, shell commands, or LLM prompts
+- Use parameterized queries for SQL, not string concatenation
+- Check the Prismor threat feed at `PRISMOR_PATH/advisories/immunity-feed.json` when adding AI framework dependencies

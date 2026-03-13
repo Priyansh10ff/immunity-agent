@@ -12,9 +12,8 @@ env/
 .env
 .env.local
 
-# Key pairs and secrets
+# Key pairs and secrets (public key is intentionally shipped)
 *.pem
-*.pub
 *.key
 signature.bin
 
@@ -24,6 +23,11 @@ signature.bin
 tmp/
 temp/
 .prismor-warden/
+
+# Generated hook configs (created by install-hooks, user-specific paths)
+.claude/settings.json
+.cursor/hooks.json
+.windsurf/hooks.json
 
 # IDEs and OS files
 .vscode/

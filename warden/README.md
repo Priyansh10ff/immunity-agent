@@ -1,96 +1,81 @@
 # Prismor Warden
 
-Prismor Warden is a local utility for securing AI coding-agent sessions.
-
-It installs hooks into supported agents, captures security-relevant session events, evaluates those events with deterministic rules, stores the results in SQLite, and correlates them with the local Prismor advisory feed.
-
-It is part of the main Prismor package, not a separate product. Use it when you want runtime visibility and enforcement on top of the Prismor feed and skills.
-
-## What It Does
-
-- blocks obviously dangerous pre-action behavior in enforce mode
-- records prompts, tool calls, file access, shell commands, and network actions
-- flags prompt injection, secret access, exfiltration, destructive commands, and risky writes
-- stores sessions, events, and findings in a local SQLite database
-- shows recent sessions and detailed session reports in the terminal
-- attaches matching advisory types from `advisories/immunity-feed.json`
+Local runtime security monitor for AI coding agents. Intercepts agent actions via hooks, evaluates them against deterministic security policies, and optionally blocks dangerous behavior before it executes.
 
 ## Supported Agents
 
-- Claude Code
-- Cursor
-- Windsurf
+| Agent | Hook Events | Enforce Mode |
+|-------|------------|--------------|
+| Claude Code | PreToolUse, PostToolUse, UserPromptSubmit, Stop | Yes |
+| Cursor | before/afterShellCommand, before/afterFileWrite, beforeSubmitPrompt | Yes |
+| Windsurf | pre/post_run_command, pre/post_write_code, pre/post_read_code, pre_user_prompt, pre/post_mcp_tool_use, post_cascade_response | Yes |
 
-## How To Use It
-
-From the repo root:
+## Quick Start
 
 ```bash
+# Install hooks for all agents in observe mode (log only)
+python3 warden/cli.py install-hooks --agent all --workspace "$(pwd)"
+
+# Install in enforce mode (log + block dangerous actions)
+python3 warden/cli.py install-hooks --agent claude --workspace "$(pwd)" --mode enforce
+
+# Analyze a session file
 python3 warden/cli.py analyze --input warden/examples/sample-session.jsonl
-python3 warden/cli.py ingest --input warden/examples/sample-session.jsonl
-python3 warden/cli.py sessions --workspace "$(pwd)"
-python3 warden/cli.py session --workspace "$(pwd)" --session-id <id>
-python3 warden/cli.py install-hooks --agent all --workspace "$(pwd)" --mode enforce
+
+# JSON output for automation
+python3 warden/cli.py analyze --input warden/examples/sample-session.jsonl --json
 ```
 
-### Typical flow
+## Commands
 
-1. Analyze a session export:
+| Command | Description |
+|---------|-------------|
+| `analyze --input <file>` | Evaluate a JSONL session file and print findings |
+| `ingest --input <file>` | Analyze and store a session in the local database |
+| `sessions` | List stored sessions |
+| `session --session-id <id>` | Show details for a specific session |
+| `install-hooks --agent <agent>` | Install Warden hooks into agent config |
+| `uninstall-hooks --agent <agent>` | Remove Warden hooks from agent config |
+| `hook-dispatch --agent <agent>` | Internal: called by hooks to evaluate events in real time |
+
+All commands accept `--workspace <path>` to specify the project directory.
+
+## Modes
+
+- **observe** (default): Log all events and findings. No blocking.
+- **enforce**: Log everything and block pre-action events that match critical policies (destructive commands, secret exfiltration, remote code execution, prompt injection, sensitive file access).
+
+## What Gets Flagged
+
+| Category | Severity | Examples |
+|----------|----------|----------|
+| `destructive_command` | CRITICAL | `sudo rm`, `rm -rf /`, `mkfs`, `dd of=/dev/` |
+| `secret_exfiltration` | CRITICAL | `cat .env \| curl`, reading secrets then hitting network |
+| `remote_execution` | HIGH | `curl ... \| bash`, `wget ... \| sh` |
+| `prompt_injection` | HIGH | "ignore previous instructions", "reveal system prompt" |
+| `secret_access` | HIGH/CRITICAL | Reading/writing `.env`, `.ssh/id_rsa`, `.aws/credentials` |
+| `risky_write` | MEDIUM/HIGH | Writing to `Dockerfile`, CI workflows, dependency manifests |
+| `suspicious_network` | HIGH | Requests to webhook.site, ngrok, pastebin, discord webhooks |
+
+## Storage
+
+Warden stores state locally under `.prismor-warden/` in the workspace:
+
+```
+.prismor-warden/
+  warden.db              # SQLite: sessions, findings, metadata
+  sessions/
+    <session-id>.jsonl   # Raw event stream per session
+```
+
+## Uninstalling
 
 ```bash
-python3 warden/cli.py analyze --input warden/examples/sample-session.jsonl
+# Remove hooks from all agents
+python3 warden/cli.py uninstall-hooks --agent all --workspace "$(pwd)"
+
+# Remove hooks from a specific agent
+python3 warden/cli.py uninstall-hooks --agent cursor --workspace "$(pwd)"
 ```
 
-2. Store it locally:
-
-```bash
-python3 warden/cli.py ingest --input warden/examples/sample-session.jsonl --workspace "$(pwd)"
-```
-
-3. Review stored sessions:
-
-```bash
-python3 warden/cli.py sessions --workspace "$(pwd)"
-python3 warden/cli.py session --workspace "$(pwd)" --session-id <id>
-```
-
-4. Turn on live runtime blocking for supported agents:
-
-```bash
-python3 warden/cli.py install-hooks --agent all --workspace "$(pwd)" --scope project --mode enforce
-```
-
-Project-level hook installation writes:
-
-- `.claude/settings.json`
-- `.cursor/hooks.json`
-- `.windsurf/hooks.json`
-
-Warden state is stored under:
-
-- `.prismor-warden/warden.db`
-- `.prismor-warden/sessions/*.jsonl`
-
-## Security Model
-
-The current policy engine focuses on:
-
-- prompt-injection and system-prompt extraction attempts
-- destructive shell commands
-- remote fetch-and-execute patterns
-- direct reads and writes involving sensitive paths
-- likely secret exfiltration flows
-- writes to CI, container, and dependency manifests
-
-## What Should Be Added Next
-
-Warden should be hardened further in a few specific ways:
-
-- encrypted local storage for session logs and findings at rest
-- redaction before persistence so secrets never land in SQLite in cleartext
-- allowlists for outbound domains and tool names per workspace
-- feed-signature verification before advisory correlation
-- uninstall and status commands for hook lifecycle management
-- stricter path scoping so user-level installs cannot silently monitor unrelated directories
-- policy versioning and signed local policy bundles
-- optional quarantine mode for risky sessions instead of only blocking a single action
+This removes Prismor entries from agent hook configs but does not delete stored session data.

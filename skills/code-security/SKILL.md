@@ -2,7 +2,7 @@
 name: code-security
 version: 1.0.0
 description: Security guidelines for writing secure code. Use when writing code, reviewing code for vulnerabilities, or asking about secure coding practices like "check for SQL injection" or "review security".
-homepage: https://github.com/prismorsec/immunity-agent
+homepage: https://github.com/PrismorSec/prismor
 metadata: {"openclaw":{"emoji":"🔒","category":"security"}}
 attribution: Curated and enhanced for Prismor, structured around the OWASP Top 10.
 ---

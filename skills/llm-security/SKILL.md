@@ -2,7 +2,7 @@
 name: llm-security
 version: 1.0.0
 description: Security guidelines for LLM applications based on OWASP Top 10 for LLM 2025. Use when building LLM apps, reviewing AI security, implementing RAG systems, or asking about LLM vulnerabilities like "prompt injection" or "check LLM security".
-homepage: https://github.com/prismorsec/immunity-agent
+homepage: https://github.com/PrismorSec/prismor
 metadata: {"openclaw":{"emoji":"🤖","category":"security"}}
 attribution: Curated and enhanced for Prismor, structured around the OWASP Top 10 for LLM applications.
 ---
