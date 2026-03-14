@@ -124,10 +124,9 @@ def _merge_claude(config: Dict[str, Any], command: str, workspace: Path) -> Dict
         hooks.get("PostToolUse", []),
         {"matcher": "Bash|Read|Edit|MultiEdit|Write|WebFetch|WebSearch", "hooks": [{"type": "command", "command": command}]},
     )
-    hooks["Stop"] = _merge_claude_entries(
-        hooks.get("Stop", []),
-        {"matcher": "*", "hooks": [{"type": "command", "command": command}]},
-    )
+    # Skip "Stop" hook — the payload contains the full assistant response which
+    # exceeds OS argument limits (E2BIG) on long conversations. Stop fires after
+    # all actions are complete so it has no security enforcement value.
     env = dict(config.get("env", {}))
     env["PRISMOR_WARDEN_WORKSPACE"] = str(workspace)
     return {**config, "hooks": hooks, "env": env}
