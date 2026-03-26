@@ -12,6 +12,12 @@ CATEGORY_TO_FEED_TYPES = {
     "secret_exfiltration": {"data_exfiltration", "policy_bypass"},
     "risky_write": {"unsafe_tool_execution", "dependency_vulnerability"},
     "dependency_risk": {"dependency_vulnerability"},
+    "dos_resource_exhaustion": {"model_denial_of_service"},
+    "rce_canary": {"unsafe_tool_execution"},
+    "db_modification": {"unsafe_tool_execution", "policy_bypass"},
+    "db_access": {"data_exfiltration"},
+    "privilege_escalation": {"policy_bypass"},
+    "path_traversal": {"data_exfiltration"},
 }
 
 

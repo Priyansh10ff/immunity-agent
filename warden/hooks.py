@@ -80,6 +80,10 @@ def should_block(findings: List[Dict[str, Any]], event: Dict[str, Any]) -> Dict[
         "secret_access",
         "remote_execution",
         "prompt_injection",
+        "dos_resource_exhaustion",
+        "rce_canary",
+        "db_modification",
+        "privilege_escalation",
     }
     for finding in findings:
         if finding.get("category") in preferred_categories:

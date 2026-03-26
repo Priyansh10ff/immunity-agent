@@ -54,6 +54,77 @@ SUSPICIOUS_NETWORK_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+DOS_PATTERN = re.compile(
+    r"(?:"
+    r":\(\)\s*\{.*\|.*&\s*\}\s*;"       # fork bomb
+    r"|while\s+true\s*;?\s*do\b"         # infinite loops
+    r"|yes\s*\|"                          # yes pipe flood
+    r"|dd\s+if=/dev/(zero|urandom)\b"    # disk fill / random flood
+    r"|cat\s+/dev/urandom\b"             # random flood
+    r"|\b(stress|stress-ng)\b"            # stress test tools
+    r"|ulimit\s+-[a-z]+\s+unlimited"      # removing resource limits
+    r")",
+    re.IGNORECASE,
+)
+
+RCE_CANARY_PATTERN = re.compile(
+    r"(?:"
+    r"bash\s+-i\s+>&\s*/dev/tcp/"                        # bash reverse shell
+    r"|/dev/tcp/\d"                                       # /dev/tcp connection
+    r"|nc\s+.*-[a-z]*l[a-z]*\s*.*-p"                     # netcat listener
+    r"|python3?\s+-c\s+.*(?:exec|eval|import\s+os)"       # python exec/eval
+    r"|perl\s+-e\s+.*(?:socket|exec)"                     # perl reverse shell
+    r"|echo\s+.*\|\s*crontab"                              # cron injection
+    r"|\*\s+\*\s+\*\s+\*\s+\*.*crontab"                  # cron wildcard injection
+    r"|\b(ncat|socat)\b.*(?:exec|listen|EXEC)"            # ncat/socat with exec
+    r"|mkfifo\s+.*\bsh\b"                                  # named pipe shell
+    r")",
+    re.IGNORECASE,
+)
+
+DB_MODIFICATION_PATTERN = re.compile(
+    r"(?:"
+    r"\b(DROP\s+(TABLE|DATABASE)|TRUNCATE\s+TABLE|DELETE\s+FROM|UPDATE\s+\w+\s+SET|ALTER\s+TABLE|INSERT\s+INTO)\b"
+    r"|(?:mysql|psql|sqlite3)\s+.*(?:-e\s+|-c\s+)['\"]?\s*(?:DROP|DELETE|UPDATE|ALTER|INSERT|TRUNCATE)"
+    r")",
+    re.IGNORECASE,
+)
+
+DB_ACCESS_PATTERN = re.compile(
+    r"(?:"
+    r"\b(pg_dump|mysqldump|mongodump|redis-cli\s+--rdb)\b"
+    r"|sqlite3\s+.*\.dump"
+    r"|\bSELECT\b[^;]*\bFROM\b[^;]*\b(users?|accounts?|credentials?|passwords?|secrets?|tokens?|sessions?|admins?)\b"
+    r"|\bCOPY\b.*\bTO\b\s+['\"]"
+    r")",
+    re.IGNORECASE,
+)
+
+PRIVESC_PATTERN = re.compile(
+    r"(?:"
+    r"chmod\s+[ugo+]*s\s"                  # SUID/SGID
+    r"|chmod\s+[0-7]*[4-7][0-7]{2}[0-7]\s" # setuid via octal (4xxx, 6xxx)
+    r"|\bsetcap\b"                          # capability escalation
+    r"|\bvisudo\b|/etc/sudoers"             # sudoers manipulation
+    r"|usermod\s+.*-[a-zA-Z]*G\s+.*sudo"   # add user to sudo group
+    r"|\b(useradd|adduser)\b"               # user creation
+    r"|\bnsenter\b"                          # namespace enter (container escape)
+    r"|\bpkexec\b"                           # polkit execution
+    r"|chattr\s+\+i\b"                       # immutable flag
+    r")",
+    re.IGNORECASE,
+)
+
+PATH_TRAVERSAL_PATTERN = re.compile(
+    r"(?:"
+    r"(\.\./){2,}"                                        # directory traversal chains
+    r"|/etc/(passwd|shadow|hosts|sudoers)"                 # sensitive system files
+    r"|/proc/self/(environ|cmdline|maps|root)"             # proc filesystem
+    r"|/proc/\d+/(environ|cmdline|maps)"                   # proc by PID
+    r")",
+    re.IGNORECASE,
+)
+
 
 def infer_manifest_language(file_path: str = "") -> Optional[str]:
     for pattern, language in MANIFEST_LANGUAGE_MAP:
@@ -170,6 +241,85 @@ def evaluate_event(event: Dict[str, Any], index: int, session_id: str = "") -> L
                 category="secret_exfiltration",
                 title="Network call to a suspicious sink detected",
                 evidence=url,
+                event_index=index,
+                session_id=session_id,
+            )
+        )
+
+    if event_type == "shell" and DOS_PATTERN.search(command):
+        findings.append(
+            _finding(
+                finding_id=f"dos-{index}",
+                severity="CRITICAL",
+                category="dos_resource_exhaustion",
+                title="Denial-of-service or resource exhaustion pattern detected",
+                evidence=command,
+                event_index=index,
+                session_id=session_id,
+            )
+        )
+
+    if event_type == "shell" and RCE_CANARY_PATTERN.search(command):
+        findings.append(
+            _finding(
+                finding_id=f"rce-canary-{index}",
+                severity="CRITICAL",
+                category="rce_canary",
+                title="Remote code execution or reverse shell pattern detected",
+                evidence=command,
+                event_index=index,
+                session_id=session_id,
+            )
+        )
+
+    if event_type == "shell" and DB_MODIFICATION_PATTERN.search(command):
+        findings.append(
+            _finding(
+                finding_id=f"db-modification-{index}",
+                severity="HIGH",
+                category="db_modification",
+                title="Database modification command detected",
+                evidence=command,
+                event_index=index,
+                session_id=session_id,
+            )
+        )
+
+    if event_type == "shell" and DB_ACCESS_PATTERN.search(command):
+        findings.append(
+            _finding(
+                finding_id=f"db-access-{index}",
+                severity="HIGH",
+                category="db_access",
+                title="Database dump or sensitive table access detected",
+                evidence=command,
+                event_index=index,
+                session_id=session_id,
+            )
+        )
+
+    if event_type == "shell" and PRIVESC_PATTERN.search(command):
+        findings.append(
+            _finding(
+                finding_id=f"privesc-{index}",
+                severity="CRITICAL",
+                category="privilege_escalation",
+                title="Privilege escalation pattern detected",
+                evidence=command,
+                event_index=index,
+                session_id=session_id,
+            )
+        )
+
+    _check_path = file_path if event_type == "file_read" else command
+    if event_type in {"shell", "file_read"} and _check_path and PATH_TRAVERSAL_PATTERN.search(_check_path):
+        findings.append(
+            _finding(
+                finding_id=f"path-traversal-{index}",
+                severity="HIGH",
+                category="path_traversal",
+                title="Path traversal or sensitive system file access detected",
+                evidence=_check_path,
                 event_index=index,
                 session_id=session_id,
             )

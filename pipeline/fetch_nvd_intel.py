@@ -104,6 +104,15 @@ CWE_TYPE_MAP = {
     # Jailbreak patterns (less common via CWE, but map relevant ones)
     "CWE-693": "jailbreak",             # Protection Mechanism Failure
     "CWE-184": "jailbreak",             # Incomplete List of Disallowed Inputs
+    # Additional privilege / access control CWEs
+    "CWE-269": "policy_bypass",          # Improper Privilege Management
+    "CWE-250": "policy_bypass",          # Execution with Unnecessary Privileges
+    "CWE-264": "policy_bypass",          # Permissions, Privileges, Access Controls
+    # Additional DoS CWEs
+    "CWE-399": "model_denial_of_service", # Resource Management Errors
+    # Memory corruption → RCE
+    "CWE-119": "unsafe_tool_execution",  # Buffer Overflow
+    "CWE-120": "unsafe_tool_execution",  # Buffer Copy without Size Checking
 }
 
 # Keyword patterns for description-based fallback classification
