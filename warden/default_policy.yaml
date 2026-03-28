@@ -1,0 +1,190 @@
+version: "1.0"
+
+# Default Prismor Warden policy
+# All rules from the built-in detection engine, now configurable.
+#
+# Override per-project: create .prismor-warden/policy.yaml in your workspace.
+# Only rules you define there will override — the rest fall back to defaults.
+
+rules:
+  # ── CRITICAL: Destructive commands ────────────────────────────────────
+  - id: destructive-command
+    severity: CRITICAL
+    category: destructive_command
+    title: Potentially destructive shell command detected
+    event_types: [shell]
+    fields: [command]
+    patterns:
+      - 'rm\s+(?:-[a-zA-Z]*f[a-zA-Z]*\s+|(?:-[a-zA-Z]+\s+)*)(?:/\s*$|/\s+)'
+      - 'sudo\s+rm\b'
+      - 'chmod\s+777\b'
+      - 'chown\s+-R\b'
+      - 'mkfs\b'
+      - 'dd\s+if=.*of=/dev/'
+      - 'shutdown\b'
+      - 'reboot\b'
+      - 'launchctl\s+unload\b'
+    action: block
+
+  # ── CRITICAL: Secret exfiltration ─────────────────────────────────────
+  - id: secret-exfiltration
+    severity: CRITICAL
+    category: secret_exfiltration
+    title: Likely secret exfiltration command detected
+    event_types: [shell]
+    fields: [command]
+    patterns:
+      - '\b(cat|sed|grep|awk)\b[^\n]*(\.env|id_rsa|id_ed25519|\.npmrc|\.pypirc|\.aws|\.ssh)[^\n]*(curl|wget|nc|scp|ftp|http)'
+    action: block
+
+  # ── CRITICAL: DoS / resource exhaustion ───────────────────────────────
+  - id: dos-resource-exhaustion
+    severity: CRITICAL
+    category: dos_resource_exhaustion
+    title: Denial-of-service or resource exhaustion pattern detected
+    event_types: [shell]
+    fields: [command]
+    patterns:
+      - ':\(\)\s*\{.*\|.*&\s*\}\s*;'
+      - 'while\s+true\s*;?\s*do\b'
+      - 'yes\s*\|'
+      - 'dd\s+if=/dev/(zero|urandom)\b'
+      - 'cat\s+/dev/urandom\b'
+      - '\b(stress|stress-ng)\b'
+      - 'ulimit\s+-[a-z]+\s+unlimited'
+    action: block
+
+  # ── CRITICAL: RCE / reverse shell canaries ────────────────────────────
+  - id: rce-canary
+    severity: CRITICAL
+    category: rce_canary
+    title: Remote code execution or reverse shell pattern detected
+    event_types: [shell]
+    fields: [command]
+    patterns:
+      - 'bash\s+-i\s+>&\s*/dev/tcp/'
+      - '/dev/tcp/\d'
+      - 'nc\s+.*-[a-z]*l[a-z]*\s*.*-p'
+      - 'python3?\s+-c\s+.*(?:exec|eval|import\s+os)'
+      - 'perl\s+-e\s+.*(?:socket|exec)'
+      - 'echo\s+.*\|\s*crontab'
+      - '\*\s+\*\s+\*\s+\*\s+\*.*crontab'
+      - '\b(ncat|socat)\b.*(?:exec|listen|EXEC)'
+      - 'mkfifo\s+.*\bsh\b'
+    action: block
+
+  # ── CRITICAL: Privilege escalation ────────────────────────────────────
+  - id: privilege-escalation
+    severity: CRITICAL
+    category: privilege_escalation
+    title: Privilege escalation pattern detected
+    event_types: [shell]
+    fields: [command]
+    patterns:
+      - 'chmod\s+[ugo+]*s\s'
+      - 'chmod\s+[0-7]*[4-7][0-7]{2}[0-7]\s'
+      - '\bsetcap\b'
+      - '\bvisudo\b|/etc/sudoers'
+      - 'usermod\s+.*-[a-zA-Z]*G\s+.*sudo'
+      - '\b(useradd|adduser)\b'
+      - '\bnsenter\b'
+      - '\bpkexec\b'
+      - 'chattr\s+\+i\b'
+    action: block
+
+  # ── HIGH: Prompt injection ────────────────────────────────────────────
+  - id: prompt-injection
+    severity: HIGH
+    category: prompt_injection
+    title: Prompt-injection or system-prompt extraction pattern detected
+    event_types: [prompt, tool_result]
+    fields: [combined_text]
+    patterns:
+      - '(ignore\s+(all\s+)?(any\s+)?(previous\s+)?instructions|reveal (your|the) system prompt|developer instructions|exfiltrat(e|ion)|print .*secret|show .*token|bypass guardrails|jailbreak)'
+    action: block
+
+  # ── HIGH: Remote fetch-and-execute ────────────────────────────────────
+  - id: remote-execution
+    severity: HIGH
+    category: remote_execution
+    title: Remote fetch-and-execute pattern detected
+    event_types: [shell]
+    fields: [command]
+    patterns:
+      - '\b(curl|wget)\b[^|;\n]*\|\s*(bash|sh)\b'
+    action: block
+
+  # ── HIGH: Sensitive file access ───────────────────────────────────────
+  - id: secret-access
+    severity: HIGH
+    category: secret_access
+    title: Sensitive file access detected
+    event_types: [file_read, file_write]
+    fields: [path]
+    patterns:
+      - '(^|/)(\.env(\..*)?|\.npmrc|\.pypirc|id_rsa|id_ed25519|known_hosts|authorized_keys|credentials|config\.json|secrets?)(/|$)|(^|/)\.(aws|ssh|gnupg)(/|$)'
+    action: block
+
+  # ── HIGH: Suspicious network destinations ─────────────────────────────
+  - id: suspicious-network
+    severity: HIGH
+    category: secret_exfiltration
+    title: Network call to a suspicious sink detected
+    event_types: [network]
+    fields: [url]
+    patterns:
+      - '(webhook\.site|ngrok-free\.app|ngrok\.io|pastebin\.com|discord(app)?\.com/api/webhooks|transfer\.sh)'
+    action: block
+
+  # ── HIGH: Database modification ───────────────────────────────────────
+  - id: db-modification
+    severity: HIGH
+    category: db_modification
+    title: Database modification command detected
+    event_types: [shell]
+    fields: [command]
+    patterns:
+      - '\b(DROP\s+(TABLE|DATABASE)|TRUNCATE\s+TABLE|DELETE\s+FROM|UPDATE\s+\w+\s+SET|ALTER\s+TABLE|INSERT\s+INTO)\b'
+      - '(?:mysql|psql|sqlite3)\s+.*(?:-e\s+|-c\s+)[''"]?\s*(?:DROP|DELETE|UPDATE|ALTER|INSERT|TRUNCATE)'
+    action: block
+
+  # ── HIGH: Database dumps / sensitive queries ──────────────────────────
+  - id: db-access
+    severity: HIGH
+    category: db_access
+    title: Database dump or sensitive table access detected
+    event_types: [shell]
+    fields: [command]
+    patterns:
+      - '\b(pg_dump|mysqldump|mongodump|redis-cli\s+--rdb)\b'
+      - 'sqlite3\s+.*\.dump'
+      - '\bSELECT\b[^;]*\bFROM\b[^;]*\b(users?|accounts?|credentials?|passwords?|secrets?|tokens?|sessions?|admins?)\b'
+      - '\bCOPY\b.*\bTO\b\s+[''"'']'
+    action: warn
+
+  # ── HIGH: Path traversal ──────────────────────────────────────────────
+  - id: path-traversal
+    severity: HIGH
+    category: path_traversal
+    title: Path traversal or sensitive system file access detected
+    event_types: [shell, file_read]
+    fields: [command, path]
+    patterns:
+      - '(\.\./){2,}'
+      - '/etc/(passwd|shadow|hosts|sudoers)'
+      - '/proc/self/(environ|cmdline|maps|root)'
+      - '/proc/\d+/(environ|cmdline|maps)'
+    action: warn
+
+  # ── MEDIUM-HIGH: High-risk file writes ────────────────────────────────
+  - id: risky-write
+    severity: MEDIUM
+    category: risky_write
+    title: Write to high-risk file path detected
+    event_types: [file_write]
+    fields: [path]
+    patterns:
+      - '(^|/)(\.github/workflows/.+\.(yml|yaml)|Dockerfile|docker-compose\.ya?ml|package\.json|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|requirements.*\.txt|pyproject\.toml|Pipfile|Gemfile|go\.mod|Cargo\.toml|pom\.xml|build\.gradle(\.kts)?|terraform\.tfvars|\.env(\..*)?)$'
+    action: warn
+
+allowlists: []

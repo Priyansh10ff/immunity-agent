@@ -1,7 +1,19 @@
+"""Warden policy evaluation.
+
+This module provides two evaluation paths:
+  1. evaluate_event()      — legacy hardcoded patterns (kept for backward compat)
+  2. PolicyEngine           — new YAML-based configurable engine (warden.policy_engine)
+
+The legacy patterns and evaluate_event() are preserved so that existing tests
+importing DESTRUCTIVE_COMMAND_PATTERN etc. continue to work. New code should
+use PolicyEngine directly.
+"""
 from __future__ import annotations
 
 import re
 from typing import Any, Dict, List, Optional
+
+# ── Legacy compiled patterns (kept for backward compat with tests) ──────────
 
 SENSITIVE_PATH_PATTERN = re.compile(
     r"(^|/)(\.env(\..*)?|\.npmrc|\.pypirc|id_rsa|id_ed25519|known_hosts|authorized_keys|credentials|config\.json|secrets?)(/|$)|(^|/)\.(aws|ssh|gnupg)(/|$)",
@@ -29,7 +41,7 @@ PROMPT_INJECTION_PATTERN = re.compile(
 
 DESTRUCTIVE_COMMAND_PATTERN = re.compile(
     r"(?:"
-    r"rm\s+(?:-[a-zA-Z]*f[a-zA-Z]*\s+|(?:-[a-zA-Z]+\s+)*)(?:/\s*$|/\s+)"  # rm -rf / (root only, not /tmp/foo)
+    r"rm\s+(?:-[a-zA-Z]*f[a-zA-Z]*\s+|(?:-[a-zA-Z]+\s+)*)(?:/\s*$|/\s+)"
     r"|sudo\s+rm\b"
     r"|chmod\s+777\b"
     r"|chown\s+-R\b"
@@ -56,28 +68,28 @@ SUSPICIOUS_NETWORK_PATTERN = re.compile(
 
 DOS_PATTERN = re.compile(
     r"(?:"
-    r":\(\)\s*\{.*\|.*&\s*\}\s*;"       # fork bomb
-    r"|while\s+true\s*;?\s*do\b"         # infinite loops
-    r"|yes\s*\|"                          # yes pipe flood
-    r"|dd\s+if=/dev/(zero|urandom)\b"    # disk fill / random flood
-    r"|cat\s+/dev/urandom\b"             # random flood
-    r"|\b(stress|stress-ng)\b"            # stress test tools
-    r"|ulimit\s+-[a-z]+\s+unlimited"      # removing resource limits
+    r":\(\)\s*\{.*\|.*&\s*\}\s*;"
+    r"|while\s+true\s*;?\s*do\b"
+    r"|yes\s*\|"
+    r"|dd\s+if=/dev/(zero|urandom)\b"
+    r"|cat\s+/dev/urandom\b"
+    r"|\b(stress|stress-ng)\b"
+    r"|ulimit\s+-[a-z]+\s+unlimited"
     r")",
     re.IGNORECASE,
 )
 
 RCE_CANARY_PATTERN = re.compile(
     r"(?:"
-    r"bash\s+-i\s+>&\s*/dev/tcp/"                        # bash reverse shell
-    r"|/dev/tcp/\d"                                       # /dev/tcp connection
-    r"|nc\s+.*-[a-z]*l[a-z]*\s*.*-p"                     # netcat listener
-    r"|python3?\s+-c\s+.*(?:exec|eval|import\s+os)"       # python exec/eval
-    r"|perl\s+-e\s+.*(?:socket|exec)"                     # perl reverse shell
-    r"|echo\s+.*\|\s*crontab"                              # cron injection
-    r"|\*\s+\*\s+\*\s+\*\s+\*.*crontab"                  # cron wildcard injection
-    r"|\b(ncat|socat)\b.*(?:exec|listen|EXEC)"            # ncat/socat with exec
-    r"|mkfifo\s+.*\bsh\b"                                  # named pipe shell
+    r"bash\s+-i\s+>&\s*/dev/tcp/"
+    r"|/dev/tcp/\d"
+    r"|nc\s+.*-[a-z]*l[a-z]*\s*.*-p"
+    r"|python3?\s+-c\s+.*(?:exec|eval|import\s+os)"
+    r"|perl\s+-e\s+.*(?:socket|exec)"
+    r"|echo\s+.*\|\s*crontab"
+    r"|\*\s+\*\s+\*\s+\*\s+\*.*crontab"
+    r"|\b(ncat|socat)\b.*(?:exec|listen|EXEC)"
+    r"|mkfifo\s+.*\bsh\b"
     r")",
     re.IGNORECASE,
 )
@@ -102,25 +114,25 @@ DB_ACCESS_PATTERN = re.compile(
 
 PRIVESC_PATTERN = re.compile(
     r"(?:"
-    r"chmod\s+[ugo+]*s\s"                  # SUID/SGID
-    r"|chmod\s+[0-7]*[4-7][0-7]{2}[0-7]\s" # setuid via octal (4xxx, 6xxx)
-    r"|\bsetcap\b"                          # capability escalation
-    r"|\bvisudo\b|/etc/sudoers"             # sudoers manipulation
-    r"|usermod\s+.*-[a-zA-Z]*G\s+.*sudo"   # add user to sudo group
-    r"|\b(useradd|adduser)\b"               # user creation
-    r"|\bnsenter\b"                          # namespace enter (container escape)
-    r"|\bpkexec\b"                           # polkit execution
-    r"|chattr\s+\+i\b"                       # immutable flag
+    r"chmod\s+[ugo+]*s\s"
+    r"|chmod\s+[0-7]*[4-7][0-7]{2}[0-7]\s"
+    r"|\bsetcap\b"
+    r"|\bvisudo\b|/etc/sudoers"
+    r"|usermod\s+.*-[a-zA-Z]*G\s+.*sudo"
+    r"|\b(useradd|adduser)\b"
+    r"|\bnsenter\b"
+    r"|\bpkexec\b"
+    r"|chattr\s+\+i\b"
     r")",
     re.IGNORECASE,
 )
 
 PATH_TRAVERSAL_PATTERN = re.compile(
     r"(?:"
-    r"(\.\./){2,}"                                        # directory traversal chains
-    r"|/etc/(passwd|shadow|hosts|sudoers)"                 # sensitive system files
-    r"|/proc/self/(environ|cmdline|maps|root)"             # proc filesystem
-    r"|/proc/\d+/(environ|cmdline|maps)"                   # proc by PID
+    r"(\.\./){2,}"
+    r"|/etc/(passwd|shadow|hosts|sudoers)"
+    r"|/proc/self/(environ|cmdline|maps|root)"
+    r"|/proc/\d+/(environ|cmdline|maps)"
     r")",
     re.IGNORECASE,
 )
@@ -138,6 +150,7 @@ def is_manifest_path(file_path: str = "") -> bool:
 
 
 def evaluate_event(event: Dict[str, Any], index: int, session_id: str = "") -> List[Dict[str, Any]]:
+    """Legacy evaluation using hardcoded patterns. Kept for backward compat."""
     findings: List[Dict[str, Any]] = []
     event_type = str(event.get("type", "")).lower()
     command = str(event.get("command", ""))

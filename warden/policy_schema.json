@@ -1,0 +1,123 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Prismor Warden Policy Schema",
+    "description": "Schema for Warden YAML policy files that define detection rules, allowlists, and enforcement actions.",
+    "type": "object",
+    "required": ["version", "rules"],
+    "properties": {
+        "version": {
+            "type": "string",
+            "description": "Policy schema version",
+            "enum": ["1.0"]
+        },
+        "rules": {
+            "type": "array",
+            "description": "Detection rules evaluated against agent events",
+            "items": {
+                "$ref": "#/definitions/rule"
+            }
+        },
+        "allowlists": {
+            "type": "array",
+            "description": "Allowlist entries that suppress specific rule matches",
+            "items": {
+                "$ref": "#/definitions/allowlist_entry"
+            }
+        }
+    },
+    "additionalProperties": false,
+    "definitions": {
+        "rule": {
+            "type": "object",
+            "required": ["id", "severity", "category", "title", "event_types", "patterns", "action"],
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "description": "Unique rule identifier (e.g., destructive-command)",
+                    "pattern": "^[a-z0-9][a-z0-9-]*$"
+                },
+                "severity": {
+                    "type": "string",
+                    "enum": ["CRITICAL", "HIGH", "MEDIUM", "LOW"],
+                    "description": "Finding severity when this rule matches"
+                },
+                "category": {
+                    "type": "string",
+                    "description": "Finding category for grouping and feed correlation"
+                },
+                "title": {
+                    "type": "string",
+                    "description": "Human-readable title shown in findings"
+                },
+                "event_types": {
+                    "type": "array",
+                    "description": "Event types this rule applies to (shell, file_read, file_write, network, prompt, tool_result)",
+                    "items": {
+                        "type": "string",
+                        "enum": ["shell", "file_read", "file_write", "network", "prompt", "tool_result"]
+                    },
+                    "minItems": 1
+                },
+                "fields": {
+                    "type": "array",
+                    "description": "Event fields to match against. Defaults to the canonical field for the event type (command for shell, path for file_*, url for network, combined_text for prompt/tool_result).",
+                    "items": {
+                        "type": "string",
+                        "enum": ["command", "path", "url", "combined_text"]
+                    }
+                },
+                "patterns": {
+                    "type": "array",
+                    "description": "Regex patterns (Python re syntax). A match on ANY pattern triggers the rule.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "minItems": 1
+                },
+                "action": {
+                    "type": "string",
+                    "enum": ["block", "warn", "log"],
+                    "description": "Enforcement action: block (reject in enforce mode), warn (flag but allow), log (record only)"
+                },
+                "enabled": {
+                    "type": "boolean",
+                    "description": "Whether this rule is active. Defaults to true.",
+                    "default": true
+                }
+            },
+            "additionalProperties": false
+        },
+        "allowlist_entry": {
+            "type": "object",
+            "required": ["id", "rule_ids", "patterns"],
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "description": "Unique allowlist entry identifier",
+                    "pattern": "^[a-z0-9][a-z0-9-]*$"
+                },
+                "rule_ids": {
+                    "type": "array",
+                    "description": "Rule IDs this allowlist applies to. Use ['*'] for all rules.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "minItems": 1
+                },
+                "patterns": {
+                    "type": "array",
+                    "description": "Regex patterns that, when matched, suppress the finding.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "minItems": 1
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "Human-readable reason for this allowlist entry"
+                }
+            },
+            "additionalProperties": false
+        }
+    }
+}
