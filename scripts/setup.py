@@ -21,15 +21,6 @@ from pathlib import Path
 
 VERSION = "v0.2"
 
-# 5-line icon: middle rows of the logo, uniform ~44 chars each, left-aligned as a block
-ICON = [
-    "a        .UMMMMWWWWW&&&&&&i ",
-    "a          .JWWWWW&&&&&&WWi ",
-    "a            .L&&&&&&WWW&&i ",
-    "a              .0&&WWW&&WWi ",
-    "a                .ZW&WWWWWi ",
-]
-
 # ── ANSI Color / Style helpers ───────────────────────────────────────────────
 
 RESET   = "\033[0m"
@@ -236,21 +227,15 @@ def severity_color(sev):
     return DIM
 
 # ── Header ───────────────────────────────────────────────────────────────────
-# Icon (5 lines) printed left-aligned; step info flush to the right side.
 
 def draw_header(step=None, total=None, label=None):
-    """Print the compact icon + step title side-by-side, then a rule line."""
-    right_lines = [
-        c("PRISMOR WARDEN", BOLD, CYAN),
-        c(f"Security Setup  ·  {VERSION}", DIM),
-        "",
-        (c(f"Step {step} / {total}  ·  {label}", BOLD) if step else ""),
-        "",
-    ]
-    for i, icon_line in enumerate(ICON):
-        rt = right_lines[i] if i < len(right_lines) else ""
-        print(f"  {c(icon_line, CYAN)}   {rt}")
     w = get_term_width()
+    print()
+    print(f"  {c('PRISMOR WARDEN', BOLD, CYAN)}  {c(f'· {VERSION}', DIM)}")
+    if step and label:
+        step_txt = c(f"Step {step}/{total}", DIM)
+        label_txt = c(label, BOLD)
+        print(f"  {step_txt}  {label_txt}")
     print(c("  " + "─" * min(w - 4, 68), DIM))
     print()
 
