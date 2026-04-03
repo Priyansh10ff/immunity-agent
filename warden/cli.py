@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import sys
 from datetime import datetime, timezone
@@ -155,6 +156,13 @@ def main() -> None:
         sessions = list_sessions(workspace, args.limit)
         if getattr(args, "findings_only", False):
             sessions = [s for s in sessions if s.get("findingsCount", 0) > 0]
+            # Sort by risk score (highest first)
+            sessions.sort(key=lambda s: s.get("riskScore", 0), reverse=True)
+            # Enrich with actual findings for display
+            for s in sessions:
+                full = get_session(workspace, s["sessionId"])
+                if full:
+                    s["findings"] = full.get("findings", [])
         emit({"sessions": sessions}, as_json=args.json, formatter=format_sessions)
         return
 
@@ -557,6 +565,28 @@ def emit(payload: Any, *, as_json: bool, formatter=None) -> None:
     print(formatter(payload))
 
 
+_SECRET_PATTERNS = re.compile(
+    r"((?:ghp|gho|ghu|ghs|ghr|github_pat)_[A-Za-z0-9_]{10,})"    # GitHub tokens
+    r"|((?:sk|pk)[-_][A-Za-z0-9-]{16,})"                            # Stripe/OpenAI keys
+    r"|((?:AKIA)[A-Z0-9]{12,})"                                    # AWS access keys
+    r"|(eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,})"           # JWTs
+    r"|((?:token|secret|password|bearer|apikey)[\s=:\"']+\S{8,})", # key=value secrets
+    re.IGNORECASE,
+)
+
+
+def _redact_evidence(evidence: str) -> str:
+    """Redact secrets in evidence strings with ****."""
+    if not evidence:
+        return evidence
+    def _mask(m):
+        full = m.group(0)
+        if len(full) <= 8:
+            return full
+        return full[:6] + "****" + full[-2:]
+    return _SECRET_PATTERNS.sub(_mask, evidence)
+
+
 def format_sessions(payload: Dict[str, Any]) -> str:
     sessions = payload["sessions"]
     lines = ["Prismor Warden Sessions", "======================="]
@@ -564,10 +594,24 @@ def format_sessions(payload: Dict[str, Any]) -> str:
         lines.append("No sessions stored.")
         return "\n".join(lines)
     for index, session in enumerate(sessions, start=1):
+        risk = session['riskScore']
+        risk_color = _RED if risk >= 50 else _YELLOW if risk >= 20 else _GREEN
         lines.append(
-            f"{index}. {session['sessionId']} | agent={session['agent']} | risk={session['riskScore']} | findings={session['findingsCount']} | updated={session['updatedAt']}"
+            f"\n{_color(f'{index}.', _BOLD)} {session['sessionId'][:16]}…"
+            f"  {_color(f'risk={risk}/100', risk_color)}"
+            f"  findings={session['findingsCount']}"
+            f"  agent={session['agent']}"
         )
-        lines.append(f"   workspace={session['workspacePath']}")
+        # Show inline findings if they were enriched (--findings-only)
+        findings = session.get("findings", [])
+        if findings:
+            for f in findings:
+                sev = f.get("severity", "?")
+                sev_color = _RED if sev == "CRITICAL" else _YELLOW if sev == "HIGH" else _DIM
+                evidence = _redact_evidence(f.get("evidence", ""))
+                lines.append(f"   {_color(f'[{sev}]', sev_color)} {f.get('title', f.get('category', ''))}")
+                if evidence:
+                    lines.append(f"          {_color(evidence, _DIM)}")
     return "\n".join(lines)
 
 

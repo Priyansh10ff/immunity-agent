@@ -477,6 +477,27 @@ def do_install(target, mode, rules, agents):
         return r.returncode == 0, "verified" if r.returncode == 0 else "failed"
     spinner_run("Verifying feed signature", verify)
 
+    # 6. Add warden shell alias
+    def add_alias():
+        alias_line = f'alias warden="python3 {PRISMOR_DIR}/warden/cli.py --workspace ."'
+        # Find the user's shell rc file
+        shell = os.environ.get("SHELL", "/bin/zsh")
+        if "zsh" in shell:
+            rc = Path.home() / ".zshrc"
+        elif "bash" in shell:
+            rc = Path.home() / ".bashrc"
+        else:
+            rc = Path.home() / ".profile"
+        if rc.exists():
+            content = rc.read_text()
+            if "alias warden=" in content:
+                return True, "already in " + rc.name
+        else:
+            content = ""
+        rc.write_text(content.rstrip() + f"\n\n# Prismor Warden\n{alias_line}\n")
+        return True, f"added to {rc.name}"
+    spinner_run("Adding warden alias", add_alias)
+
     # Done
     home = str(Path.home())
     print()
@@ -490,6 +511,12 @@ def do_install(target, mode, rules, agents):
     info("Feed",    str(PRISMOR_DIR / "advisories/immunity-feed.json").replace(home, "~"))
     info("Warden",  f"hooks installed (mode: {mode})")
     info("Config",  str(target / "CLAUDE.md").replace(home, "~"))
+    info("Alias",   "warden (restart shell or run: source ~/.zshrc)")
+    print()
+    print(w("  Quick commands:", GRN))
+    print(f"    warden status                      {w('most recent session', DIM)}")
+    print(f"    warden sessions --findings-only     {w('all flagged sessions by risk', DIM)}")
+    print(f"    warden check \"rm -rf /\"             {w('pre-check a command', DIM)}")
     print()
     sys.stdout.write(SHOW)
     sys.stdout.flush()
