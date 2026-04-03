@@ -6,6 +6,47 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 
+# ── Global workspace registry ────────────────────────────────────────────────
+
+def _registry_path() -> Path:
+    return Path.home() / ".prismor" / "workspaces.json"
+
+
+def register_workspace(workspace: Path) -> None:
+    """Add a workspace to the global registry (idempotent)."""
+    ws = str(workspace.resolve())
+    reg = _registry_path()
+    paths: List[str] = []
+    if reg.exists():
+        try:
+            paths = json.loads(reg.read_text())
+        except Exception:
+            paths = []
+    if ws not in paths:
+        paths.append(ws)
+        reg.parent.mkdir(parents=True, exist_ok=True)
+        reg.write_text(json.dumps(paths, indent=2))
+
+
+def list_registered_workspaces() -> List[Path]:
+    """Return all registered workspace paths that still exist and have a warden.db."""
+    reg = _registry_path()
+    if not reg.exists():
+        return []
+    try:
+        paths = json.loads(reg.read_text())
+    except Exception:
+        return []
+    result = []
+    for p in paths:
+        ws = Path(p)
+        if (ws / ".prismor-warden" / "warden.db").exists():
+            result.append(ws)
+    return result
+
+
+# ── Helpers ──────────────────────────────────────────────────────────────────
+
 def infer_default_workspace(cwd: Path) -> Path:
     resolved = cwd.resolve()
     if resolved.name == "prismor":

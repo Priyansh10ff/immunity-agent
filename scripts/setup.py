@@ -408,6 +408,14 @@ def do_install(target, mode, rules, agents):
 
     target = Path(target).resolve()
 
+    # 0. Register workspace globally
+    try:
+        sys.path.insert(0, str(PRISMOR_DIR))
+        from warden.store import register_workspace
+        register_workspace(target)
+    except Exception:
+        pass
+
     # 1. Update prismor
     def update():
         if not PRISMOR_DIR.exists():

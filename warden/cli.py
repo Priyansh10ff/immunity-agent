@@ -40,8 +40,10 @@ from warden.store import (
     get_session,
     infer_default_workspace,
     initialize_database,
+    list_registered_workspaces,
     list_sessions,
     read_session_events,
+    register_workspace,
     save_session_snapshot,
 )
 
@@ -80,6 +82,11 @@ def main() -> None:
 
     repo_root = Path(__file__).resolve().parent.parent
     workspace = Path(args.workspace).resolve() if getattr(args, "workspace", None) else infer_default_workspace(Path.cwd())
+
+    # ── dashboard: global overview ───────────────────────────────────────
+    if args.command == "dashboard":
+        _print_dashboard()
+        return
 
     # ── info: quick workspace summary ───────────────────────────────────
     if args.command == "info":
@@ -158,14 +165,22 @@ def main() -> None:
 
     # ── sessions ───────────────────────────────────────────────────────
     if args.command == "sessions":
-        sessions = list_sessions(workspace, args.limit)
+        if getattr(args, "global_view", False):
+            sessions = []
+            for ws in list_registered_workspaces():
+                for s in list_sessions(ws, args.limit):
+                    s["_workspace"] = str(ws)
+                    sessions.append(s)
+        else:
+            sessions = list_sessions(workspace, args.limit)
         if getattr(args, "findings_only", False):
             sessions = [s for s in sessions if s.get("findingsCount", 0) > 0]
             # Sort by risk score (highest first)
             sessions.sort(key=lambda s: s.get("riskScore", 0), reverse=True)
             # Enrich with actual findings for display
             for s in sessions:
-                full = get_session(workspace, s["sessionId"])
+                ws = Path(s.get("_workspace", s.get("workspacePath", str(workspace))))
+                full = get_session(ws, s["sessionId"])
                 if full:
                     s["findings"] = full.get("findings", [])
         emit({"sessions": sessions}, as_json=args.json, formatter=format_sessions)
@@ -187,6 +202,7 @@ def main() -> None:
             scope=args.scope,
             mode=args.mode,
         )
+        register_workspace(workspace)
         for item in results:
             print(f"Installed {item['agent']} hooks at {item['configPath']}")
         return
@@ -208,6 +224,7 @@ def main() -> None:
 
     # ── hook-dispatch (called by IDE hooks) ────────────────────────────
     if args.command == "hook-dispatch":
+        register_workspace(workspace)
         payload = json.loads(sys.stdin.read() or "{}")
         normalized = normalize_payload(agent=args.agent, payload=payload, workspace=workspace)
         event = normalized["event"]
@@ -264,6 +281,9 @@ def build_parser() -> argparse.ArgumentParser:
     # ── info ───────────────────────────────────────────────────────────
     subparsers.add_parser("info", help="Show workspace, mode, rules, and hook status")
 
+    # ── dashboard ─────────────────────────────────────────────────────
+    subparsers.add_parser("dashboard", help="Global overview of all registered workspaces")
+
     # ── check ──────────────────────────────────────────────────────────
     check_parser = subparsers.add_parser("check", help="Quick pre-check a command or file path")
     check_parser.add_argument("value", help="The command string or file path to check")
@@ -299,6 +319,7 @@ def build_parser() -> argparse.ArgumentParser:
     sessions_parser.add_argument("--limit", type=int, default=20, help="Max sessions to show (default: 20)")
     sessions_parser.add_argument("--json", action="store_true", help="Output raw JSON")
     sessions_parser.add_argument("--findings-only", action="store_true", help="Only show sessions with findings")
+    sessions_parser.add_argument("--global", dest="global_view", action="store_true", help="Show sessions across all registered workspaces")
 
     # ── session ────────────────────────────────────────────────────────
     session_parser = subparsers.add_parser("session", help="Show a specific session")
@@ -437,6 +458,108 @@ def _find_hook_config(agent: str, workspace: Path) -> Path:
     if agent == "cursor":
         return workspace / ".cursor" / "hooks.json"
     return workspace / ".windsurf" / "hooks.json"
+
+
+def _print_dashboard() -> None:
+    """Global overview across all registered workspaces."""
+    home = str(Path.home())
+    workspaces = list_registered_workspaces()
+
+    print()
+    print(f"  {_color('PRISMOR WARDEN', _BOLD)}  dashboard")
+    print(f"  {_color('─' * 50, _DIM)}")
+
+    if not workspaces:
+        print()
+        print(f"  {_color('No registered workspaces found.', _DIM)}")
+        print(f"  Run {_color('warden install-hooks --agent all --mode enforce', _CYAN)} in a project to register it.")
+        print()
+        return
+
+    print()
+
+    for ws in workspaces:
+        ws_display = str(ws).replace(home, "~")
+
+        # Get sessions
+        sessions = list_sessions(ws, 50)
+        total = len(sessions)
+        with_findings = sum(1 for s in sessions if s.get("findingsCount", 0) > 0)
+
+        # Latest session
+        latest_risk = 0
+        latest_agent = ""
+        latest_time = ""
+        if sessions:
+            latest = sessions[0]
+            latest_risk = latest.get("riskScore", 0)
+            latest_agent = latest.get("agent", "")
+            ts = latest.get("updatedAt") or latest.get("startedAt") or ""
+            if ts:
+                latest_time = _relative_time(ts)
+
+        # Risk color
+        risk_color = _RED if latest_risk >= 50 else _YELLOW if latest_risk >= 20 else _GREEN
+
+        # Mode detection
+        mode = ""
+        for agent_name in ("claude", "cursor", "windsurf"):
+            hook_path = _find_hook_config(agent_name, ws)
+            if hook_path and hook_path.exists():
+                try:
+                    content = hook_path.read_text()
+                    if "prismor" in content.lower() or "warden" in content.lower():
+                        if "--mode enforce" in content:
+                            mode = "enforce"
+                        elif "--mode observe" in content:
+                            mode = "observe"
+                        break
+                except Exception:
+                    pass
+
+        # Status line
+        risk_str = _color(f"risk={latest_risk}/100", risk_color)
+        findings_str = f"{with_findings} findings" if with_findings > 0 else _color("clean", _GREEN)
+        mode_str = _color(mode, _GREEN if mode == "enforce" else _YELLOW) if mode else _color("no hooks", _DIM)
+        time_str = _color(latest_time, _DIM) if latest_time else ""
+
+        print(f"  {_color(ws_display, _BOLD)}")
+        print(f"    {risk_str}  {findings_str}  {mode_str}  {time_str}")
+        print()
+
+    total_ws = len(workspaces)
+    total_findings = sum(
+        sum(1 for s in list_sessions(ws, 999) if s.get("findingsCount", 0) > 0)
+        for ws in workspaces
+    )
+    print(f"  {_color('─' * 50, _DIM)}")
+    print(f"  {total_ws} workspace{'s' if total_ws != 1 else ''}  |  {total_findings} session{'s' if total_findings != 1 else ''} with findings")
+    print()
+
+
+def _relative_time(ts: str) -> str:
+    """Convert ISO timestamp to relative time string."""
+    try:
+        if ts.endswith("Z"):
+            ts = ts[:-1] + "+00:00"
+        dt = datetime.fromisoformat(ts)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        now = datetime.now(timezone.utc)
+        diff = now - dt
+        secs = int(diff.total_seconds())
+        if secs < 60:
+            return "just now"
+        if secs < 3600:
+            m = secs // 60
+            return f"{m}m ago"
+        if secs < 86400:
+            h = secs // 3600
+            return f"{h}h ago"
+        d = secs // 86400
+        return f"{d}d ago"
+    except Exception:
+        return ts[:10] if len(ts) >= 10 else ts
 
 
 # ── New command implementations ─────────────────────────────────────────

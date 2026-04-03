@@ -160,16 +160,20 @@ Warden uses a **YAML-based policy engine**. All detection rules, enforcement set
 #### CLI commands:
 
 ```bash
-warden info                          # workspace, mode, rules, hooks at a glance
-warden check "rm -rf /"              # pre-check a command
-warden status                        # most recent session findings
-warden sessions --findings-only      # all flagged sessions sorted by risk
-warden policy show                   # active rules after merging
-warden policy edit                   # interactive toggle UI
-warden policy init                   # scaffold .prismor-warden/policy.yaml
-warden policy validate <file>        # validate a policy file
+warden info                                    # workspace, mode, rules, hooks at a glance
+warden dashboard                               # global overview of all registered workspaces
+warden check "rm -rf /"                        # pre-check a command
+warden status                                  # most recent session findings
+warden sessions --findings-only                # flagged sessions sorted by risk
+warden sessions --findings-only --global       # across all registered workspaces
+warden policy show                             # active rules after merging
+warden policy edit                             # interactive toggle UI
+warden policy init                             # scaffold .prismor-warden/policy.yaml
+warden policy validate <file>                  # validate a policy file
 warden install-hooks --agent all --mode enforce
 ```
+
+**Workspace registry:** Workspaces are auto-registered in `~/.prismor/workspaces.json` whenever hooks are installed or events are dispatched. The `dashboard` and `--global` commands read from this registry — no filesystem scanning.
 
 ### Setup wizard
 
