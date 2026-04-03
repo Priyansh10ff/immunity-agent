@@ -81,6 +81,11 @@ def main() -> None:
     repo_root = Path(__file__).resolve().parent.parent
     workspace = Path(args.workspace).resolve() if getattr(args, "workspace", None) else infer_default_workspace(Path.cwd())
 
+    # ── info: quick workspace summary ───────────────────────────────────
+    if args.command == "info":
+        _print_info(workspace)
+        return
+
     # ── check: quick pre-check a command or path ───────────────────────
     if args.command == "check":
         engine = PolicyEngine(workspace=workspace)
@@ -256,6 +261,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"prismor-warden {__version__}")
     subparsers = parser.add_subparsers(dest="command")
 
+    # ── info ───────────────────────────────────────────────────────────
+    subparsers.add_parser("info", help="Show workspace, mode, rules, and hook status")
+
     # ── check ──────────────────────────────────────────────────────────
     check_parser = subparsers.add_parser("check", help="Quick pre-check a command or file path")
     check_parser.add_argument("value", help="The command string or file path to check")
@@ -335,6 +343,100 @@ def build_parser() -> argparse.ArgumentParser:
     policy_edit.add_argument("--workspace", help="Workspace path")
 
     return parser
+
+
+def _print_info(workspace: Path) -> None:
+    """Show a quick summary of the workspace config."""
+    home = str(Path.home())
+    ws_display = str(workspace).replace(home, "~")
+
+    print()
+    print(f"  {_color('PRISMOR WARDEN', _BOLD)}  workspace info")
+    print(f"  {_color('─' * 50, _DIM)}")
+    print()
+
+    # Workspace
+    print(f"  {_color('Workspace:', _GREEN)}    {ws_display}")
+
+    # Policy
+    policy_path = workspace / ".prismor-warden" / "policy.yaml"
+    if policy_path.exists():
+        print(f"  {_color('Policy:', _GREEN)}       {str(policy_path).replace(home, '~')}")
+    else:
+        print(f"  {_color('Policy:', _GREEN)}       {_color('defaults only (no project overrides)', _DIM)}")
+
+    # Rules
+    engine = PolicyEngine(workspace=workspace)
+    # Count how many rules come from defaults vs how many are disabled
+    default_path = Path(__file__).resolve().parent / "default_policy.yaml"
+    total_default = 0
+    try:
+        from warden.policy_engine import _load_yaml
+        data = _load_yaml(default_path)
+        if data:
+            total_default = len(data.get("rules", []))
+    except Exception:
+        total_default = len(engine.rules)
+    n_active = len(engine.rules)
+    n_disabled = total_default - n_active
+    rules_str = f"{n_active} active"
+    if n_disabled > 0:
+        rules_str += f", {_color(f'{n_disabled} disabled', _YELLOW)}"
+    print(f"  {_color('Rules:', _GREEN)}        {rules_str}")
+
+    # Allowlists
+    if engine.allowlists:
+        print(f"  {_color('Allowlists:', _GREEN)}   {len(engine.allowlists)}")
+
+    # Hooks — check which agents have hooks installed
+    agents_with_hooks = []
+    mode = None
+    for agent_name in ("claude", "cursor", "windsurf"):
+        hook_path = _find_hook_config(agent_name, workspace)
+        if hook_path and hook_path.exists():
+            try:
+                content = hook_path.read_text()
+                if "warden" in content.lower() or "prismor" in content.lower():
+                    agents_with_hooks.append(agent_name)
+                    # Try to detect mode from hook config
+                    if mode is None:
+                        if "--mode enforce" in content:
+                            mode = "enforce"
+                        elif "--mode observe" in content:
+                            mode = "observe"
+            except Exception:
+                pass
+
+    if agents_with_hooks:
+        mode_color = _GREEN if mode == "enforce" else _YELLOW
+        mode_str = _color(mode or "unknown", mode_color)
+        print(f"  {_color('Hooks:', _GREEN)}       {', '.join(agents_with_hooks)}  ({mode_str})")
+    else:
+        print(f"  {_color('Hooks:', _GREEN)}       {_color('not installed', _YELLOW)}")
+
+    # Sessions
+    sessions = list_sessions(workspace, 5)
+    sessions_with_findings = [s for s in sessions if s.get("findingsCount", 0) > 0]
+    total_sessions = len(list_sessions(workspace, 999))
+    print(f"  {_color('Sessions:', _GREEN)}     {total_sessions} total, {len(sessions_with_findings)} with findings")
+
+    # Latest risk
+    if sessions:
+        latest = sessions[0]
+        risk = latest.get("riskScore", 0)
+        risk_color = _RED if risk >= 50 else _YELLOW if risk >= 20 else _GREEN
+        print(f"  {_color('Latest risk:', _GREEN)}  {_color(f'{risk}/100', risk_color)}  ({latest['sessionId'][:20]})")
+
+    print()
+
+
+def _find_hook_config(agent: str, workspace: Path) -> Path:
+    """Find the hook config file for an agent."""
+    if agent == "claude":
+        return workspace / ".claude" / "settings.json"
+    if agent == "cursor":
+        return workspace / ".cursor" / "hooks.json"
+    return workspace / ".windsurf" / "hooks.json"
 
 
 # ── New command implementations ─────────────────────────────────────────
