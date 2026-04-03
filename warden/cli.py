@@ -249,6 +249,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="Prismor Warden — local session-security utility for AI coding agents.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+    parser.add_argument("--workspace", help="Workspace path (applies to all commands)")
     parser.add_argument("--version", action="version", version=f"prismor-warden {__version__}")
     subparsers = parser.add_subparsers(dest="command")
 
