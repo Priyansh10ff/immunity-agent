@@ -495,6 +495,12 @@ def do_install(target, mode, rules, agents):
         shell = os.environ.get("SHELL", "/bin/zsh")
         rc = Path.home() / (".zshrc" if "zsh" in shell else ".bashrc" if "bash" in shell else ".profile")
         content = rc.read_text() if rc.exists() else ""
+        # Clean up old broken alias if present
+        if "alias warden=" in content:
+            lines = content.splitlines(keepends=True)
+            lines = [l for l in lines if "alias warden=" not in l]
+            content = "".join(lines)
+            rc.write_text(content)
         if str(PRISMOR_DIR / "scripts") in content:
             return True, "already in " + rc.name
         rc.write_text(content.rstrip() + f"\n\n# Prismor Warden\n{export_line}\n")
