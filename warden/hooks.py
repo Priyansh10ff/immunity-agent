@@ -3,14 +3,17 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
 from pathlib import Path
 from typing import Any, Dict, List
 
 from warden.store import append_session_event
 
+_SUPPORTED_AGENTS = ["claude", "cursor", "windsurf", "openclaw"]
+
 
 def install_hooks(*, repo_root: Path, workspace: Path, agent: str, scope: str, mode: str) -> List[Dict[str, str]]:
-    agents = ["claude", "cursor", "windsurf"] if agent == "all" else [agent]
+    agents = list(_SUPPORTED_AGENTS) if agent == "all" else [agent]
     results = []
     for current_agent in agents:
         config_path = _config_path(current_agent, scope, workspace)
@@ -20,6 +23,8 @@ def install_hooks(*, repo_root: Path, workspace: Path, agent: str, scope: str, m
             config = _merge_claude(config, command, workspace)
         elif current_agent == "cursor":
             config = _merge_cursor(config, command)
+        elif current_agent == "openclaw":
+            config = _merge_openclaw(config, command, repo_root)
         else:
             config = _merge_windsurf(config, command, workspace)
 
@@ -30,7 +35,7 @@ def install_hooks(*, repo_root: Path, workspace: Path, agent: str, scope: str, m
 
 
 def uninstall_hooks(*, repo_root: Path, workspace: Path, agent: str, scope: str) -> List[Dict[str, Any]]:
-    agents = ["claude", "cursor", "windsurf"] if agent == "all" else [agent]
+    agents = list(_SUPPORTED_AGENTS) if agent == "all" else [agent]
     results = []
     for current_agent in agents:
         config_path = _config_path(current_agent, scope, workspace)
@@ -42,10 +47,18 @@ def uninstall_hooks(*, repo_root: Path, workspace: Path, agent: str, scope: str)
                 config, removed = _strip_claude(config, marker)
             elif current_agent == "cursor":
                 config, removed = _strip_cursor(config, marker)
+            elif current_agent == "openclaw":
+                config, removed = _strip_openclaw(config, marker)
             else:
                 config, removed = _strip_windsurf(config, marker)
             if removed:
                 config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
+        # Also clean up internal hook directory for openclaw
+        if current_agent == "openclaw":
+            internal_hook = Path.home() / ".openclaw" / "hooks" / "prismor-warden"
+            if internal_hook.exists():
+                shutil.rmtree(internal_hook, ignore_errors=True)
+                removed = True
         results.append({"agent": current_agent, "configPath": str(config_path), "removed": removed})
     return results
 
@@ -65,6 +78,8 @@ def normalize_payload(*, agent: str, payload: Dict[str, Any], workspace: Path) -
         event = _normalize_claude(payload, session_id)
     elif agent == "windsurf":
         event = _normalize_windsurf(payload, session_id)
+    elif agent == "openclaw":
+        event = _normalize_openclaw(payload, session_id)
     else:
         event = _normalize_cursor(payload, session_id)
     return {"sessionId": session_id, "event": event}
@@ -94,12 +109,16 @@ def _config_path(agent: str, scope: str, workspace: Path) -> Path:
             return workspace / ".claude" / "settings.json"
         if agent == "cursor":
             return workspace / ".cursor" / "hooks.json"
+        if agent == "openclaw":
+            return workspace / ".openclaw" / "plugins.json"
         return workspace / ".windsurf" / "hooks.json"
 
     if agent == "claude":
         return home / ".claude" / "settings.json"
     if agent == "cursor":
         return home / ".cursor" / "hooks.json"
+    if agent == "openclaw":
+        return home / ".openclaw" / "config.json"
     return home / ".codeium" / "windsurf" / "hooks.json"
 
 
@@ -210,6 +229,142 @@ def _strip_windsurf(config: Dict[str, Any], marker: str) -> tuple[Dict[str, Any]
             removed = True
         hooks[event_name] = filtered
     return {**config, "hooks": hooks}, removed
+
+
+def _merge_openclaw(config: Dict[str, Any], command: str, repo_root: Path) -> Dict[str, Any]:
+    # 1. Scaffold the plugin package
+    plugin_dir = repo_root / "warden" / "openclaw-plugin"
+    _scaffold_openclaw_plugin(plugin_dir, command)
+
+    # 2. Register plugin path in config
+    plugins = list(config.get("plugins", []))
+    plugin_path = str(plugin_dir)
+    if plugin_path not in plugins:
+        plugins.append(plugin_path)
+
+    # 3. Scaffold internal hook for message:received
+    hooks_dir = Path.home() / ".openclaw" / "hooks" / "prismor-warden"
+    _scaffold_openclaw_internal_hook(hooks_dir, command)
+
+    return {**config, "plugins": plugins}
+
+
+def _strip_openclaw(config: Dict[str, Any], marker: str) -> tuple[Dict[str, Any], bool]:
+    plugins = list(config.get("plugins", []))
+    filtered = [p for p in plugins if "prismor" not in p.lower() and "warden" not in p.lower()]
+    removed = len(filtered) < len(plugins)
+    return {**config, "plugins": filtered}, removed
+
+
+_OPENCLAW_PLUGIN_JS = """\
+"use strict";
+
+const { execSync } = require("child_process");
+
+const WARDEN_COMMAND = "__WARDEN_COMMAND__";
+
+function dispatch(payload) {
+  try {
+    execSync(WARDEN_COMMAND, {
+      input: JSON.stringify(payload),
+      stdio: ["pipe", "pipe", "pipe"],
+      timeout: 10000,
+    });
+    return { block: false };
+  } catch (err) {
+    if (err.status === 2) {
+      const stderr = (err.stderr || "").toString().trim();
+      return { block: true, reason: stderr || "Blocked by Prismor Warden" };
+    }
+    return { block: false };
+  }
+}
+
+exports.before_tool_call = function (event) {
+  return dispatch({
+    hookEvent: "before_tool_call",
+    toolName: event.toolName || "",
+    toolInput: event.toolInput || {},
+    sessionId: event.sessionId || "",
+    agentId: event.agentId || "",
+    timestamp: event.timestamp || Date.now(),
+  });
+};
+
+exports.message_sending = function (event) {
+  return dispatch({
+    hookEvent: "message_sending",
+    toolName: "__message__",
+    toolInput: { content: event.content || "" },
+    sessionId: event.sessionId || "",
+    agentId: event.agentId || "",
+    timestamp: event.timestamp || Date.now(),
+  });
+};
+"""
+
+_OPENCLAW_HOOK_MD = """---
+event: message:received
+---
+
+Prismor Warden prompt injection detection hook.
+Scans inbound messages for prompt injection patterns.
+"""
+
+_OPENCLAW_HOOK_JS = """\
+"use strict";
+const { execSync } = require("child_process");
+
+const WARDEN_COMMAND = "__WARDEN_COMMAND__";
+
+module.exports = function (event) {
+  var payload = {
+    hookEvent: "message_received",
+    toolName: "__message__",
+    toolInput: {
+      content: (event.context && event.context.content) || "",
+      from: (event.context && event.context.from) || "",
+    },
+    sessionId: event.sessionKey || "",
+    timestamp: event.timestamp || Date.now(),
+  };
+  try {
+    execSync(WARDEN_COMMAND, {
+      input: JSON.stringify(payload),
+      stdio: ["pipe", "pipe", "pipe"],
+      timeout: 10000,
+    });
+  } catch (err) {
+    // Internal hooks cannot block — stderr warnings still surface
+  }
+};
+"""
+
+
+def _scaffold_openclaw_plugin(plugin_dir: Path, command: str) -> None:
+    plugin_dir.mkdir(parents=True, exist_ok=True)
+    pkg = {
+        "name": "@prismor/openclaw-warden",
+        "version": "0.1.0",
+        "description": "Prismor Warden security hooks for OpenClaw",
+        "main": "index.js",
+        "openclaw": {
+            "hooks": {
+                "before_tool_call": "./index.js",
+                "message_sending": "./index.js",
+            }
+        },
+    }
+    (plugin_dir / "package.json").write_text(json.dumps(pkg, indent=2) + "\n", encoding="utf-8")
+    js = _OPENCLAW_PLUGIN_JS.replace("__WARDEN_COMMAND__", command)
+    (plugin_dir / "index.js").write_text(js, encoding="utf-8")
+
+
+def _scaffold_openclaw_internal_hook(hooks_dir: Path, command: str) -> None:
+    hooks_dir.mkdir(parents=True, exist_ok=True)
+    (hooks_dir / "HOOK.md").write_text(_OPENCLAW_HOOK_MD, encoding="utf-8")
+    js = _OPENCLAW_HOOK_JS.replace("__WARDEN_COMMAND__", command)
+    (hooks_dir / "handler.js").write_text(js, encoding="utf-8")
 
 
 def _merge_claude_entries(entries: List[Dict[str, Any]], new_entry: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -326,6 +481,32 @@ def _normalize_cursor(payload: Dict[str, Any], session_id: str) -> Dict[str, Any
         return {**base, "type": "file_write", "path": payload.get("path") or payload.get("filePath") or "", "content": payload.get("content", "")}
     if "read" in hook_event.lower():
         return {**base, "type": "file_read", "path": payload.get("path") or payload.get("filePath") or ""}
+    return {**base, "type": "tool_result", "response": json.dumps(payload)}
+
+
+def _normalize_openclaw(payload: Dict[str, Any], session_id: str) -> Dict[str, Any]:
+    hook_event = payload.get("hookEvent", "before_tool_call")
+    tool_name = payload.get("toolName", "")
+    tool_input = payload.get("toolInput", {})
+    base = {
+        "ts": payload.get("timestamp"),
+        "session_id": session_id,
+        "agent": "openclaw",
+        "agent_event": hook_event,
+        "metadata": {"agentId": payload.get("agentId"), "raw": payload},
+    }
+    if hook_event == "message_received":
+        return {**base, "type": "prompt", "prompt": tool_input.get("content", "")}
+    if hook_event == "message_sending":
+        return {**base, "type": "tool_result", "response": tool_input.get("content", "")}
+    if tool_name in {"Bash", "shell", "exec"}:
+        return {**base, "type": "shell", "command": tool_input.get("command", "")}
+    if tool_name in {"FileRead", "Read", "read"}:
+        return {**base, "type": "file_read", "path": tool_input.get("file_path") or tool_input.get("path", "")}
+    if tool_name in {"FileWrite", "FileEdit", "Write", "Edit", "write"}:
+        return {**base, "type": "file_write", "path": tool_input.get("file_path") or tool_input.get("path", ""), "content": tool_input.get("content", "")}
+    if tool_name in {"WebFetch", "WebSearch", "web_search", "browser"}:
+        return {**base, "type": "network", "url": tool_input.get("url", "")}
     return {**base, "type": "tool_result", "response": json.dumps(payload)}
 
 

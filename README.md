@@ -104,7 +104,7 @@ A local-first runtime monitor that hooks into your IDE to detect and block dange
 | Path traversal | HIGH | Flags `../../` traversal, reads of `/etc/passwd`, `/proc/self/environ` |
 | Risky file writes | MEDIUM | Flags writes to Dockerfile, CI workflows, `package.json`, `go.mod` |
 
-**Supported agents:** Claude Code, Cursor, Windsurf.
+**Supported agents:** Claude Code, Cursor, Windsurf, OpenClaw.
 
 ## Using Warden
 
@@ -137,6 +137,7 @@ warden policy init                    # create .prismor-warden/policy.yaml
 # Install/change hooks
 warden install-hooks --agent all --mode enforce
 warden install-hooks --agent claude --mode observe
+warden install-hooks --agent openclaw --mode enforce
 
 # Export for CI/GitHub
 warden analyze --input session.jsonl --sarif

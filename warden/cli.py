@@ -330,20 +330,20 @@ def build_parser() -> argparse.ArgumentParser:
     # ── install-hooks ──────────────────────────────────────────────────
     install_parser = subparsers.add_parser("install-hooks", help="Install IDE hooks for real-time monitoring")
     install_parser.add_argument("--workspace", help="Workspace path")
-    install_parser.add_argument("--agent", choices=["claude", "cursor", "windsurf", "all"], required=True, help="Which agent/IDE")
+    install_parser.add_argument("--agent", choices=["claude", "cursor", "windsurf", "openclaw", "all"], required=True, help="Which agent/IDE")
     install_parser.add_argument("--scope", choices=["project", "user"], default="project", help="Hook scope (default: project)")
     install_parser.add_argument("--mode", choices=["observe", "enforce"], default="observe", help="observe=log only, enforce=block dangerous actions")
 
     # ── uninstall-hooks ────────────────────────────────────────────────
     uninstall_parser = subparsers.add_parser("uninstall-hooks", help="Remove IDE hooks")
     uninstall_parser.add_argument("--workspace", help="Workspace path")
-    uninstall_parser.add_argument("--agent", choices=["claude", "cursor", "windsurf", "all"], required=True, help="Which agent/IDE")
+    uninstall_parser.add_argument("--agent", choices=["claude", "cursor", "windsurf", "openclaw", "all"], required=True, help="Which agent/IDE")
     uninstall_parser.add_argument("--scope", choices=["project", "user"], default="project", help="Hook scope")
 
     # ── hook-dispatch (internal) ───────────────────────────────────────
     hook_dispatch = subparsers.add_parser("hook-dispatch", help="(internal) Called by IDE hooks")
     hook_dispatch.add_argument("--workspace", help="Workspace path")
-    hook_dispatch.add_argument("--agent", choices=["claude", "cursor", "windsurf"], required=True)
+    hook_dispatch.add_argument("--agent", choices=["claude", "cursor", "windsurf", "openclaw"], required=True)
     hook_dispatch.add_argument("--mode", choices=["observe", "enforce"], default="observe")
 
     # ── policy ─────────────────────────────────────────────────────────
@@ -412,7 +412,7 @@ def _print_info(workspace: Path) -> None:
     # Hooks — check which agents have hooks installed
     agents_with_hooks = []
     mode = None
-    for agent_name in ("claude", "cursor", "windsurf"):
+    for agent_name in ("claude", "cursor", "windsurf", "openclaw"):
         hook_path = _find_hook_config(agent_name, workspace)
         if hook_path and hook_path.exists():
             try:
@@ -457,6 +457,8 @@ def _find_hook_config(agent: str, workspace: Path) -> Path:
         return workspace / ".claude" / "settings.json"
     if agent == "cursor":
         return workspace / ".cursor" / "hooks.json"
+    if agent == "openclaw":
+        return workspace / ".openclaw" / "plugins.json"
     return workspace / ".windsurf" / "hooks.json"
 
 
@@ -503,7 +505,7 @@ def _print_dashboard() -> None:
 
         # Mode detection
         mode = ""
-        for agent_name in ("claude", "cursor", "windsurf"):
+        for agent_name in ("claude", "cursor", "windsurf", "openclaw"):
             hook_path = _find_hook_config(agent_name, ws)
             if hook_path and hook_path.exists():
                 try:
