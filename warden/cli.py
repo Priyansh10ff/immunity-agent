@@ -58,7 +58,7 @@ _RED = "\033[0;31m"
 _YELLOW = "\033[1;33m"
 _GREEN = "\033[0;32m"
 _CYAN = "\033[0;36m"
-_DIM = "\033[2m"
+_DIM = "\033[37m"  # light gray — \033[2m is invisible on dark terminals
 _BOLD = "\033[1m"
 _NC = "\033[0m"
 
