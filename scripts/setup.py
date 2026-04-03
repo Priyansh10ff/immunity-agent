@@ -26,7 +26,7 @@ BACK = object()  # sentinel for "go back"
 
 RST  = "\033[0m"
 BOLD = "\033[1m"
-DIM  = "\033[2m"
+DIM  = "\033[37m"  # light gray — visible on dark themes (not \033[2m which vanishes)
 CYAN = "\033[36m"
 GRN  = "\033[32m"
 YEL  = "\033[33m"
