@@ -20,74 +20,92 @@ from pathlib import Path
 # ── Constants ────────────────────────────────────────────────────────────────
 
 VERSION = "v0.2"
+BACK = object()  # sentinel for "go back"
 
-# ── ANSI Color / Style helpers ───────────────────────────────────────────────
+# ── ANSI ─────────────────────────────────────────────────────────────────────
 
-RESET   = "\033[0m"
-BOLD    = "\033[1m"
-DIM     = "\033[2m"
-BLINK   = "\033[5m"
-CYAN    = "\033[36m"
-GREEN   = "\033[32m"
-YELLOW  = "\033[33m"
-RED     = "\033[31m"
-BLUE    = "\033[34m"
-WHITE   = "\033[97m"
-MAGENTA = "\033[35m"
+RST  = "\033[0m"
+BOLD = "\033[1m"
+DIM  = "\033[2m"
+CYAN = "\033[36m"
+GRN  = "\033[32m"
+YEL  = "\033[33m"
+RED  = "\033[31m"
+BLU  = "\033[34m"
+WHT  = "\033[97m"
 
-HIDE_CURSOR = "\033[?25l"
-SHOW_CURSOR = "\033[?25h"
-CLEAR       = "\033[2J\033[H"
+HIDE = "\033[?25l"
+SHOW = "\033[?25h"
+ALT_ON  = "\033[?1049h"  # switch to alternate screen buffer
+ALT_OFF = "\033[?1049l"  # switch back to normal buffer
 
-def c(text, *codes):
-    return "".join(codes) + str(text) + RESET
+def s(*codes):
+    """Start style."""
+    return "".join(codes)
 
-def clear_screen():
-    sys.stdout.write(CLEAR)
-    sys.stdout.flush()
+def w(text, *codes):
+    """Wrap text in style codes."""
+    if not codes or codes == ("",):
+        return str(text)
+    return "".join(codes) + str(text) + RST
 
-def move_to(row, col):
-    sys.stdout.write(f"\033[{row};{col}H")
+def visible_len(text):
+    """Length of text without ANSI escapes."""
+    return len(re.sub(r'\033\[[0-9;]*m', '', str(text)))
 
-def get_term_width():
+def pad(text, width):
+    """Right-pad text to width, accounting for ANSI codes."""
+    vl = visible_len(text)
+    return text + " " * max(0, width - vl)
+
+# ── Screen buffer ────────────────────────────────────────────────────────────
+# Build frame as list of lines, then flush all at once to reduce flicker.
+
+def term_width():
     try:
         return os.get_terminal_size().columns
     except Exception:
         return 80
 
-def right_pad(text, total, fill=" "):
-    stripped = re.sub(r'\033\[[0-9;]*m', '', text)
-    pad = max(0, total - len(stripped))
-    return text + fill * pad
+def term_height():
+    try:
+        return os.get_terminal_size().lines
+    except Exception:
+        return 24
 
-# ── Terminal raw mode ────────────────────────────────────────────────────────
-
-_old_settings = None
-
-def enable_raw_mode():
-    global _old_settings
-    fd = sys.stdin.fileno()
-    _old_settings = termios.tcgetattr(fd)
-    tty.setcbreak(fd)
-
-def restore_terminal():
-    if _old_settings is not None:
-        try:
-            termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN, _old_settings)
-        except Exception:
-            pass
-    sys.stdout.write(SHOW_CURSOR)
+def render(lines):
+    """Clear screen and draw all lines at once."""
+    buf = "\033[H\033[J" + HIDE  # cursor home, clear to end, hide cursor
+    for line in lines:
+        buf += line + "\n"
+    sys.stdout.write(buf)
     sys.stdout.flush()
 
-atexit.register(restore_terminal)
+# ── Terminal input ───────────────────────────────────────────────────────────
 
-def signal_handler(sig, frame):
-    restore_terminal()
-    print()
-    sys.exit(0)
+_saved = None
 
-signal.signal(signal.SIGINT, signal_handler)
-signal.signal(signal.SIGTERM, signal_handler)
+def raw_on():
+    global _saved
+    fd = sys.stdin.fileno()
+    _saved = termios.tcgetattr(fd)
+    tty.setcbreak(fd)
+
+def raw_off():
+    if _saved is not None:
+        try:
+            termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN, _saved)
+        except Exception:
+            pass
+
+def cleanup():
+    raw_off()
+    sys.stdout.write(ALT_OFF + SHOW)
+    sys.stdout.flush()
+
+atexit.register(cleanup)
+signal.signal(signal.SIGINT,  lambda *_: (cleanup(), sys.exit(0)))
+signal.signal(signal.SIGTERM, lambda *_: (cleanup(), sys.exit(0)))
 
 def read_key():
     ch = sys.stdin.read(1)
@@ -95,595 +113,456 @@ def read_key():
         ch2 = sys.stdin.read(1)
         if ch2 == '[':
             ch3 = sys.stdin.read(1)
-            return '\x1b[' + ch3
-        return '\x1b' + ch2
+            return 'ESC[' + ch3
+        return ch
     return ch
 
-KEY_UP    = '\x1b[A'
-KEY_DOWN  = '\x1b[B'
-KEY_RIGHT = '\x1b[C'
-KEY_LEFT  = '\x1b[D'
-KEY_ENTER = '\r'
-KEY_ENTER2 = '\n'
-KEY_SPACE = ' '
-KEY_Q     = 'q'
-KEY_Q_UP  = 'Q'
-KEY_B     = 'b'
-KEY_B_UP  = 'B'
-KEY_A     = 'a'
-KEY_A_UP  = 'A'
-KEY_N     = 'n'
-KEY_N_UP  = 'N'
+UP    = 'ESC[A'
+DOWN  = 'ESC[B'
+RIGHT = 'ESC[C'
+LEFT  = 'ESC[D'
+ENTER = '\r'
+SPACE = ' '
 
 # ── Rule loading ─────────────────────────────────────────────────────────────
 
-SCRIPT_DIR   = Path(__file__).resolve().parent
-PRISMOR_DIR  = Path(os.environ.get("PRISMOR_HOME", Path.home() / ".prismor"))
+SCRIPT_DIR  = Path(__file__).resolve().parent
+PRISMOR_DIR = Path(os.environ.get("PRISMOR_HOME", Path.home() / ".prismor"))
 if not PRISMOR_DIR.exists():
     PRISMOR_DIR = SCRIPT_DIR.parent
 
 DEFAULT_POLICY = PRISMOR_DIR / "warden" / "default_policy.yaml"
 
 def load_rules():
-    """Load rules from default_policy.yaml. Returns list of dicts."""
-    rules = []
-    if not DEFAULT_POLICY.exists():
-        return _fallback_rules()
-    try:
-        import yaml
-        with open(DEFAULT_POLICY) as f:
-            data = yaml.safe_load(f)
-        for r in data.get("rules", []):
-            rules.append({
-                "id":       r.get("id", "unknown"),
-                "severity": r.get("severity", "MEDIUM"),
-                "title":    r.get("title", r.get("id", "")),
-                "enabled":  True,
-            })
-        return rules
-    except ImportError:
-        pass
-    # Manual YAML parse (minimal)
-    return _parse_rules_manually()
+    if DEFAULT_POLICY.exists():
+        try:
+            import yaml
+            with open(DEFAULT_POLICY) as f:
+                data = yaml.safe_load(f)
+            return [{"id": r["id"], "severity": r["severity"],
+                     "title": r.get("title", r["id"]), "on": True}
+                    for r in data.get("rules", [])]
+        except ImportError:
+            pass
+        return _parse_manual()
+    return _defaults()
 
-def _parse_rules_manually():
-    rules = []
-    if not DEFAULT_POLICY.exists():
-        return _fallback_rules()
-    current = {}
-    in_rules = False
+def _parse_manual():
+    rules, cur, inside = [], {}, False
     with open(DEFAULT_POLICY) as f:
         for line in f:
-            stripped = line.strip()
-            if stripped == "rules:":
-                in_rules = True
+            s = line.strip()
+            if s == "rules:":
+                inside = True; continue
+            if not inside:
                 continue
-            if not in_rules:
-                continue
-            if stripped.startswith("allowlists:"):
+            if s.startswith("allowlists:") or s.startswith("settings:"):
                 break
-            m_id  = re.match(r'^\s*-\s*id:\s*(.+)$', line)
-            m_sev = re.match(r'^\s*severity:\s*(\w+)', line)
-            m_tit = re.match(r'^\s*title:\s*(.+)$', line)
-            if m_id:
-                if current:
-                    rules.append(current)
-                current = {"id": m_id.group(1).strip(), "severity": "MEDIUM",
-                           "title": m_id.group(1).strip(), "enabled": True}
-            elif m_sev and current and "severity" not in current:
-                current["severity"] = m_sev.group(1).strip()
-            elif m_sev and current:
-                current["severity"] = m_sev.group(1).strip()
-            elif m_tit and current:
-                current["title"] = m_tit.group(1).strip()
-    if current:
-        rules.append(current)
-    return rules if rules else _fallback_rules()
+            m = re.match(r'^\s*-\s*id:\s*(.+)$', line)
+            if m:
+                if cur: rules.append(cur)
+                cur = {"id": m.group(1).strip(), "severity": "MEDIUM",
+                       "title": m.group(1).strip(), "on": True}
+            m = re.match(r'^\s*severity:\s*(\w+)', line)
+            if m and cur: cur["severity"] = m.group(1)
+            m = re.match(r'^\s*title:\s*(.+)$', line)
+            if m and cur: cur["title"] = m.group(1).strip()
+    if cur: rules.append(cur)
+    return rules or _defaults()
 
-def _fallback_rules():
-    return [
-        {"id": "destructive-command",   "severity": "CRITICAL", "title": "Destructive shell commands",                   "enabled": True},
-        {"id": "secret-exfiltration",   "severity": "CRITICAL", "title": "Secret exfiltration via shell",                "enabled": True},
-        {"id": "dos-resource-exhaustion","severity":"CRITICAL", "title": "DoS / resource exhaustion",                    "enabled": True},
-        {"id": "rce-canary",            "severity": "CRITICAL", "title": "Remote code execution / reverse shell",        "enabled": True},
-        {"id": "privilege-escalation",  "severity": "CRITICAL", "title": "Privilege escalation pattern",                 "enabled": True},
-        {"id": "prompt-injection",      "severity": "HIGH",     "title": "Prompt injection / system-prompt extraction",  "enabled": True},
-        {"id": "remote-execution",      "severity": "HIGH",     "title": "Remote fetch-and-execute",                     "enabled": True},
-        {"id": "secret-access",         "severity": "HIGH",     "title": "Sensitive file access",                        "enabled": True},
-        {"id": "suspicious-network",    "severity": "HIGH",     "title": "Network call to suspicious sink",              "enabled": True},
-        {"id": "db-modification",       "severity": "HIGH",     "title": "Database modification command",                "enabled": True},
-        {"id": "db-access",             "severity": "HIGH",     "title": "Database dump / sensitive query",              "enabled": True},
-        {"id": "path-traversal",        "severity": "HIGH",     "title": "Path traversal / sensitive system file",       "enabled": True},
-        {"id": "risky-write",           "severity": "MEDIUM",   "title": "Dockerfile, package.json writes",              "enabled": True},
+def _defaults():
+    D = [
+        ("destructive-command",    "CRITICAL", "Destructive shell commands"),
+        ("secret-exfiltration",    "CRITICAL", "Secret exfiltration via shell"),
+        ("dos-resource-exhaustion","CRITICAL", "DoS / resource exhaustion"),
+        ("rce-canary",             "CRITICAL", "Remote code execution / reverse shell"),
+        ("privilege-escalation",   "CRITICAL", "Privilege escalation"),
+        ("prompt-injection",       "HIGH",     "Prompt injection detection"),
+        ("remote-execution",       "HIGH",     "Remote fetch-and-execute"),
+        ("secret-access",          "HIGH",     "Sensitive file access"),
+        ("suspicious-network",     "HIGH",     "Suspicious network destinations"),
+        ("db-modification",        "HIGH",     "Database modification"),
+        ("db-access",              "HIGH",     "Database dump / sensitive query"),
+        ("path-traversal",         "HIGH",     "Path traversal"),
+        ("risky-write",            "MEDIUM",   "Risky file writes"),
     ]
+    return [{"id": i, "severity": s, "title": t, "on": True} for i, s, t in D]
 
 # ── Agent detection ──────────────────────────────────────────────────────────
 
-def detect_agents(target_dir):
-    detected = []
-    home = Path.home()
-    td = Path(target_dir)
-    # claude
-    claude_ok = (shutil.which("claude") is not None or
-                 (td / ".claude").exists() or (home / ".claude").exists())
-    # cursor
-    cursor_ok = ((td / ".cursor").exists() or (home / ".cursor").exists())
-    # windsurf
-    windsurf_ok = ((td / ".windsurf").exists() or (home / ".codeium").exists())
-    detected = {
-        "claude":   claude_ok,
-        "cursor":   cursor_ok,
-        "windsurf": windsurf_ok,
+def detect_agents(target):
+    td, home = Path(target), Path.home()
+    return {
+        "claude":   shutil.which("claude") is not None or (td/".claude").exists() or (home/".claude").exists(),
+        "cursor":   (td/".cursor").exists() or (home/".cursor").exists(),
+        "windsurf": (td/".windsurf").exists() or (home/".codeium").exists(),
     }
-    return detected
 
-# ── Severity coloring ────────────────────────────────────────────────────────
+# ── Severity colors ──────────────────────────────────────────────────────────
 
-def severity_color(sev):
-    s = sev.upper()
+def sev_color(s):
+    s = s.upper()
     if s == "CRITICAL": return RED
-    if s == "HIGH":     return YELLOW
-    if s == "MEDIUM":   return BLUE
+    if s == "HIGH":     return YEL
+    if s == "MEDIUM":   return BLU
     return DIM
 
-# ── Header ───────────────────────────────────────────────────────────────────
+# ── Shared UI pieces ─────────────────────────────────────────────────────────
 
-def draw_header(step=None, total=None, label=None):
-    w = get_term_width()
-    print()
-    print(f"  {c('PRISMOR WARDEN', BOLD, CYAN)}  {c(f'· {VERSION}', DIM)}")
+def header_lines(step=None, total=None, label=None):
+    tw = term_width()
+    out = [
+        "",
+        f"  {w('PRISMOR WARDEN', BOLD, CYAN)}  {w('· ' + VERSION, DIM)}",
+    ]
     if step and label:
-        step_txt = c(f"Step {step}/{total}", DIM)
-        label_txt = c(label, BOLD)
-        print(f"  {step_txt}  {label_txt}")
-    print(c("  " + "─" * min(w - 4, 68), DIM))
-    print()
+        out.append(f"  {w(f'Step {step}/{total}', DIM)}  {w(label, BOLD)}")
+    out.append(w("  " + "─" * min(tw - 4, 64), DIM))
+    out.append("")
+    return out
 
-def draw_controls(controls):
-    parts = [c(key, BOLD, CYAN) + c(f" {desc}", DIM) for key, desc in controls]
-    print()
-    print("  " + c("  ·  ", DIM).join(parts))
+def control_line(items):
+    """items: list of (key, desc)"""
+    parts = [w(k, BOLD, CYAN) + w(f" {d}", DIM) for k, d in items]
+    return "  " + w(" · ", DIM).join(parts)
 
-# ── Screen 2: Enforcement Mode ───────────────────────────────────────────────
+# ── Step 1: Enforcement Mode ─────────────────────────────────────────────────
 
-def screen_enforcement_mode(current="enforce"):
-    options = [
-        ("observe", "Log and warn — never block agent actions"),
-        ("enforce", "Block dangerous actions before they execute"),
+def step_mode(current="enforce"):
+    opts = [
+        ("observe", "Log and warn, never block"),
+        ("enforce", "Block dangerous actions in real time"),
     ]
     sel = 0 if current == "observe" else 1
 
     while True:
-        clear_screen()
-        sys.stdout.write(HIDE_CURSOR)
-        draw_header(1, 3, "ENFORCEMENT MODE")
-
-        for i, (name, desc) in enumerate(options):
-            cursor = c("▶", CYAN) if i == sel else " "
-            dot    = c("●", GREEN) if i == sel else c("○", DIM)
-            name_s = c(name, BOLD, WHITE) if i == sel else c(name, DIM)
-            desc_s = c(desc, DIM)
-            print(f"  {cursor} {dot}  {name_s:<10}  {desc_s}")
-
-        draw_controls([("↑↓", "navigate"), ("ENTER", "confirm")])
-        sys.stdout.flush()
+        lines = header_lines(1, 3, "ENFORCEMENT MODE")
+        for i, (name, desc) in enumerate(opts):
+            arrow = w("▸ ", CYAN) if i == sel else "  "
+            dot   = w("●", GRN) if i == sel else w("○", DIM)
+            nm    = pad(w(name, BOLD) if i == sel else w(name, DIM), 16)
+            lines.append(f"  {arrow}{dot}  {nm}{w(desc, DIM)}")
+        lines.append("")
+        lines.append(control_line([("↑↓", "select"), ("enter", "next"), ("q", "quit")]))
+        render(lines)
 
         key = read_key()
-        if key in (KEY_UP,):
-            sel = (sel - 1) % len(options)
-        elif key in (KEY_DOWN,):
-            sel = (sel + 1) % len(options)
-        elif key in (KEY_ENTER, KEY_ENTER2):
-            return options[sel][0]
-        elif key in (KEY_Q, KEY_Q_UP, '\x03'):
-            restore_terminal()
-            sys.exit(0)
+        if key in (UP,):    sel = (sel - 1) % len(opts)
+        elif key in (DOWN,):  sel = (sel + 1) % len(opts)
+        elif key in (ENTER, '\n'): return opts[sel][0]
+        elif key in ('q', 'Q', '\x03'): cleanup(); sys.exit(0)
 
-# ── Screen 3: Detection Rules ────────────────────────────────────────────────
+# ── Step 2: Detection Rules ──────────────────────────────────────────────────
 
-def screen_detection_rules(rules):
+def step_rules(rules):
     sel = 0
 
     while True:
-        clear_screen()
-        sys.stdout.write(HIDE_CURSOR)
-        draw_header(2, 3, "DETECTION RULES")
-
-        enabled_count = sum(1 for r in rules if r["enabled"])
-        print(c(f"  {enabled_count} / {len(rules)} rules enabled", DIM))
-        print()
-
-        for i, rule in enumerate(rules):
-            cursor = c("▶", CYAN) if i == sel else " "
-            dot    = c("●", GREEN) if rule["enabled"] else c("○", DIM)
-            sev_col = severity_color(rule["severity"])
-            sev_s   = c(f"{rule['severity']:<8}", sev_col)
-            rid_s   = c(f"{rule['id']:<28}", BOLD if i == sel else "")
-            title_s = c(rule["title"][:36], DIM)
-            print(f"  {cursor} {dot}  {sev_s} {rid_s} {title_s}")
-
-        draw_controls([
-            ("↑↓", "navigate"), ("SPACE", "toggle"),
-            ("A", "all on"), ("N", "all off"), ("ENTER", "confirm"),
-        ])
-        sys.stdout.flush()
+        n_on = sum(1 for r in rules if r["on"])
+        lines = header_lines(2, 3, "DETECTION RULES")
+        lines.append(f"  {w(f'{n_on}/{len(rules)} enabled', DIM)}")
+        lines.append("")
+        for i, r in enumerate(rules):
+            arrow = w("▸ ", CYAN) if i == sel else "  "
+            dot   = w("●", GRN) if r["on"] else w("○", DIM)
+            sev   = pad(w(r["severity"], sev_color(r["severity"])), 12)
+            rid   = pad(w(r["id"], BOLD) if i == sel else r["id"], 28)
+            title = w(r["title"][:38], DIM)
+            lines.append(f"  {arrow}{dot}  {sev}{rid} {title}")
+        lines.append("")
+        lines.append(control_line([
+            ("↑↓", "move"), ("space", "toggle"), ("a", "all"),
+            ("n", "none"), ("←", "back"), ("enter", "next"),
+        ]))
+        render(lines)
 
         key = read_key()
-        if key in (KEY_UP,):
-            sel = (sel - 1) % len(rules)
-        elif key in (KEY_DOWN,):
-            sel = (sel + 1) % len(rules)
-        elif key == KEY_SPACE:
-            rules[sel]["enabled"] = not rules[sel]["enabled"]
-        elif key in (KEY_A, KEY_A_UP):
-            for r in rules: r["enabled"] = True
-        elif key in (KEY_N, KEY_N_UP):
-            for r in rules: r["enabled"] = False
-        elif key in (KEY_ENTER, KEY_ENTER2):
-            return rules
-        elif key in (KEY_Q, KEY_Q_UP, '\x03'):
-            restore_terminal()
-            sys.exit(0)
+        if key in (UP,):    sel = (sel - 1) % len(rules)
+        elif key in (DOWN,):  sel = (sel + 1) % len(rules)
+        elif key == SPACE:    rules[sel]["on"] = not rules[sel]["on"]
+        elif key in ('a','A'):
+            for r in rules: r["on"] = True
+        elif key in ('n','N'):
+            for r in rules: r["on"] = False
+        elif key in (LEFT, 'b', 'B'): return BACK
+        elif key in (ENTER, '\n'): return rules
+        elif key in ('q','Q','\x03'): cleanup(); sys.exit(0)
 
-# ── Screen 4: Agent Selection ────────────────────────────────────────────────
+# ── Step 3: Agent Selection ──────────────────────────────────────────────────
 
-def screen_agent_selection(target_dir):
-    detected = detect_agents(target_dir)
+def step_agents(target):
+    detected = detect_agents(target)
     agents = [
-        {"name": "claude",   "label": "Claude Code",  "checked": detected.get("claude",   False)},
-        {"name": "cursor",   "label": "Cursor IDE",   "checked": detected.get("cursor",   False)},
-        {"name": "windsurf", "label": "Windsurf",     "checked": detected.get("windsurf", False)},
+        {"name": "claude",   "label": "Claude Code", "on": detected.get("claude", False)},
+        {"name": "cursor",   "label": "Cursor",      "on": detected.get("cursor", False)},
+        {"name": "windsurf", "label": "Windsurf",     "on": detected.get("windsurf", False)},
     ]
-    # Default at least one
-    if not any(a["checked"] for a in agents):
-        agents[0]["checked"] = True
-
+    if not any(a["on"] for a in agents):
+        agents[0]["on"] = True
     sel = 0
 
     while True:
-        clear_screen()
-        sys.stdout.write(HIDE_CURSOR)
-        draw_header(3, 3, "AGENT SELECTION")
-
-        print(c("  Select which agents to install Warden hooks for:", DIM))
-        print()
-
-        for i, agent in enumerate(agents):
-            cursor = c("▶", CYAN) if i == sel else " "
-            dot    = c("●", GREEN) if agent["checked"] else c("○", DIM)
-            label  = c(agent["label"], BOLD if i == sel else "")
-            status = c("(detected)", GREEN) if detected.get(agent["name"]) else c("(not found)", DIM)
-            print(f"  {cursor} {dot}  {label:<16}  {status}")
-
-        draw_controls([("↑↓", "navigate"), ("SPACE", "toggle"), ("ENTER", "confirm")])
-        sys.stdout.flush()
+        lines = header_lines(3, 3, "AGENTS")
+        lines.append(f"  {w('Select agents to install Warden hooks for:', DIM)}")
+        lines.append("")
+        for i, ag in enumerate(agents):
+            arrow = w("▸ ", CYAN) if i == sel else "  "
+            dot   = w("●", GRN) if ag["on"] else w("○", DIM)
+            name  = pad(w(ag["label"], BOLD) if i == sel else ag["label"], 18)
+            tag   = w("detected", GRN) if detected[ag["name"]] else w("not found", DIM)
+            lines.append(f"  {arrow}{dot}  {name} {tag}")
+        lines.append("")
+        lines.append(control_line([
+            ("↑↓", "move"), ("space", "toggle"),
+            ("←", "back"), ("enter", "next"),
+        ]))
+        render(lines)
 
         key = read_key()
-        if key in (KEY_UP,):
-            sel = (sel - 1) % len(agents)
-        elif key in (KEY_DOWN,):
-            sel = (sel + 1) % len(agents)
-        elif key == KEY_SPACE:
-            agents[sel]["checked"] = not agents[sel]["checked"]
-        elif key in (KEY_ENTER, KEY_ENTER2):
-            chosen = [a["name"] for a in agents if a["checked"]]
-            if not chosen:
-                chosen = ["claude"]
-            return chosen
-        elif key in (KEY_Q, KEY_Q_UP, '\x03'):
-            restore_terminal()
-            sys.exit(0)
+        if key in (UP,):    sel = (sel - 1) % len(agents)
+        elif key in (DOWN,):  sel = (sel + 1) % len(agents)
+        elif key == SPACE:    agents[sel]["on"] = not agents[sel]["on"]
+        elif key in (LEFT, 'b', 'B'): return BACK
+        elif key in (ENTER, '\n'):
+            chosen = [a["name"] for a in agents if a["on"]]
+            return chosen if chosen else ["claude"]
+        elif key in ('q','Q','\x03'): cleanup(); sys.exit(0)
 
-# ── Screen 5: Confirm + Install ──────────────────────────────────────────────
+# ── Confirm ──────────────────────────────────────────────────────────────────
 
-def screen_confirm(target_dir, mode, rules, agents):
+def step_confirm(target, mode, rules, agents):
     home = str(Path.home())
-    display_dir = str(target_dir).replace(home, "~")
-    enabled_count = sum(1 for r in rules if r["enabled"])
-    total_count   = len(rules)
-    agents_str    = ", ".join(agents)
-    policy_path   = ".prismor-warden/policy.yaml"
+    disp = str(target).replace(home, "~")
+    n_on = sum(1 for r in rules if r["on"])
+    ags  = ", ".join(agents)
 
-    inner_w = 45
-    border_col = DIM
+    W = 48  # inner box width
 
-    def box_line(content=""):
-        pad = inner_w - len(re.sub(r'\033\[[0-9;]*m', '', content))
-        return c("│", border_col) + "  " + content + " " * max(0, pad - 2) + c("│", border_col)
-
-    def kv(key, val, val_col=WHITE):
-        k = c(f"{key:<12}", DIM)
-        v = c(val, val_col)
-        raw = f"  {key:<12} {val}"
-        pad = inner_w - len(raw) - 1
-        return c("│", border_col) + "  " + k + " " + v + " " * max(0, pad) + c("│", border_col)
+    def bdr(ch_l, ch_fill, ch_r):
+        return w(f"  {ch_l}{ch_fill * W}{ch_r}", DIM)
+    def row(content=""):
+        vl = visible_len(content)
+        p = " " * max(0, W - vl - 2)
+        return w("  │", DIM) + " " + content + p + " " + w("│", DIM)
+    def kv(k, v, vc=WHT):
+        return f"{pad(w(k, DIM), 14)}{w(v, vc)}"
 
     while True:
-        clear_screen()
-        sys.stdout.write(HIDE_CURSOR)
-        draw_header()
-
-        top = c("╭" + "─" * inner_w + "╮", border_col)
-        bot    = c("╰" + "─" * inner_w + "╯", border_col)
-        spacer = box_line()
-
-        print("  " + top)
-        print("  " + box_line(c("  READY TO INSTALL", BOLD, WHITE)))
-        print("  " + spacer)
-        print("  " + kv("Project", display_dir[:32]))
-        print("  " + kv("Mode", mode, GREEN if mode == "enforce" else YELLOW))
-        print("  " + kv("Rules", f"{enabled_count} / {total_count} enabled"))
-        print("  " + kv("Agents", agents_str))
-        print("  " + kv("Policy", policy_path, DIM))
-        print("  " + spacer)
-        print("  " + bot)
-
-        print()
-        print(f"  {c('ENTER', BOLD, GREEN)} install   {c('B', BOLD, CYAN)} back   {c('Q', BOLD, DIM)} quit")
-        sys.stdout.flush()
+        lines = header_lines()
+        lines.append(bdr("╭", "─", "╮"))
+        lines.append(row(w("READY TO INSTALL", BOLD)))
+        lines.append(row())
+        lines.append(row(kv("Project", disp[:30])))
+        lines.append(row(kv("Mode", mode, GRN if mode == "enforce" else YEL)))
+        lines.append(row(kv("Rules", f"{n_on}/{len(rules)} enabled")))
+        lines.append(row(kv("Agents", ags)))
+        lines.append(row())
+        lines.append(bdr("╰", "─", "╯"))
+        lines.append("")
+        lines.append(control_line([
+            ("enter", "install"), ("←", "back"), ("q", "quit"),
+        ]))
+        render(lines)
 
         key = read_key()
-        if key in (KEY_ENTER, KEY_ENTER2):
-            return True
-        elif key in (KEY_B, KEY_B_UP):
-            return False
-        elif key in (KEY_Q, KEY_Q_UP, '\x03'):
-            restore_terminal()
-            sys.exit(0)
+        if key in (ENTER, '\n'): return True
+        elif key in (LEFT, 'b', 'B'): return BACK
+        elif key in ('q','Q','\x03'): cleanup(); sys.exit(0)
 
-# ── Install Phase ────────────────────────────────────────────────────────────
+# ── Install ──────────────────────────────────────────────────────────────────
 
-SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+SPIN = ["⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏"]
 
-class SpinnerStep:
-    def __init__(self, label):
-        self.label  = label
-        self.done   = False
-        self.ok     = False
-        self.msg    = ""
-        self._idx   = 0
-        self._stop  = False
-        self._thread = None
-
-    def start(self):
-        self._stop = False
-        self._thread = threading.Thread(target=self._spin, daemon=True)
-        self._thread.start()
-
-    def _spin(self):
-        while not self._stop:
-            if not self.done:
-                frame = SPINNER_FRAMES[self._idx % len(SPINNER_FRAMES)]
-                line = f"  {c(frame, CYAN)}  {self.label}"
-                sys.stdout.write("\r" + line + "   ")
-                sys.stdout.flush()
-                self._idx += 1
+def spinner_run(label, fn):
+    """Run fn() with a spinner. fn should return (ok, msg)."""
+    stop = threading.Event()
+    def spin():
+        i = 0
+        while not stop.is_set():
+            f = SPIN[i % len(SPIN)]
+            sys.stdout.write(f"\r  {w(f, CYAN)}  {label}   ")
+            sys.stdout.flush()
+            i += 1
             time.sleep(0.08)
-
-    def finish(self, ok=True, msg=""):
-        self.done = True
-        self.ok   = ok
-        self.msg  = msg
-        self._stop = True
-        if self._thread:
-            self._thread.join(timeout=0.5)
-        icon = c("✓", GREEN) if ok else c("✗", RED)
-        suffix = f"  {c(msg, DIM)}" if msg else ""
-        sys.stdout.write("\r" + f"  {icon}  {self.label}{suffix}" + "   \n")
-        sys.stdout.flush()
-
-def run_install(target_dir, mode, rules, agents):
-    clear_screen()
-    sys.stdout.write(HIDE_CURSOR)
-    print(c("  Installing Prismor Warden...", BOLD, CYAN))
-    print()
-
-    target_dir = Path(target_dir).resolve()
-
-    # Step 1: Update Prismor
-    step = SpinnerStep("Updating Prismor")
-    step.start()
+    t = threading.Thread(target=spin, daemon=True)
+    t.start()
     try:
-        if PRISMOR_DIR.exists():
-            result = subprocess.run(
-                ["git", "-C", str(PRISMOR_DIR), "pull", "--quiet"],
-                capture_output=True, timeout=15
-            )
-            step.finish(ok=(result.returncode == 0), msg="up to date" if result.returncode == 0 else "offline, using existing")
-        else:
-            step.finish(ok=False, msg="Prismor dir not found — hooks may still install")
+        ok, msg = fn()
     except Exception as e:
-        step.finish(ok=False, msg=str(e)[:40])
+        ok, msg = False, str(e)[:40]
+    stop.set()
+    t.join(timeout=0.3)
+    icon = w("✓", GRN) if ok else w("✗", RED)
+    suffix = f"  {w(msg, DIM)}" if msg else ""
+    sys.stdout.write(f"\r  {icon}  {label}{suffix}            \n")
+    sys.stdout.flush()
 
-    # Step 2: Write policy override (disabled rules)
-    disabled = [r["id"] for r in rules if not r["enabled"]]
+def do_install(target, mode, rules, agents):
+    # Switch back to normal buffer for install output
+    sys.stdout.write(ALT_OFF)
+    sys.stdout.write("\033[H\033[J" + HIDE)
+    sys.stdout.flush()
+    print(w("  Installing Prismor Warden...\n", BOLD, CYAN))
+
+    target = Path(target).resolve()
+
+    # 1. Update prismor
+    def update():
+        if not PRISMOR_DIR.exists():
+            return False, "not found"
+        r = subprocess.run(["git","-C",str(PRISMOR_DIR),"pull","--quiet"],
+                           capture_output=True, timeout=15)
+        return r.returncode == 0, "up to date" if r.returncode == 0 else "offline"
+    spinner_run("Updating Prismor", update)
+
+    # 2. Policy overrides
+    disabled = [r["id"] for r in rules if not r["on"]]
     if disabled:
-        step2 = SpinnerStep("Writing policy overrides")
-        step2.start()
-        try:
-            policy_dir = target_dir / ".prismor-warden"
-            policy_dir.mkdir(exist_ok=True)
-            policy_file = policy_dir / "policy.yaml"
-            lines = ['version: "1.0"\n', "rules:\n"]
+        def write_policy():
+            d = target / ".prismor-warden"
+            d.mkdir(exist_ok=True)
+            txt = 'version: "1.0"\nrules:\n'
             for rid in disabled:
-                lines.append(f"  - id: {rid}\n    enabled: false\n")
-            policy_file.write_text("".join(lines))
-            step2.finish(ok=True, msg=f"{len(disabled)} rule(s) disabled")
-        except Exception as e:
-            step2.finish(ok=False, msg=str(e)[:40])
+                txt += f"  - id: {rid}\n    enabled: false\n"
+            (d / "policy.yaml").write_text(txt)
+            return True, f"{len(disabled)} disabled"
+        spinner_run("Writing policy overrides", write_policy)
 
-    # Step 3: Install hooks for each agent
+    # 3. Install hooks
+    cli = PRISMOR_DIR / "warden" / "cli.py"
     for agent in agents:
-        step3 = SpinnerStep(f"Installing {agent} hooks")
-        step3.start()
-        cli_path = PRISMOR_DIR / "warden" / "cli.py"
-        if cli_path.exists():
-            try:
-                result = subprocess.run(
-                    [sys.executable, str(cli_path), "install-hooks",
-                     "--agent", agent,
-                     "--workspace", str(target_dir),
-                     "--scope", "project",
-                     "--mode", mode],
-                    capture_output=True, timeout=30
-                )
-                step3.finish(ok=(result.returncode == 0))
-            except Exception as e:
-                step3.finish(ok=False, msg=str(e)[:40])
-        else:
-            step3.finish(ok=False, msg="cli.py not found")
+        def install(a=agent):
+            if not cli.exists():
+                return False, "cli.py not found"
+            r = subprocess.run([sys.executable, str(cli), "install-hooks",
+                                "--agent", a, "--workspace", str(target),
+                                "--scope", "project", "--mode", mode],
+                               capture_output=True, timeout=30)
+            return r.returncode == 0, ""
+        spinner_run(f"Installing {agent} hooks", install)
 
-    # Step 4: Create/update CLAUDE.md
-    step4 = SpinnerStep("Updating CLAUDE.md")
-    step4.start()
-    try:
-        claude_md = target_dir / "CLAUDE.md"
+    # 4. CLAUDE.md
+    def update_claude():
+        md = target / "CLAUDE.md"
         block = (
             "\n## Security (Prismor)\n\n"
-            f"At the start of every session, read `{PRISMOR_DIR}/skills/security.md` and follow its instructions.\n\n"
-            "This loads behavioral guardrails, live threat intelligence, secure coding rules (OWASP Top 10), "
-            "and LLM security rules (OWASP LLM Top 10).\n\n"
+            f"At the start of every session, read `{PRISMOR_DIR}/skills/security.md` "
+            "and follow its instructions.\n\n"
+            "This loads behavioral guardrails, live threat intelligence, "
+            "secure coding rules (OWASP Top 10), and LLM security rules "
+            "(OWASP LLM Top 10).\n\n"
             "For more info: https://github.com/PrismorSec/prismor\n"
         )
-        if claude_md.exists():
-            content = claude_md.read_text()
-            if "Prismor" not in content:
-                claude_md.write_text(content + block)
-                step4.finish(ok=True, msg="appended")
-            else:
-                step4.finish(ok=True, msg="already present")
-        else:
-            claude_md.write_text(block.lstrip())
-            step4.finish(ok=True, msg="created")
-    except Exception as e:
-        step4.finish(ok=False, msg=str(e)[:40])
+        if md.exists():
+            content = md.read_text()
+            if "Prismor" in content:
+                return True, "already present"
+            md.write_text(content + block)
+            return True, "appended"
+        md.write_text(block.lstrip())
+        return True, "created"
+    spinner_run("Updating CLAUDE.md", update_claude)
 
-    # Step 5: Verify feed signature
-    step5 = SpinnerStep("Verifying feed signature")
-    step5.start()
-    verify_sh = PRISMOR_DIR / "scripts" / "verify_feed.sh"
-    feed_json  = PRISMOR_DIR / "advisories" / "immunity-feed.json"
-    pub_key    = PRISMOR_DIR / "keys" / "public.pub"
-    if verify_sh.exists() and feed_json.exists() and pub_key.exists():
-        try:
-            result = subprocess.run(
-                ["bash", str(verify_sh), str(feed_json), str(pub_key)],
-                capture_output=True, timeout=15
-            )
-            step5.finish(ok=(result.returncode == 0),
-                         msg="verified" if result.returncode == 0 else "verification failed")
-        except Exception as e:
-            step5.finish(ok=False, msg=str(e)[:40])
-    else:
-        step5.finish(ok=True, msg="skipped (keys not found)")
+    # 5. Verify feed
+    def verify():
+        vsh = PRISMOR_DIR / "scripts" / "verify_feed.sh"
+        fj  = PRISMOR_DIR / "advisories" / "immunity-feed.json"
+        pk  = PRISMOR_DIR / "keys" / "public.pub"
+        if not all(p.exists() for p in (vsh, fj, pk)):
+            return True, "skipped"
+        r = subprocess.run(["bash", str(vsh), str(fj), str(pk)],
+                           capture_output=True, timeout=15)
+        return r.returncode == 0, "verified" if r.returncode == 0 else "failed"
+    spinner_run("Verifying feed signature", verify)
 
     # Done
-    print()
-    print(c("  ╭───────────────────────────────────────────╮", DIM))
-    print(c("  │", DIM) + c("  Prismor Warden installed successfully!    ", GREEN, BOLD) + c("│", DIM))
-    print(c("  ╰───────────────────────────────────────────╯", DIM))
-    print()
-
     home = str(Path.home())
-
-    def show(label, val):
-        print(f"  {c(label + ':', GREEN):<22} {c(val, DIM)}")
-
-    show("Skills",   f"{PRISMOR_DIR}/skills/security.md".replace(home, "~"))
-    show("Feed",     f"{PRISMOR_DIR}/advisories/immunity-feed.json".replace(home, "~"))
-    show("Warden",   f"hooks installed (mode: {mode})")
-    show("Config",   str(target_dir / "CLAUDE.md").replace(home, "~"))
     print()
-    print(c("  To switch mode later:", DIM))
-    print(f"    {c(f'PRISMOR_MODE=observe bash {PRISMOR_DIR}/scripts/init.sh', YELLOW)}")
+    print(w("  ╭───────────────────────────────────────────╮", DIM))
+    print(w("  │", DIM) + w("  Prismor Warden installed successfully!    ", GRN, BOLD) + w("│", DIM))
+    print(w("  ╰───────────────────────────────────────────╯", DIM))
     print()
-    print(c("  To update the feed:", DIM))
-    print(f"    {c(f'git -C {PRISMOR_DIR} pull', YELLOW)}")
+    def info(k, v):
+        print(f"  {w(k + ':', GRN)}  {w(v, DIM)}")
+    info("Skills",  str(PRISMOR_DIR / "skills/security.md").replace(home, "~"))
+    info("Feed",    str(PRISMOR_DIR / "advisories/immunity-feed.json").replace(home, "~"))
+    info("Warden",  f"hooks installed (mode: {mode})")
+    info("Config",  str(target / "CLAUDE.md").replace(home, "~"))
     print()
-
-    sys.stdout.write(SHOW_CURSOR)
+    sys.stdout.write(SHOW)
     sys.stdout.flush()
 
-# ── Non-interactive mode ─────────────────────────────────────────────────────
+# ── Non-interactive ──────────────────────────────────────────────────────────
 
-def run_non_interactive(target_dir):
-    """Silently install with defaults — mirrors init.sh behavior."""
-    mode  = os.environ.get("PRISMOR_MODE", "observe")
+def run_non_interactive(target):
+    mode = os.environ.get("PRISMOR_MODE", "observe")
     rules = load_rules()
-    target_dir = Path(target_dir).resolve()
+    target = Path(target).resolve()
+    det = detect_agents(target)
+    agents = [n for n, ok in det.items() if ok] or ["claude"]
+    print(f"[prismor] Non-interactive (mode={mode}, agents={','.join(agents)})")
+    do_install(target, mode, rules, agents)
 
-    detected = detect_agents(target_dir)
-    agents = [name for name, found in detected.items() if found]
-    if not agents:
-        agents = ["claude"]
+# ── Wizard ───────────────────────────────────────────────────────────────────
 
-    print(f"[prismor] Non-interactive mode (mode: {mode}, agents: {', '.join(agents)})")
-    run_install(target_dir, mode, rules, agents)
+def run_wizard(target):
+    # Enter alternate screen buffer for a clean canvas
+    sys.stdout.write(ALT_ON + HIDE)
+    sys.stdout.flush()
+    raw_on()
 
-# ── Wizard orchestration ─────────────────────────────────────────────────────
-
-def run_wizard(target_dir):
-    w = get_term_width()
-    if w < 72:
-        sys.stderr.write(
-            f"\033[33m[prismor] Warning: terminal width {w} < 72. Display may be clipped.\033[0m\n"
-        )
-
-    enable_raw_mode()
+    rules = load_rules()
+    mode = "enforce"
+    agents = None
+    step = 1
 
     try:
-        rules = load_rules()
-
-        # Screen 1: Enforcement mode
-        mode = screen_enforcement_mode("enforce")
-
-        # Screen 3: Detection rules
-        rules = screen_detection_rules(rules)
-
-        # Screen 4: Agent selection
         while True:
-            agents = screen_agent_selection(target_dir)
-
-            # Screen 5: Confirm
-            confirmed = screen_confirm(target_dir, mode, rules, agents)
-            if confirmed:
-                break
-            # Back goes to agent selection (re-loop)
-
-    except Exception as e:
-        restore_terminal()
-        enable_raw_mode()
-        # swallow and let install attempt
-        rules  = load_rules()
-        mode   = "enforce"
+            if step == 1:
+                result = step_mode(mode)
+                mode = result
+                step = 2
+            elif step == 2:
+                result = step_rules(rules)
+                if result is BACK:
+                    step = 1; continue
+                rules = result
+                step = 3
+            elif step == 3:
+                result = step_agents(target)
+                if result is BACK:
+                    step = 2; continue
+                agents = result
+                step = 4
+            elif step == 4:
+                result = step_confirm(target, mode, rules, agents)
+                if result is BACK:
+                    step = 3; continue
+                break  # confirmed → install
+    except Exception:
+        rules = load_rules()
+        mode = "enforce"
         agents = ["claude"]
-        confirmed = True
 
-    restore_terminal()
+    raw_off()
+    do_install(target, mode, rules, agents)
 
-    clear_screen()
-    sys.stdout.write(HIDE_CURSOR)
-    run_install(target_dir, mode, rules, agents)
-    sys.stdout.write(SHOW_CURSOR)
-    sys.stdout.flush()
-
-# ── Entry point ──────────────────────────────────────────────────────────────
+# ── Entry ────────────────────────────────────────────────────────────────────
 
 def main():
     args = sys.argv[1:]
     non_interactive = "--non-interactive" in args
     args = [a for a in args if not a.startswith("--")]
+    target = Path(args[0]).resolve() if args else Path.cwd()
 
-    target_dir = Path(args[0]).resolve() if args else Path.cwd()
-
-    if not target_dir.exists():
-        sys.stderr.write(f"[prismor] Target directory does not exist: {target_dir}\n")
+    if not target.exists():
+        sys.stderr.write(f"[prismor] Directory not found: {target}\n")
         sys.exit(1)
 
     if non_interactive or not sys.stdin.isatty():
-        run_non_interactive(target_dir)
+        run_non_interactive(target)
     else:
-        run_wizard(target_dir)
+        run_wizard(target)
 
 if __name__ == "__main__":
     main()
