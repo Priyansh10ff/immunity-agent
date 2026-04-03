@@ -39,7 +39,8 @@ rules:
     event_types: [shell]
     fields: [command]
     patterns:
-      - 'rm\s+(?:-[a-zA-Z]*f[a-zA-Z]*\s+|(?:-[a-zA-Z]+\s+)*)(?:/\s*$|/\s+)'
+      - 'rm\s+(?:-[a-zA-Z]*f[a-zA-Z]*\s+|(?:-[a-zA-Z]+\s+)*)(?:/\s*$|/\s+|/\S*\*)'
+      - 'rm\s+-[a-zA-Z]*r[a-zA-Z]*f\b|rm\s+-[a-zA-Z]*f[a-zA-Z]*r\b'
       - 'sudo\s+rm\b'
       - 'chmod\s+777\b'
       - 'chown\s+-R\b'
