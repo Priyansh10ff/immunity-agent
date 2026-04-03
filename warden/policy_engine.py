@@ -36,6 +36,7 @@ class CompiledRule:
     __slots__ = (
         "id", "severity", "category", "title", "event_types",
         "fields", "patterns", "action", "enabled",
+        "severity_on_write", "severity_on_manifest",
     )
 
     def __init__(self, raw: Dict[str, Any]) -> None:
@@ -47,6 +48,8 @@ class CompiledRule:
         self.fields: List[str] = raw.get("fields") or []
         self.action: str = raw.get("action", "warn")
         self.enabled: bool = raw.get("enabled", True)
+        self.severity_on_write: Optional[str] = raw.get("severity_on_write")
+        self.severity_on_manifest: Optional[str] = raw.get("severity_on_manifest")
 
         # Compile all patterns into a single alternation for speed.
         joined = "|".join(f"(?:{p})" for p in raw["patterns"])
@@ -79,6 +82,8 @@ class PolicyEngine:
     ) -> None:
         self.rules: List[CompiledRule] = []
         self.allowlists: List[AllowlistEntry] = []
+        self.block_categories: set[str] = set()
+        self._manifest_re: Optional[re.Pattern[str]] = None
         self._load(workspace, policy_path)
 
     def _load(self, workspace: Optional[Path], policy_path: Optional[Path]) -> None:
@@ -93,6 +98,9 @@ class PolicyEngine:
 
         allowlist_raw: List[Dict[str, Any]] = list(default_raw.get("allowlists", []) or [])
 
+        # Settings start from defaults; project policy can extend or override.
+        settings: Dict[str, Any] = dict(default_raw.get("settings", {}) or {})
+
         # Merge project-level override if present.
         override_path = policy_path
         if override_path is None and workspace is not None:
@@ -106,14 +114,29 @@ class PolicyEngine:
                 for rule in override_raw.get("rules", []):
                     rules_by_id[rule["id"]] = rule  # override by id
                 allowlist_raw.extend(override_raw.get("allowlists", []) or [])
+                # Project settings override defaults key-by-key.
+                settings.update(override_raw.get("settings", {}) or {})
 
-        # Compile.
+        # Compile settings.
+        self.block_categories = set(settings.get("block_categories", []))
+
+        manifest_pats: List[str] = settings.get("manifest_patterns", []) or []
+        if manifest_pats:
+            joined = "|".join(f"(?:{p})" for p in manifest_pats)
+            self._manifest_re = re.compile(joined, re.IGNORECASE)
+
+        # Compile rules.
         for rule_data in rules_by_id.values():
             if rule_data.get("enabled", True):
                 self.rules.append(CompiledRule(rule_data))
 
         for al_data in allowlist_raw:
             self.allowlists.append(AllowlistEntry(al_data))
+
+    def _is_manifest(self, path: str) -> bool:
+        if not path or self._manifest_re is None:
+            return False
+        return bool(self._manifest_re.search(path))
 
     def evaluate(
         self,
@@ -153,14 +176,12 @@ class PolicyEngine:
             if self._is_allowlisted(rule.id, matched_evidence):
                 continue
 
-            # Special case: secret_access severity upgrade for writes.
+            # Per-rule severity overrides (configured in YAML, not hardcoded).
             severity = rule.severity
-            if rule.category == "secret_access" and event_type == "file_write":
-                severity = "CRITICAL"
-
-            # Special case: risky_write severity upgrade for manifests.
-            if rule.category == "risky_write" and _is_manifest(field_values.get("path", "")):
-                severity = "HIGH"
+            if rule.severity_on_write and event_type == "file_write":
+                severity = rule.severity_on_write
+            if rule.severity_on_manifest and self._is_manifest(field_values.get("path", "")):
+                severity = rule.severity_on_manifest
 
             finding_id = f"{rule.id}-{index}"
             prefixed_id = f"{session_id}:{finding_id}" if session_id else finding_id
@@ -196,21 +217,6 @@ class PolicyEngine:
 
 
 # ── Shared helpers ──────────────────────────────────────────────────────────
-
-# Manifest detection for severity upgrade.
-_MANIFEST_PATTERNS = [
-    re.compile(r"package(-lock)?\.json$|pnpm-lock\.yaml$|yarn\.lock$", re.I),
-    re.compile(r"requirements.*\.txt$|pyproject\.toml$|Pipfile$", re.I),
-    re.compile(r"Gemfile$", re.I),
-    re.compile(r"go\.mod$", re.I),
-    re.compile(r"Cargo\.toml$", re.I),
-    re.compile(r"pom\.xml$|build\.gradle(\.kts)?$", re.I),
-]
-
-
-def _is_manifest(path: str) -> bool:
-    return any(p.search(path) for p in _MANIFEST_PATTERNS)
-
 
 def _extract_fields(event: Dict[str, Any]) -> Dict[str, str]:
     """Extract all matchable fields from an event."""

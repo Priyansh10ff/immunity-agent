@@ -6,6 +6,30 @@ version: "1.0"
 # Override per-project: create .prismor-warden/policy.yaml in your workspace.
 # Only rules you define there will override — the rest fall back to defaults.
 
+settings:
+  # Categories that trigger a blocking verdict in enforce mode.
+  # Override in .prismor-warden/policy.yaml to add or remove categories.
+  block_categories:
+    - destructive_command
+    - secret_exfiltration
+    - secret_access
+    - remote_execution
+    - prompt_injection
+    - dos_resource_exhaustion
+    - rce_canary
+    - db_modification
+    - privilege_escalation
+
+  # Regex patterns used to identify dependency manifest files.
+  # Matched paths cause risky_write findings to be upgraded to HIGH severity.
+  manifest_patterns:
+    - 'package(-lock)?\.json$|pnpm-lock\.yaml$|yarn\.lock$'
+    - 'requirements.*\.txt$|pyproject\.toml$|Pipfile$'
+    - 'Gemfile$'
+    - 'go\.mod$'
+    - 'Cargo\.toml$'
+    - 'pom\.xml$|build\.gradle(\.kts)?$'
+
 rules:
   # ── CRITICAL: Destructive commands ────────────────────────────────────
   - id: destructive-command
@@ -117,6 +141,7 @@ rules:
   # ── HIGH: Sensitive file access ───────────────────────────────────────
   - id: secret-access
     severity: HIGH
+    severity_on_write: CRITICAL
     category: secret_access
     title: Sensitive file access detected
     event_types: [file_read, file_write]
@@ -179,6 +204,7 @@ rules:
   # ── MEDIUM-HIGH: High-risk file writes ────────────────────────────────
   - id: risky-write
     severity: MEDIUM
+    severity_on_manifest: HIGH
     category: risky_write
     title: Write to high-risk file path detected
     event_types: [file_write]

@@ -23,6 +23,23 @@
             "items": {
                 "$ref": "#/definitions/allowlist_entry"
             }
+        },
+        "settings": {
+            "type": "object",
+            "description": "Policy-level settings that control enforcement behaviour",
+            "properties": {
+                "block_categories": {
+                    "type": "array",
+                    "description": "Finding categories that trigger a blocking verdict in enforce mode",
+                    "items": { "type": "string" }
+                },
+                "manifest_patterns": {
+                    "type": "array",
+                    "description": "Regex patterns that identify dependency manifest files (used for severity upgrades)",
+                    "items": { "type": "string" }
+                }
+            },
+            "additionalProperties": false
         }
     },
     "additionalProperties": false,
@@ -83,6 +100,16 @@
                     "type": "boolean",
                     "description": "Whether this rule is active. Defaults to true.",
                     "default": true
+                },
+                "severity_on_write": {
+                    "type": "string",
+                    "enum": ["CRITICAL", "HIGH", "MEDIUM", "LOW"],
+                    "description": "Override severity when the matched event_type is file_write"
+                },
+                "severity_on_manifest": {
+                    "type": "string",
+                    "enum": ["CRITICAL", "HIGH", "MEDIUM", "LOW"],
+                    "description": "Override severity when the matched path is a dependency manifest file"
                 }
             },
             "additionalProperties": false

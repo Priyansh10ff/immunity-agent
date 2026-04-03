@@ -70,23 +70,17 @@ def normalize_payload(*, agent: str, payload: Dict[str, Any], workspace: Path) -
     return {"sessionId": session_id, "event": event}
 
 
-def should_block(findings: List[Dict[str, Any]], event: Dict[str, Any]) -> Dict[str, Any] | None:
+def should_block(
+    findings: List[Dict[str, Any]],
+    event: Dict[str, Any],
+    block_categories: set | None = None,
+) -> Dict[str, Any] | None:
     if not _is_pre_action(str(event.get("agent_event", ""))):
         return None
 
-    preferred_categories = {
-        "destructive_command",
-        "secret_exfiltration",
-        "secret_access",
-        "remote_execution",
-        "prompt_injection",
-        "dos_resource_exhaustion",
-        "rce_canary",
-        "db_modification",
-        "privilege_escalation",
-    }
+    categories = block_categories if block_categories is not None else set()
     for finding in findings:
-        if finding.get("category") in preferred_categories:
+        if finding.get("category") in categories:
             if event.get("type") == "file_read" and finding.get("category") != "secret_access":
                 continue
             return finding

@@ -22,7 +22,7 @@ import shutil
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 __version__ = "0.2.0"
 
@@ -31,7 +31,6 @@ if __package__ in {None, ""}:
 
 from warden.feed import load_feed, match_advisories
 from warden.hooks import install_hooks, normalize_payload, should_block, uninstall_hooks
-from warden.policies import evaluate_event
 from warden.policy_engine import PolicyEngine, validate_policy
 from warden.store import (
     append_session_event,
@@ -127,7 +126,7 @@ def main() -> None:
     # ── analyze ────────────────────────────────────────────────────────
     if args.command == "analyze":
         events = parse_jsonl(read_text(args.input))
-        result = analyze_events(events, repo_root=repo_root)
+        result = analyze_events(events, repo_root=repo_root, workspace=workspace)
         if getattr(args, "sarif", False):
             print(json.dumps(format_sarif(result), indent=2))
         else:
@@ -137,7 +136,7 @@ def main() -> None:
     # ── ingest ─────────────────────────────────────────────────────────
     if args.command == "ingest":
         events = parse_jsonl(read_text(args.input))
-        result = analyze_events(events, repo_root=repo_root)
+        result = analyze_events(events, repo_root=repo_root, workspace=workspace)
         session_id = args.session_id or derive_session_id(events)
         db_path = save_session_snapshot(
             workspace=workspace,
@@ -201,7 +200,7 @@ def main() -> None:
         event = normalized["event"]
         append_session_event(workspace, normalized["sessionId"], event)
         events = read_session_events(workspace, normalized["sessionId"])
-        result = analyze_events(events, repo_root=repo_root, session_id=normalized["sessionId"])
+        result = analyze_events(events, repo_root=repo_root, workspace=workspace, session_id=normalized["sessionId"])
         save_session_snapshot(
             workspace=workspace,
             session_id=normalized["sessionId"],
@@ -211,7 +210,7 @@ def main() -> None:
             events=events,
             analysis=result,
         )
-        blocking = should_block(result["findings"], event)
+        blocking = should_block(result["findings"], event, block_categories=set(result.get("blockCategories", [])))
         if args.mode == "enforce" and blocking is not None:
             sys.stderr.write(f"Prismor Warden blocked this action: [{blocking['severity']}] {blocking['title']}\n")
             if blocking.get("evidence"):
@@ -482,10 +481,17 @@ def _sarif_level(severity: str) -> str:
 
 # ── Existing functionality (unchanged) ──────────────────────────────────
 
-def analyze_events(events: List[Dict[str, Any]], *, repo_root: Path, session_id: str = "") -> Dict[str, Any]:
+def analyze_events(
+    events: List[Dict[str, Any]],
+    *,
+    repo_root: Path,
+    workspace: Optional[Path] = None,
+    session_id: str = "",
+) -> Dict[str, Any]:
+    engine = PolicyEngine(workspace=workspace)
     findings: List[Dict[str, Any]] = []
     for index, event in enumerate(events):
-        findings.extend(evaluate_event(event, index, session_id=session_id))
+        findings.extend(engine.evaluate(event, index, session_id=session_id))
 
     feed_matches = match_advisories(findings, load_feed(repo_root))
     summary = {
@@ -498,6 +504,7 @@ def analyze_events(events: List[Dict[str, Any]], *, repo_root: Path, session_id:
         "summary": summary,
         "findings": sorted(findings, key=lambda item: SEVERITY_WEIGHT.get(item.get("severity", "UNKNOWN"), 0), reverse=True),
         "feedMatches": feed_matches,
+        "blockCategories": sorted(engine.block_categories),
     }
 
 
