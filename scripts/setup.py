@@ -21,36 +21,14 @@ from pathlib import Path
 
 VERSION = "v0.2"
 
-LOGO_LINES = [
-    "$$$$$$$$$$$$$$c!                             '~@$$$$$$$$$$$$$$$$",
-    "$$$$$$$$$$$W  +a#**oo***********MW&WM**MW&WWM#m  [$$$$$$$$$$$$$$",
-    "$$$$$$$$$$O  .xW&W&&WWWWMMMMWW&&WW#**#W&&WWM#****` 8$$$$$$$$$$$$",
-    "$$$$$$$$$*      n#MMWWWWWWWWWMM#*o*#W&&WWW##***o**`.$$$$$$$$$$$$",
-    "$$$$$$$$$a        u*o*oo***oo***#WW&&W&WM#*******#l @$$$$$$$$$$$",
-    "$$$$$$$$$a          YWWWWWWWWWW&&&WWWWM##**oo**##Mi @$$$$$$$$$$$",
-    "$$$$$$$$$a            J&&&&&WWWWWWWMM##****o**##MMi @$$$$$$$$$$$",
-    "$$$$$$$$$a              CWWWWWMMMM##*****oo**##MMWi @$$$$$$$$$$$",
-    "$$$$$$$$$a                J#####*******oo**##MMWWWi @$$$$$$$$$$$",
-    "$$$$$$$$$a                  J*******oo****#MMMWWW&i @$$$$$$$$$$$",
-    "$$$$$$$$$a                    U*ooo****##MMMWWWW&&i @$$$$$$$$$$$",
-    "$$$$$$$$$a                     .Y***###MMMMWWW&&&&i @$$$$$$$$$$$",
-    "$$$$$$$$$a                       .UMMMMWWWWW&&&&&&i @$$$$$$$$$$$",
-    "$$$$$$$$$a                         .JWWWWW&&&&&&WWi @$$$$$$$$$$$",
-    "$$$$$$$$$a                           .L&&&&&&WWW&&i @$$$$$$$$$$$",
-    "$$$$$$$$$a                             .0&&WWW&&WWi @$$$$$$$$$$$",
-    "$$$$$$$$$a                               .ZW&WWWWWi @$$$$$$$$$$$",
-    "$$$$$$$$$a                                  qWWWWMl.@$$$$$$$$$$$",
-    "$$$$$$$$$$`                                   dMM} *$$$$$$$$$$$$",
-    "$$$$$$$$$$$i                                      W$$$$$$$$$$$$$",
-    "$$$$$$$$$$$$@^                                 .p$$$$$$$$$$$$$$$",
-    "$$$$$$$$$$$$$$$$B888888888888888888888888888%@$$$$$$$$$$$$$$$$$$",
+# 5-line icon: middle rows of the logo, uniform ~44 chars each, left-aligned as a block
+ICON = [
+    "a        .UMMMMWWWWW&&&&&&i ",
+    "a          .JWWWWW&&&&&&WWi ",
+    "a            .L&&&&&&WWW&&i ",
+    "a              .0&&WWW&&WWi ",
+    "a                .ZW&WWWWWi ",
 ]
-
-# Strip leading/trailing $ characters from each logo line
-def strip_logo_line(line):
-    return re.sub(r'^\$+|\$+$', '', line)
-
-LOGO = [strip_logo_line(l) for l in LOGO_LINES]
 
 # ── ANSI Color / Style helpers ───────────────────────────────────────────────
 
@@ -85,22 +63,6 @@ def get_term_width():
         return os.get_terminal_size().columns
     except Exception:
         return 80
-
-def get_term_height():
-    try:
-        return os.get_terminal_size().lines
-    except Exception:
-        return 24
-
-def center(text, width=None, fill=" "):
-    if width is None:
-        width = get_term_width()
-    stripped = re.sub(r'\033\[[0-9;]*m', '', text)
-    pad = max(0, (width - len(stripped)) // 2)
-    return fill * pad + text
-
-def print_centered(text, width=None):
-    print(center(text, width))
 
 def right_pad(text, total, fill=" "):
     stripped = re.sub(r'\033\[[0-9;]*m', '', text)
@@ -273,64 +235,28 @@ def severity_color(sev):
     if s == "MEDIUM":   return BLUE
     return DIM
 
-# ── Splash Screen ────────────────────────────────────────────────────────────
+# ── Header ───────────────────────────────────────────────────────────────────
+# Icon (5 lines) printed left-aligned; step info flush to the right side.
 
-def draw_splash():
-    clear_screen()
-    sys.stdout.write(HIDE_CURSOR)
-    sys.stdout.flush()
-
+def draw_header(step=None, total=None, label=None):
+    """Print the compact icon + step title side-by-side, then a rule line."""
+    right_lines = [
+        c("PRISMOR WARDEN", BOLD, CYAN),
+        c(f"Security Setup  ·  {VERSION}", DIM),
+        "",
+        (c(f"Step {step} / {total}  ·  {label}", BOLD) if step else ""),
+        "",
+    ]
+    for i, icon_line in enumerate(ICON):
+        rt = right_lines[i] if i < len(right_lines) else ""
+        print(f"  {c(icon_line, CYAN)}   {rt}")
     w = get_term_width()
-    if w < 72:
-        print(c("  Terminal too narrow (need ≥72 cols). Resize and retry.", YELLOW))
-        sys.stdout.flush()
-        time.sleep(2)
-
-    h = get_term_height()
-    logo_h = len(LOGO)
-    total_content = logo_h + 5  # logo + subtitle lines + gap
-    top_pad = max(1, (h - total_content) // 2)
-
-    print("\n" * (top_pad - 1), end="")
-
-    for line in LOGO:
-        print_centered(c(line, CYAN))
-
-    print()
-    print_centered(c("P R I S M O R   W A R D E N", BOLD, WHITE))
-    print_centered(c(f"Security Setup Wizard  ·  {VERSION}", DIM))
-    print()
-
-    # Blinking prompt
-    blink_text = c("  Press any key to begin  ", DIM)
-    print_centered(blink_text)
-    sys.stdout.flush()
-
-    enable_raw_mode()
-    read_key()
-    restore_terminal()
-    enable_raw_mode()
-
-# ── Header helper ────────────────────────────────────────────────────────────
-
-def draw_header():
-    print(c("  PRISMOR WARDEN · Setup", BOLD, CYAN))
-    print()
-
-def draw_step(step, total, label):
-    w = get_term_width()
-    left  = f"── STEP {step} / {total} "
-    mid   = f"──────── {label} "
-    line  = left + mid
-    right = "─" * max(0, w - len(line) - 2)
-    print(c(f"  {line}{right}", DIM))
+    print(c("  " + "─" * min(w - 4, 68), DIM))
     print()
 
 def draw_controls(controls):
+    parts = [c(key, BOLD, CYAN) + c(f" {desc}", DIM) for key, desc in controls]
     print()
-    parts = []
-    for key, desc in controls:
-        parts.append(c(key, BOLD, CYAN) + c(f" {desc}", DIM))
     print("  " + c("  ·  ", DIM).join(parts))
 
 # ── Screen 2: Enforcement Mode ───────────────────────────────────────────────
@@ -345,8 +271,7 @@ def screen_enforcement_mode(current="enforce"):
     while True:
         clear_screen()
         sys.stdout.write(HIDE_CURSOR)
-        draw_header()
-        draw_step(1, 3, "ENFORCEMENT MODE")
+        draw_header(1, 3, "ENFORCEMENT MODE")
 
         for i, (name, desc) in enumerate(options):
             cursor = c("▶", CYAN) if i == sel else " "
@@ -377,8 +302,7 @@ def screen_detection_rules(rules):
     while True:
         clear_screen()
         sys.stdout.write(HIDE_CURSOR)
-        draw_header()
-        draw_step(2, 3, "DETECTION RULES")
+        draw_header(2, 3, "DETECTION RULES")
 
         enabled_count = sum(1 for r in rules if r["enabled"])
         print(c(f"  {enabled_count} / {len(rules)} rules enabled", DIM))
@@ -434,8 +358,7 @@ def screen_agent_selection(target_dir):
     while True:
         clear_screen()
         sys.stdout.write(HIDE_CURSOR)
-        draw_header()
-        draw_step(3, 3, "AGENT SELECTION")
+        draw_header(3, 3, "AGENT SELECTION")
 
         print(c("  Select which agents to install Warden hooks for:", DIM))
         print()
@@ -495,7 +418,7 @@ def screen_confirm(target_dir, mode, rules, agents):
         sys.stdout.write(HIDE_CURSOR)
         draw_header()
 
-        top    = c("╭" + "─" * inner_w + "╮", border_col)
+        top = c("╭" + "─" * inner_w + "╮", border_col)
         bot    = c("╰" + "─" * inner_w + "╯", border_col)
         spacer = box_line()
 
@@ -726,10 +649,7 @@ def run_wizard(target_dir):
     try:
         rules = load_rules()
 
-        # Screen 1: Splash
-        draw_splash()
-
-        # Screen 2: Enforcement mode
+        # Screen 1: Enforcement mode
         mode = screen_enforcement_mode("enforce")
 
         # Screen 3: Detection rules
