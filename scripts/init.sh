@@ -3,7 +3,7 @@ set -e
 
 # Prismor Init — Add Prismor security to any project
 # Usage: curl -fsSL https://raw.githubusercontent.com/PrismorSec/prismor/main/scripts/init.sh | bash
-#    or: bash /path/to/prismor/scripts/init.sh
+#    or: bash /path/to/prismor/scripts/init.sh [TARGET_DIR]
 
 PRISMOR_REPO="https://github.com/PrismorSec/prismor.git"
 PRISMOR_DIR="${PRISMOR_HOME:-$HOME/.prismor}"
@@ -21,6 +21,18 @@ info()  { echo -e "${BLUE}[prismor]${NC} $1"; }
 ok()    { echo -e "${GREEN}[prismor]${NC} $1"; }
 warn()  { echo -e "${YELLOW}[prismor]${NC} $1"; }
 err()   { echo -e "${RED}[prismor]${NC} $1" >&2; }
+
+# ── Interactive TUI wizard (when stdin is a real TTY) ────────────────────
+SETUP_PY="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/setup.py"
+if [ -t 0 ] && [ -f "$SETUP_PY" ] && command -v python3 &>/dev/null; then
+    exec python3 "$SETUP_PY" "$TARGET_DIR"
+fi
+
+# ── Non-interactive / piped fallback ─────────────────────────────────────
+SETUP_PY_FALLBACK="${PRISMOR_DIR}/scripts/setup.py"
+if [ -f "$SETUP_PY_FALLBACK" ] && command -v python3 &>/dev/null; then
+    exec python3 "$SETUP_PY_FALLBACK" "$TARGET_DIR" --non-interactive
+fi
 
 # ── Step 1: Ensure Prismor is cloned locally ────────────────────────────
 if [ -d "$PRISMOR_DIR" ] && [ -f "$PRISMOR_DIR/skills/security.md" ]; then
