@@ -35,7 +35,7 @@ rules:
   - id: destructive-command
     severity: CRITICAL
     category: destructive_command
-    title: Potentially destructive shell command detected
+    title: Blocks rm -rf /, mkfs, dd to disk, shutdown, reboot
     event_types: [shell]
     fields: [command]
     patterns:
@@ -55,7 +55,7 @@ rules:
   - id: secret-exfiltration
     severity: CRITICAL
     category: secret_exfiltration
-    title: Likely secret exfiltration command detected
+    title: Blocks cat .env | curl, piping secrets to external hosts
     event_types: [shell]
     fields: [command]
     patterns:
@@ -66,7 +66,7 @@ rules:
   - id: dos-resource-exhaustion
     severity: CRITICAL
     category: dos_resource_exhaustion
-    title: Denial-of-service or resource exhaustion pattern detected
+    title: Blocks fork bombs, while-true loops, /dev/urandom abuse
     event_types: [shell]
     fields: [command]
     patterns:
@@ -83,7 +83,7 @@ rules:
   - id: rce-canary
     severity: CRITICAL
     category: rce_canary
-    title: Remote code execution or reverse shell pattern detected
+    title: Blocks reverse shells, bash -i /dev/tcp, crontab injection
     event_types: [shell]
     fields: [command]
     patterns:
@@ -102,7 +102,7 @@ rules:
   - id: privilege-escalation
     severity: CRITICAL
     category: privilege_escalation
-    title: Privilege escalation pattern detected
+    title: Blocks chmod +s, sudoers edits, useradd, setcap
     event_types: [shell]
     fields: [command]
     patterns:
@@ -121,7 +121,7 @@ rules:
   - id: prompt-injection
     severity: HIGH
     category: prompt_injection
-    title: Prompt-injection or system-prompt extraction pattern detected
+    title: Detects 'ignore instructions', 'reveal system prompt' in agent I/O
     event_types: [prompt, tool_result]
     fields: [combined_text]
     patterns:
@@ -132,7 +132,7 @@ rules:
   - id: remote-execution
     severity: HIGH
     category: remote_execution
-    title: Remote fetch-and-execute pattern detected
+    title: Blocks curl | bash, wget | sh fetch-and-execute chains
     event_types: [shell]
     fields: [command]
     patterns:
@@ -144,7 +144,7 @@ rules:
     severity: HIGH
     severity_on_write: CRITICAL
     category: secret_access
-    title: Sensitive file access detected
+    title: Flags reads/writes to .env, .ssh/id_rsa, .aws/credentials
     event_types: [file_read, file_write]
     fields: [path]
     patterns:
@@ -155,7 +155,7 @@ rules:
   - id: suspicious-network
     severity: HIGH
     category: secret_exfiltration
-    title: Network call to a suspicious sink detected
+    title: Flags calls to webhook.site, ngrok, pastebin, Discord webhooks
     event_types: [network]
     fields: [url]
     patterns:
@@ -166,7 +166,7 @@ rules:
   - id: db-modification
     severity: HIGH
     category: db_modification
-    title: Database modification command detected
+    title: Flags DROP TABLE, DELETE FROM, TRUNCATE in shell commands
     event_types: [shell]
     fields: [command]
     patterns:
@@ -178,7 +178,7 @@ rules:
   - id: db-access
     severity: HIGH
     category: db_access
-    title: Database dump or sensitive table access detected
+    title: Flags pg_dump, mysqldump, SELECT FROM users/passwords/tokens
     event_types: [shell]
     fields: [command]
     patterns:
@@ -192,7 +192,7 @@ rules:
   - id: path-traversal
     severity: HIGH
     category: path_traversal
-    title: Path traversal or sensitive system file access detected
+    title: Flags ../../ traversal, reads of /etc/passwd, /proc/self/environ
     event_types: [shell, file_read]
     fields: [command, path]
     patterns:
@@ -207,7 +207,7 @@ rules:
     severity: MEDIUM
     severity_on_manifest: HIGH
     category: risky_write
-    title: Write to high-risk file path detected
+    title: Flags writes to Dockerfile, CI workflows, package.json, go.mod
     event_types: [file_write]
     fields: [path]
     patterns:

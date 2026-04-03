@@ -172,19 +172,19 @@ def _parse_manual():
 
 def _defaults():
     D = [
-        ("destructive-command",    "CRITICAL", "Destructive shell commands"),
-        ("secret-exfiltration",    "CRITICAL", "Secret exfiltration via shell"),
-        ("dos-resource-exhaustion","CRITICAL", "DoS / resource exhaustion"),
-        ("rce-canary",             "CRITICAL", "Remote code execution / reverse shell"),
-        ("privilege-escalation",   "CRITICAL", "Privilege escalation"),
-        ("prompt-injection",       "HIGH",     "Prompt injection detection"),
-        ("remote-execution",       "HIGH",     "Remote fetch-and-execute"),
-        ("secret-access",          "HIGH",     "Sensitive file access"),
-        ("suspicious-network",     "HIGH",     "Suspicious network destinations"),
-        ("db-modification",        "HIGH",     "Database modification"),
-        ("db-access",              "HIGH",     "Database dump / sensitive query"),
-        ("path-traversal",         "HIGH",     "Path traversal"),
-        ("risky-write",            "MEDIUM",   "Risky file writes"),
+        ("destructive-command",    "CRITICAL", "Blocks rm -rf /, mkfs, dd to disk, shutdown, reboot"),
+        ("secret-exfiltration",    "CRITICAL", "Blocks cat .env | curl, piping secrets to external hosts"),
+        ("dos-resource-exhaustion","CRITICAL", "Blocks fork bombs, while-true loops, /dev/urandom abuse"),
+        ("rce-canary",             "CRITICAL", "Blocks reverse shells, bash -i /dev/tcp, crontab injection"),
+        ("privilege-escalation",   "CRITICAL", "Blocks chmod +s, sudoers edits, useradd, setcap"),
+        ("prompt-injection",       "HIGH",     "Detects 'ignore instructions', 'reveal system prompt' in agent I/O"),
+        ("remote-execution",       "HIGH",     "Blocks curl | bash, wget | sh fetch-and-execute chains"),
+        ("secret-access",          "HIGH",     "Flags reads/writes to .env, .ssh/id_rsa, .aws/credentials"),
+        ("suspicious-network",     "HIGH",     "Flags calls to webhook.site, ngrok, pastebin, Discord webhooks"),
+        ("db-modification",        "HIGH",     "Flags DROP TABLE, DELETE FROM, TRUNCATE in shell commands"),
+        ("db-access",              "HIGH",     "Flags pg_dump, mysqldump, SELECT FROM users/passwords/tokens"),
+        ("path-traversal",         "HIGH",     "Flags ../../ traversal, reads of /etc/passwd, /proc/self/environ"),
+        ("risky-write",            "MEDIUM",   "Flags writes to Dockerfile, CI workflows, package.json, go.mod"),
     ]
     return [{"id": i, "severity": s, "title": t, "on": True} for i, s, t in D]
 
@@ -262,12 +262,14 @@ def step_rules(rules):
         lines = header_lines(2, 3, "DETECTION RULES")
         lines.append(f"  {w(f'{n_on}/{len(rules)} enabled', DIM)}")
         lines.append("")
+        tw = term_width()
+        max_title = max(tw - 52, 20)  # adapt to terminal width
         for i, r in enumerate(rules):
             arrow = w("▸ ", CYAN) if i == sel else "  "
             dot   = w("●", GRN) if r["on"] else w("○", DIM)
             sev   = pad(w(r["severity"], sev_color(r["severity"])), 12)
-            rid   = pad(w(r["id"], BOLD) if i == sel else r["id"], 28)
-            title = w(r["title"][:38], DIM)
+            rid   = pad(w(r["id"], BOLD) if i == sel else r["id"], 26)
+            title = w(r["title"][:max_title], DIM)
             lines.append(f"  {arrow}{dot}  {sev}{rid} {title}")
         lines.append("")
         lines.append(control_line([
