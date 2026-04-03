@@ -597,7 +597,7 @@ def format_sessions(payload: Dict[str, Any]) -> str:
         risk = session['riskScore']
         risk_color = _RED if risk >= 50 else _YELLOW if risk >= 20 else _GREEN
         lines.append(
-            f"\n{_color(f'{index}.', _BOLD)} {session['sessionId'][:16]}…"
+            f"\n{_color(f'{index}.', _BOLD)} {session['sessionId']}"
             f"  {_color(f'risk={risk}/100', risk_color)}"
             f"  findings={session['findingsCount']}"
             f"  agent={session['agent']}"
