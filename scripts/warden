@@ -1,0 +1,3 @@
+#!/bin/sh
+# Prismor Warden CLI wrapper — pass --workspace automatically
+exec python3 "${PRISMOR_HOME:-$HOME/.prismor}/warden/cli.py" "$@" --workspace "${PRISMOR_WORKSPACE:-.}"

@@ -477,26 +477,29 @@ def do_install(target, mode, rules, agents):
         return r.returncode == 0, "verified" if r.returncode == 0 else "failed"
     spinner_run("Verifying feed signature", verify)
 
-    # 6. Add warden shell alias
-    def add_alias():
-        alias_line = f'alias warden="python3 {PRISMOR_DIR}/warden/cli.py --workspace ."'
-        # Find the user's shell rc file
+    # 6. Add warden to PATH
+    def add_to_path():
+        wrapper = PRISMOR_DIR / "scripts" / "warden"
+        if not wrapper.exists():
+            return False, "wrapper script not found"
+        # Symlink into /usr/local/bin if writable, else add to PATH in rc
+        local_bin = Path("/usr/local/bin")
+        link = local_bin / "warden"
+        if local_bin.exists() and os.access(str(local_bin), os.W_OK):
+            if link.exists() or link.is_symlink():
+                link.unlink()
+            link.symlink_to(wrapper)
+            return True, "linked to /usr/local/bin/warden"
+        # Fallback: add scripts dir to PATH in shell rc
+        export_line = f'export PATH="{PRISMOR_DIR}/scripts:$PATH"'
         shell = os.environ.get("SHELL", "/bin/zsh")
-        if "zsh" in shell:
-            rc = Path.home() / ".zshrc"
-        elif "bash" in shell:
-            rc = Path.home() / ".bashrc"
-        else:
-            rc = Path.home() / ".profile"
-        if rc.exists():
-            content = rc.read_text()
-            if "alias warden=" in content:
-                return True, "already in " + rc.name
-        else:
-            content = ""
-        rc.write_text(content.rstrip() + f"\n\n# Prismor Warden\n{alias_line}\n")
-        return True, f"added to {rc.name}"
-    spinner_run("Adding warden alias", add_alias)
+        rc = Path.home() / (".zshrc" if "zsh" in shell else ".bashrc" if "bash" in shell else ".profile")
+        content = rc.read_text() if rc.exists() else ""
+        if str(PRISMOR_DIR / "scripts") in content:
+            return True, "already in " + rc.name
+        rc.write_text(content.rstrip() + f"\n\n# Prismor Warden\n{export_line}\n")
+        return True, f"PATH added to {rc.name}"
+    spinner_run("Adding warden command", add_to_path)
 
     # Done
     home = str(Path.home())
@@ -511,7 +514,7 @@ def do_install(target, mode, rules, agents):
     info("Feed",    str(PRISMOR_DIR / "advisories/immunity-feed.json").replace(home, "~"))
     info("Warden",  f"hooks installed (mode: {mode})")
     info("Config",  str(target / "CLAUDE.md").replace(home, "~"))
-    info("Alias",   "warden (restart shell or run: source ~/.zshrc)")
+    info("Command", "warden (restart shell if not found)")
     print()
     print(w("  Quick commands:", GRN))
     print(f"    warden status                      {w('most recent session', DIM)}")
