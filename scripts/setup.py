@@ -68,7 +68,7 @@ def enable_raw_mode():
     global _old_settings
     fd = sys.stdin.fileno()
     _old_settings = termios.tcgetattr(fd)
-    tty.setraw(fd)
+    tty.setcbreak(fd)
 
 def restore_terminal():
     if _old_settings is not None:
