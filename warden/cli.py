@@ -240,6 +240,9 @@ def main() -> None:
         if args.policy_command == "show":
             _policy_show(workspace)
             return
+        if args.policy_command == "edit":
+            _policy_edit(workspace)
+            return
 
     raise SystemExit(f"Unsupported command: {args.command}")
 
@@ -327,6 +330,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     policy_show = policy_sub.add_parser("show", help="Show active policy rules (default + project overrides)")
     policy_show.add_argument("--workspace", help="Workspace path")
+
+    policy_edit = policy_sub.add_parser("edit", help="Interactive rule toggle — select which rules to enable/disable")
+    policy_edit.add_argument("--workspace", help="Workspace path")
 
     return parser
 
@@ -435,6 +441,142 @@ def _policy_show(workspace: Path) -> None:
         for al in engine.allowlists:
             targets = ", ".join(al.rule_ids) if "*" not in al.rule_ids else "all rules"
             print(f"  {al.id}: {targets}" + (f"  — {al.reason}" if al.reason else ""))
+
+
+def _policy_edit(workspace: Path) -> None:
+    """Interactive rule toggle for the current workspace."""
+    import tty
+    import termios
+    import atexit as _atexit
+
+    engine = PolicyEngine(workspace=workspace)
+
+    # Load existing project overrides to know what's already disabled
+    override_path = workspace / ".prismor-warden" / "policy.yaml"
+    disabled_ids: set = set()
+    if override_path.exists():
+        try:
+            from warden.policy_engine import _load_yaml
+            data = _load_yaml(override_path)
+            if data:
+                for r in data.get("rules", []):
+                    if not r.get("enabled", True):
+                        disabled_ids.add(r["id"])
+        except Exception:
+            pass
+
+    # Build rule list from default policy (all rules, including disabled)
+    default_path = Path(__file__).resolve().parent / "default_policy.yaml"
+    all_rules = []
+    try:
+        from warden.policy_engine import _load_yaml
+        data = _load_yaml(default_path)
+        if data:
+            for r in data.get("rules", []):
+                all_rules.append({
+                    "id": r["id"],
+                    "severity": r["severity"],
+                    "title": r.get("title", r["id"]),
+                    "on": r["id"] not in disabled_ids,
+                })
+    except Exception:
+        pass
+
+    if not all_rules:
+        print("Could not load rules from default policy.")
+        return
+
+    # Terminal setup
+    fd = sys.stdin.fileno()
+    old = termios.tcgetattr(fd)
+
+    def _restore():
+        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+        sys.stdout.write("\033[?25h")
+        sys.stdout.flush()
+
+    _atexit.register(_restore)
+    tty.setcbreak(fd)
+
+    def _read_key():
+        ch = sys.stdin.read(1)
+        if ch == '\x1b':
+            ch2 = sys.stdin.read(1)
+            if ch2 == '[':
+                ch3 = sys.stdin.read(1)
+                return 'ESC[' + ch3
+            return ch
+        return ch
+
+    sel = 0
+    while True:
+        n_on = sum(1 for r in all_rules if r["on"])
+        buf = "\033[H\033[J\033[?25l"  # home, clear, hide cursor
+        buf += f"\n  {_BOLD}PRISMOR WARDEN{_NC}  policy edit\n"
+        buf += f"  {_DIM}Workspace: {workspace}{_NC}\n"
+        buf += f"  {_DIM}{'─' * 64}{_NC}\n\n"
+        buf += f"  {n_on}/{len(all_rules)} rules enabled\n\n"
+
+        for i, r in enumerate(all_rules):
+            arrow = f"{_CYAN}▸ {_NC}" if i == sel else "  "
+            dot = f"{_GREEN}●{_NC}" if r["on"] else f"{_DIM}○{_NC}"
+            sev = r["severity"]
+            sev_c = _RED if sev == "CRITICAL" else _YELLOW if sev == "HIGH" else _DIM
+            sev_s = f"{sev_c}{sev:<10}{_NC}"
+            rid = f"{_BOLD}{r['id']:<28}{_NC}" if i == sel else f"{r['id']:<28}"
+            title = f"{_DIM}{r['title']}{_NC}"
+            buf += f"  {arrow}{dot}  {sev_s}{rid} {title}\n"
+
+        buf += f"\n  {_CYAN}{_BOLD}↑↓{_NC}{_DIM} move  ·  {_NC}"
+        buf += f"{_CYAN}{_BOLD}space{_NC}{_DIM} toggle  ·  {_NC}"
+        buf += f"{_CYAN}{_BOLD}a{_NC}{_DIM} all  ·  {_NC}"
+        buf += f"{_CYAN}{_BOLD}n{_NC}{_DIM} none  ·  {_NC}"
+        buf += f"{_CYAN}{_BOLD}enter{_NC}{_DIM} save  ·  {_NC}"
+        buf += f"{_CYAN}{_BOLD}q{_NC}{_DIM} cancel{_NC}\n"
+        sys.stdout.write(buf)
+        sys.stdout.flush()
+
+        key = _read_key()
+        if key == 'ESC[A':    sel = (sel - 1) % len(all_rules)
+        elif key == 'ESC[B':  sel = (sel + 1) % len(all_rules)
+        elif key == ' ':      all_rules[sel]["on"] = not all_rules[sel]["on"]
+        elif key in ('a','A'):
+            for r in all_rules: r["on"] = True
+        elif key in ('n','N'):
+            for r in all_rules: r["on"] = False
+        elif key in ('\r', '\n'):
+            break  # save
+        elif key in ('q', 'Q', '\x03'):
+            _restore()
+            sys.stdout.write("\033[H\033[J")
+            print("  Cancelled — no changes made.")
+            return
+
+    _restore()
+    sys.stdout.write("\033[H\033[J")
+
+    # Write policy
+    disabled = [r["id"] for r in all_rules if not r["on"]]
+    policy_dir = workspace / ".prismor-warden"
+    policy_dir.mkdir(parents=True, exist_ok=True)
+    policy_file = policy_dir / "policy.yaml"
+
+    if disabled:
+        lines = ['version: "1.0"\n\nrules:\n']
+        for rid in disabled:
+            lines.append(f"  - id: {rid}\n    enabled: false\n")
+        lines.append("\nallowlists: []\n")
+        policy_file.write_text("".join(lines))
+        n_on = sum(1 for r in all_rules if r["on"])
+        print(f"  {_color('✓', _GREEN)} Saved to {policy_file}")
+        print(f"  {n_on}/{len(all_rules)} rules enabled, {len(disabled)} disabled")
+    else:
+        # All enabled — remove override file if it exists (use defaults)
+        if policy_file.exists():
+            policy_file.write_text('version: "1.0"\n\nrules: []\n\nallowlists: []\n')
+        print(f"  {_color('✓', _GREEN)} All rules enabled (using defaults)")
+
+    print(f"\n  Run {_color('warden policy show', _CYAN)} to verify.")
 
 
 # ── SARIF output ────────────────────────────────────────────────────────
