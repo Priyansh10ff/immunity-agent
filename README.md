@@ -57,7 +57,7 @@ Prismor works at two layers: what the agent *knows* (skills loaded at session st
 
 ### See It In Action
 
-![Prismor Demo](https://d205xtizsu1yjh.cloudfront.net/immunity-agent/demo.gif)
+![Prismor Demo](docs/demo.gif)
 
 ---
 
