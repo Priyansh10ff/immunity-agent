@@ -189,6 +189,36 @@ warden install-hooks --agent openclaw --mode enforce
 warden analyze --input session.jsonl --sarif
 ```
 
+### Sweep — Secret Scanner for AI Tool Configs
+
+AI coding agents cache files, log conversations, and store paste buffers. Secrets from your `.env`, credentials, and config files leak into these caches without you knowing.
+
+Sweep scans the config directories of AI tools (Claude, Cursor, Windsurf, Codex, Antigravity) for leaked secrets using [gitleaks](https://github.com/gitleaks/gitleaks), then lets you redact or delete them — with an encrypted vault to recover if needed.
+
+```bash
+# Scan — dry run, shows what's exposed
+warden sweep
+
+# Scan any directory
+warden sweep /path/to/folder
+
+# Redact secrets (creates encrypted vault on first run)
+warden sweep --redact
+
+# Delete residue files containing secrets
+warden sweep --clean
+
+# Restore secrets from vault
+warden sweep --restore --all
+
+# View vault contents
+warden sweep --show-vault
+```
+
+The vault (`~/.prismor/sweep.vault.enc`) is AES-256 encrypted with a passphrase you set on first use. The passphrase is shown once and cannot be recovered — store it in a password manager.
+
+See [Sweep documentation](https://prismor.dev/docs/sweep) for full setup and usage guide.
+
 ### Threat Feed
 
 A daily-updated, Ed25519-signed advisory feed covering AI-ecosystem CVEs:
