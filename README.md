@@ -28,36 +28,27 @@ Standard OS-level and endpoint security tools monitor the kernel and filesystem.
 
 Prismor works at two layers: what the agent *knows* (skills loaded at session start) and what the agent *does* (runtime hook on every tool call).
 
-### Architecture
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                     Your IDE / Agent                    │
-│     (Claude Code · Cursor · Windsurf · OpenClaw)        │
-└────────────────────┬────────────────────────────────────┘
-                     │  hooks (PreToolUse / PostToolUse)
-                     ▼
-┌─────────────────────────────────────────────────────────┐
-│                   Prismor Warden                        │
-│                                                         │
-│   ┌─────────────┐   ┌──────────────┐   ┌────────────┐  │
-│   │ Policy      │   │ Session      │   │ Threat     │  │
-│   │ Engine      │──▶│ Store        │   │ Feed       │  │
-│   │ (YAML rules)│   │ (SQLite/JSONL│   │ (Ed25519   │  │
-│   └──────┬──────┘   └──────────────┘   │  signed)   │  │
-│          │                             └────────────┘  │
-│     observe / block                                     │
-└────────────────────┬────────────────────────────────────┘
-                     │
-          ┌──────────┴──────────┐
-          │                     │
-     ALLOW action           BLOCK action
-     + log finding          + log finding
-```
-
 ### See It In Action
 
 ![Prismor Demo](docs/demo.gif)
+
+### Architecture
+
+```mermaid
+flowchart TD
+    IDE["Your IDE / Agent\n(Claude Code · Cursor · Windsurf · OpenClaw)"]
+    IDE -->|"hooks (PreToolUse / PostToolUse)"| Warden
+
+    subgraph Warden["Prismor Warden"]
+        Policy["Policy Engine\n(YAML rules)"]
+        Session["Session Store\n(SQLite / JSONL)"]
+        Feed["Threat Feed\n(Ed25519 signed)"]
+        Policy --> Session
+    end
+
+    Warden --> Allow["ALLOW action\n+ log finding"]
+    Warden --> Block["BLOCK action\n+ log finding"]
+```
 
 ---
 
