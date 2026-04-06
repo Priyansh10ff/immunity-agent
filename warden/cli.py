@@ -13,6 +13,10 @@ Commands:
   hook-dispatch Internal: called by IDE hooks (not for direct use)
   policy init   Generate a starter policy.yaml for your project
   policy validate  Validate a policy.yaml file
+  sweep         Scan AI tool configs for leaked secrets
+  sweep --redact  Redact secrets and save to encrypted vault
+  sweep --clean   Delete residue files (passphrase required)
+  sweep --restore Restore secrets from vault
 """
 from __future__ import annotations
 
@@ -251,6 +255,76 @@ def main() -> None:
             sys.stderr.write(_color(f"[warden] ", _YELLOW) + f"[{blocking['severity']}] {blocking['title']}\n")
         return
 
+    # ── sweep ──────────────────────────────────────────────────────────
+    if args.command == "sweep":
+        from warden.sweep import (
+            scan, report_findings, redact, restore, clean, show_vault,
+            _vault_exists, _prompt_passphrase, _read_vault, info as sweep_info,
+            ok as sweep_ok, warn as sweep_warn, err as sweep_err,
+        )
+
+        # Show vault contents
+        if getattr(args, "show_vault", False):
+            passphrase = _prompt_passphrase()
+            show_vault(passphrase)
+            return
+
+        # Restore mode
+        if getattr(args, "restore", False):
+            passphrase = _prompt_passphrase()
+            restore(passphrase, target_file=getattr(args, "file", None), all_entries=getattr(args, "all", False))
+            return
+
+        # Merge positional paths + --dirs
+        custom_dirs = (getattr(args, "paths", None) or []) + (getattr(args, "dirs", None) or [])
+        custom_dirs = custom_dirs or None
+
+        # Scan first (needed for redact, clean, and dry-run)
+        findings = scan(custom_dirs=custom_dirs)
+        if not findings:
+            return
+
+        # Clean mode (delete residue files)
+        if getattr(args, "clean", False):
+            sweep_info("Passphrase required to authorize deletion and update vault.")
+            if _vault_exists():
+                passphrase = _prompt_passphrase()
+            else:
+                passphrase = _prompt_passphrase(confirm=True)
+            clean(findings, passphrase)
+            return
+
+        # Redact mode
+        if getattr(args, "redact", False):
+            purge = getattr(args, "purge", False)
+            if purge:
+                sweep_warn("Purge mode — secrets will be redacted with NO vault backup.")
+                report_findings(findings)
+                print()
+                passphrase = ""
+            elif _vault_exists():
+                report_findings(findings)
+                print()
+                sweep_info("Passphrase required to update the vault.")
+                passphrase = _prompt_passphrase()
+            else:
+                report_findings(findings)
+                print()
+                sweep_info("First-time vault setup — creating encrypted vault for secret recovery.")
+                passphrase = _prompt_passphrase(confirm=True)
+
+            count = redact(findings, passphrase, purge=purge)
+            if count:
+                print()
+                sweep_ok(f"Redacted {count} secret(s)")
+            return
+
+        # Default: dry-run scan and report
+        report_findings(findings)
+        print()
+        sweep_warn("Dry run — no files modified. Use --redact or --clean to take action.")
+        return
+
     # ── policy subcommands ─────────────────────────────────────────────
     if args.command == "policy":
         if args.policy_command == "init":
@@ -362,6 +436,18 @@ def build_parser() -> argparse.ArgumentParser:
 
     policy_edit = policy_sub.add_parser("edit", help="Interactive rule toggle — select which rules to enable/disable")
     policy_edit.add_argument("--workspace", help="Workspace path")
+
+    # ── sweep ──────────────────────────────────────────────────────────
+    sweep_parser = subparsers.add_parser("sweep", help="Scan AI tool configs for leaked secrets, redact with encrypted vault")
+    sweep_parser.add_argument("--redact", action="store_true", help="Redact found secrets and save originals to encrypted vault")
+    sweep_parser.add_argument("--clean", action="store_true", help="Delete residue files containing secrets (vault backup first)")
+    sweep_parser.add_argument("--restore", action="store_true", help="Restore secrets from the encrypted vault")
+    sweep_parser.add_argument("--show-vault", action="store_true", help="Show vault contents (requires passphrase)")
+    sweep_parser.add_argument("--purge", action="store_true", help="With --redact: skip vault, no recovery possible")
+    sweep_parser.add_argument("--all", action="store_true", help="With --restore: restore all entries")
+    sweep_parser.add_argument("--file", help="With --restore: restore only this file")
+    sweep_parser.add_argument("paths", nargs="*", help="Directories to scan (default: AI tool config dirs)")
+    sweep_parser.add_argument("--dirs", nargs="+", help="(deprecated) Same as positional paths")
 
     return parser
 
