@@ -193,6 +193,8 @@ warden analyze --input session.jsonl --sarif
 
 AI coding agents cache files, log conversations, and store paste buffers. Secrets from your `.env`, credentials, and config files leak into these caches without you knowing.
 
+<img width="1820" height="796" alt="image" src="https://github.com/user-attachments/assets/68137da9-5e7a-4228-b55a-ec50b5cabd51" />
+
 Sweep scans the config directories of AI tools (Claude, Cursor, Windsurf, Codex, Antigravity) for leaked secrets using [gitleaks](https://github.com/gitleaks/gitleaks), then lets you redact or delete them, with an encrypted vault to recover if needed.
 
 ```bash
