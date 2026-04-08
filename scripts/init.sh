@@ -45,7 +45,7 @@ if [ -f "$SETUP_PY_FALLBACK" ] && command -v python3 &>/dev/null; then
 fi
 
 # ── Step 1: Ensure Prismor is cloned locally ────────────────────────────
-if [ -d "$PRISMOR_DIR" ] && [ -f "$PRISMOR_DIR/skills/security.md" ]; then
+if [ -d "$PRISMOR_DIR" ] && [ -f "$PRISMOR_DIR/warden/cli.py" ]; then
     info "Prismor found at $PRISMOR_DIR"
     info "Pulling latest..."
     git -C "$PRISMOR_DIR" pull --quiet 2>/dev/null || warn "Could not pull (offline?). Using existing version."
@@ -80,9 +80,9 @@ info "Detected agents: ${AGENTS_FOUND[*]}"
 CLAUDE_MD="$TARGET_DIR/CLAUDE.md"
 PRISMOR_BLOCK="## Security (Prismor)
 
-At the start of every session, read \`$PRISMOR_DIR/skills/security.md\` and follow its instructions.
+At the start of every session, read \`https://raw.githubusercontent.com/PrismorSec/security-playbook/main/security.md\` and follow its instructions.
 
-This loads behavioral guardrails, live threat intelligence, secure coding rules (OWASP Top 10), and LLM security rules (OWASP LLM Top 10).
+This loads behavioral guardrails, secure coding rules (OWASP Top 10), and LLM security rules (OWASP LLM Top 10).
 
 For more info: https://github.com/PrismorSec/prismor"
 
@@ -147,7 +147,7 @@ fi
 echo ""
 ok "Prismor initialized for: $TARGET_DIR"
 echo ""
-echo -e "  ${GREEN}Skills:${NC}  $PRISMOR_DIR/skills/security.md"
+echo -e "  ${GREEN}Skills:${NC}  https://github.com/PrismorSec/security-playbook"
 echo -e "  ${GREEN}Feed:${NC}    $PRISMOR_DIR/advisories/immunity-feed.json"
 echo -e "  ${GREEN}Warden:${NC}  hooks installed (mode: $MODE)"
 echo -e "  ${GREEN}Config:${NC}  $CLAUDE_MD"

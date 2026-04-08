@@ -5,7 +5,7 @@ This file is the canonical guidance for coding agents working in the Prismor rep
 Prismor is a security package for AI coding agents. It has four connected surfaces:
 
 - a signed AI-security advisory feed in [`advisories/`](./advisories/)
-- agent-readable security skills in [`skills/`](./skills/)
+- agent-readable security skills in [security-playbook](https://github.com/PrismorSec/security-playbook) (separate repo)
 - a local runtime security utility (Warden) in [`warden/`](./warden/)
 - a tokenization prevention layer in [`warden/tokenization/`](./warden/tokenization/) that keeps real secrets out of model context, transcripts, and API requests
 
@@ -24,15 +24,14 @@ When working in this repo, optimize for these goals in order:
 
 Before doing substantial work, read these files in this order:
 
-1. [`skills/security.md`](./skills/security.md)
-2. [`skills/behavioral-security/SKILL.md`](./skills/behavioral-security/SKILL.md)
-3. [`skills/prismor-feed/SKILL.md`](./skills/prismor-feed/SKILL.md)
-4. [`skills/code-security/SKILL.md`](./skills/code-security/SKILL.md)
-5. [`skills/llm-security/SKILL.md`](./skills/llm-security/SKILL.md)
+1. [security-playbook/security.md](https://raw.githubusercontent.com/PrismorSec/security-playbook/main/security.md)
+2. [behavioral-security/SKILL.md](https://raw.githubusercontent.com/PrismorSec/security-playbook/main/behavioral-security/SKILL.md)
+3. [code-security/SKILL.md](https://raw.githubusercontent.com/PrismorSec/security-playbook/main/code-security/SKILL.md)
+4. [llm-security/SKILL.md](https://raw.githubusercontent.com/PrismorSec/security-playbook/main/llm-security/SKILL.md)
 
 If the task involves static analysis or custom rule authoring, also read:
 
-6. [`skills/static-analysis/SKILL.md`](./skills/static-analysis/SKILL.md)
+5. [static-analysis/SKILL.md](https://raw.githubusercontent.com/PrismorSec/security-playbook/main/static-analysis/SKILL.md)
 
 If the task involves runtime monitoring, local hook installation, or session telemetry, also read:
 
@@ -65,7 +64,7 @@ When you change one of these areas, check whether the others should change too:
 
 Examples:
 
-- if you add a new threat category to the advisory feed, consider whether `skills/` and `warden/` should recognize it
+- if you add a new threat category to the advisory feed, consider whether security-playbook skills and `warden/` should recognize it
 - if you tighten behavioral guardrails, check whether Warden blocking logic should match
 - if you add a new runtime finding category, check whether the feed correlation logic should map to it
 
@@ -110,14 +109,9 @@ Relevant implementation files:
 
 ### Skills
 
-The `skills/` directory is the agent-usable instruction layer.
+Security skills live in the [security-playbook](https://github.com/PrismorSec/security-playbook) repo. This repo does not own or modify them.
 
-Use these rules when editing or adding skills:
-
-- each skill should have one clear purpose
-- descriptions should say when the skill should be used
-- the top-level `skills/security.md` should remain the single entry point
-- avoid duplicating entire skills when composition works better
+When referencing or updating skill content, work in that repo directly. Keep `AGENTS.md` and `CLAUDE.md` in sync with the correct raw URLs if the skill structure changes.
 
 ### Warden
 
@@ -210,7 +204,7 @@ The tokenization subsystem in [`warden/tokenization/`](./warden/tokenization/) i
 
 **Alignment with other surfaces:**
 
-- if you add a new detection category, update `skills/behavioral-security/SKILL.md` to reference the placeholder syntax where applicable
+- if you add a new detection category, update [behavioral-security/SKILL.md](https://github.com/PrismorSec/security-playbook/blob/main/behavioral-security/SKILL.md) in the security-playbook repo to reference the placeholder syntax where applicable
 - tokenization-related findings surfaced at runtime should route through the same session store as Warden (future work — not yet wired)
 - new placeholder-aware tools should be documented in [`warden/tokenization/README.md`](./warden/tokenization/README.md), not just in code
 
@@ -263,8 +257,8 @@ warden tokenize status                         # show install state + registered
 
 ### If asked to improve Prismor security guidance
 
-1. Update the relevant skill file.
-2. Check whether `skills/security.md` should reference the change.
+1. Update the relevant skill file in the [security-playbook](https://github.com/PrismorSec/security-playbook) repo.
+2. Check whether `security-playbook/security.md` should reference the change.
 3. Check whether Warden should enforce or detect the same pattern.
 4. Check whether the advisory feed type mapping should reflect the new concept.
 
@@ -279,7 +273,7 @@ warden tokenize status                         # show install state + registered
 ### If asked to add a new threat category
 
 1. Update the schema and feed generation logic if needed.
-2. Add or adjust skill guidance.
+2. Add or adjust skill guidance in the [security-playbook](https://github.com/PrismorSec/security-playbook) repo.
 3. Add or adjust Warden finding categorization and feed correlation.
 4. Update top-level docs only after the implementation model is coherent.
 
@@ -319,4 +313,4 @@ If you changed `default_policy.yaml`, also validate:
 warden policy validate warden/default_policy.yaml
 ```
 
-If you changed a skill, re-read the affected skill files to make sure the wording still composes cleanly with the rest of the repo.
+If you changed a skill in security-playbook, re-read the affected skill files to make sure the wording still composes cleanly with the rest of the repo.

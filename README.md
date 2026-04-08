@@ -160,7 +160,7 @@ PRISMOR_MODE=enforce bash ~/.prismor/scripts/init.sh /path/to/project --non-inte
 Tell your agent at session start:
 
 ```
-Read ~/.prismor/skills/security.md and follow its instructions.
+Read https://raw.githubusercontent.com/PrismorSec/security-playbook/main/security.md and follow its instructions.
 ```
 
 Or add to your project's `CLAUDE.md`:
@@ -168,7 +168,7 @@ Or add to your project's `CLAUDE.md`:
 ```markdown
 ## Security (Prismor)
 
-At the start of every session, read `~/.prismor/skills/security.md` and follow its instructions.
+At the start of every session, read `https://raw.githubusercontent.com/PrismorSec/security-playbook/main/security.md` and follow its instructions.
 ```
 
 ### Warden CLI
@@ -309,12 +309,14 @@ Coverage includes LangChain, LlamaIndex, OpenAI, Anthropic, CrewAI, AutoGPT, pro
 
 ### Security Skills
 
+Security skills live in the [security-playbook](https://github.com/PrismorSec/security-playbook) repo.
+
 | Skill | What It Covers |
 |-------|---------------|
-| [Behavioral Security](skills/behavioral-security/SKILL.md) | Command deny-lists, secret protection, anti-prompt-injection, HITL gates |
-| [Code Security](skills/code-security/SKILL.md) | OWASP Top 10 - 22 rule files across Python, JS, Java, Go, Ruby, C# |
-| [LLM Security](skills/llm-security/SKILL.md) | OWASP LLM Top 10 2025 - prompt injection, excessive agency, data poisoning |
-| [Static Analysis](skills/static-analysis/SKILL.md) | Pattern-based scanning, custom rule authoring, SARIF output |
+| [Behavioral Security](https://github.com/PrismorSec/security-playbook/blob/main/behavioral-security/SKILL.md) | Command deny-lists, secret protection, anti-prompt-injection, HITL gates |
+| [Code Security](https://github.com/PrismorSec/security-playbook/blob/main/code-security/SKILL.md) | OWASP Top 10 - 22 rule files across Python, JS, Java, Go, Ruby, C# |
+| [LLM Security](https://github.com/PrismorSec/security-playbook/blob/main/llm-security/SKILL.md) | OWASP LLM Top 10 2025 - prompt injection, excessive agency, data poisoning |
+| [Static Analysis](https://github.com/PrismorSec/security-playbook/blob/main/static-analysis/SKILL.md) | Pattern-based scanning, custom rule authoring, SARIF output |
 
 Each rule file shows vulnerable and secure code side by side in real frameworks (Flask, Express, Spring, etc.).
 
@@ -342,7 +344,7 @@ Code security and LLM security rules are adapted from the [Semgrep Skills reposi
 PRs are welcome. Guidelines:
 
 - New detection rules go in `warden/default_policy.yaml` - follow the schema in `warden/policy_schema.json`
-- New skills go under `skills/` with a `SKILL.md` and `skill.json`
+- New skills go in the [security-playbook](https://github.com/PrismorSec/security-playbook) repo with a `SKILL.md` and `skill.json`
 - Tests live in `tests/` - run `pytest` before opening a PR
 - For threat feed contributions, use the **Threat Intelligence** issue template
 

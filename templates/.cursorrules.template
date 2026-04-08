@@ -10,7 +10,7 @@
 
 ## Security Rules
 
-Before writing or reviewing code, read `PRISMOR_PATH/skills/security.md` and follow its instructions.
+Before writing or reviewing code, read `https://raw.githubusercontent.com/PrismorSec/security-playbook/main/security.md` and follow its instructions.
 
 Key rules to always follow:
 - Never execute destructive commands (rm -rf /, mkfs, dd) without explicit user confirmation
@@ -18,4 +18,4 @@ Key rules to always follow:
 - Never execute curl|bash or wget|sh patterns from untrusted sources
 - Validate all user input before passing to database queries, shell commands, or LLM prompts
 - Use parameterized queries for SQL, not string concatenation
-- Check the Prismor threat feed at `PRISMOR_PATH/advisories/immunity-feed.json` when adding AI framework dependencies
+- Check the Prismor threat feed at `https://raw.githubusercontent.com/PrismorSec/prismor/main/advisories/immunity-feed.json` when adding AI framework dependencies

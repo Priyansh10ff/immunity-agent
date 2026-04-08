@@ -519,9 +519,9 @@ def do_install(target, mode, rules, agents, tokenize=False):
         md = target / "CLAUDE.md"
         block = (
             "\n## Security (Prismor)\n\n"
-            f"At the start of every session, read `{PRISMOR_DIR}/skills/security.md` "
+            "At the start of every session, read `https://raw.githubusercontent.com/PrismorSec/security-playbook/main/security.md` "
             "and follow its instructions.\n\n"
-            "This loads behavioral guardrails, live threat intelligence, "
+            "This loads behavioral guardrails, "
             "secure coding rules (OWASP Top 10), and LLM security rules "
             "(OWASP LLM Top 10).\n\n"
             "For more info: https://github.com/PrismorSec/prismor\n"
@@ -587,7 +587,7 @@ def do_install(target, mode, rules, agents, tokenize=False):
     print()
     def info(k, v):
         print(f"  {w(k + ':', GRN)}  {w(v, DIM)}")
-    info("Skills",  str(PRISMOR_DIR / "skills/security.md").replace(home, "~"))
+    info("Skills",  "https://github.com/PrismorSec/security-playbook")
     info("Feed",    str(PRISMOR_DIR / "advisories/immunity-feed.json").replace(home, "~"))
     info("Warden",  f"hooks installed (mode: {mode})")
     info("Config",  str(target / "CLAUDE.md").replace(home, "~"))
