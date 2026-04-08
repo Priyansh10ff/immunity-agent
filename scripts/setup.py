@@ -2,6 +2,12 @@
 """
 Prismor Warden — Interactive Setup Wizard
 Usage: python3 setup.py [TARGET_DIR] [--non-interactive]
+
+Environment variables (non-interactive mode):
+    PRISMOR_MODE      observe | enforce    (default: observe)
+    PRISMOR_TOKENIZE  1 | true | yes       (default: off — opts into the
+                                            secret-tokenization prevention
+                                            layer; requires jq on PATH)
 """
 
 import os
@@ -237,7 +243,7 @@ def step_mode(current="enforce"):
     sel = 0 if current == "observe" else 1
 
     while True:
-        lines = header_lines(1, 3, "ENFORCEMENT MODE")
+        lines = header_lines(1, 4, "ENFORCEMENT MODE")
         for i, (name, desc) in enumerate(opts):
             arrow = w("▸ ", CYAN) if i == sel else "  "
             dot   = w("●", GRN) if i == sel else w("○", DIM)
@@ -260,7 +266,7 @@ def step_rules(rules):
 
     while True:
         n_on = sum(1 for r in rules if r["on"])
-        lines = header_lines(2, 3, "DETECTION RULES")
+        lines = header_lines(2, 4, "DETECTION RULES")
         lines.append(f"  {w(f'{n_on}/{len(rules)} enabled', DIM)}")
         lines.append("")
         tw = term_width()
@@ -306,7 +312,7 @@ def step_agents(target):
     sel = 0
 
     while True:
-        lines = header_lines(3, 3, "AGENTS")
+        lines = header_lines(3, 4, "AGENTS")
         lines.append(f"  {w('Select agents to install Warden hooks for:', DIM)}")
         lines.append("")
         for i, ag in enumerate(agents):
@@ -332,9 +338,49 @@ def step_agents(target):
             return chosen if chosen else ["claude"]
         elif key in ('q','Q','\x03'): cleanup(); sys.exit(0)
 
+# ── Step 4: Secret Tokenization ──────────────────────────────────────────────
+
+def step_tokenize(current=True):
+    """Yes/no toggle for the secret-tokenization prevention layer.
+
+    Installs PreToolUse/PostToolUse/UserPromptSubmit hooks that keep real
+    secret values out of the model's context, the JSONL transcript, and
+    upstream API requests. Requires ``jq`` on the user's PATH.
+    """
+    opts = [
+        ("yes", "Install tokenization hooks  (recommended — prevents secret leaks to the LLM provider)"),
+        ("no",  "Skip — only runtime policy hooks will be installed"),
+    ]
+    sel = 0 if current else 1
+
+    while True:
+        lines = header_lines(4, 4, "SECRET TOKENIZATION")
+        lines.append(f"  {w('Prevents real secrets from reaching model context, JSONL transcripts,', DIM)}")
+        lines.append(f"  {w('or upstream API requests. See warden/tokenization/README.md.', DIM)}")
+        lines.append("")
+        for i, (name, desc) in enumerate(opts):
+            arrow = w("▸ ", CYAN) if i == sel else "  "
+            dot   = w("●", GRN) if i == sel else w("○", DIM)
+            tw = term_width()
+            max_desc = max(tw - 24, 30)
+            nm    = pad(w(name, BOLD) if i == sel else w(name, DIM), 8)
+            lines.append(f"  {arrow}{dot}  {nm}{w(desc[:max_desc], DIM)}")
+        lines.append("")
+        lines.append(control_line([
+            ("↑↓", "select"), ("←", "back"), ("enter", "next"), ("q", "quit"),
+        ]))
+        render(lines)
+
+        key = read_key()
+        if key in (UP,):              sel = (sel - 1) % len(opts)
+        elif key in (DOWN,):          sel = (sel + 1) % len(opts)
+        elif key in (LEFT, 'b', 'B'): return BACK
+        elif key in (ENTER, '\n'):    return opts[sel][0] == "yes"
+        elif key in ('q','Q','\x03'): cleanup(); sys.exit(0)
+
 # ── Confirm ──────────────────────────────────────────────────────────────────
 
-def step_confirm(target, mode, rules, agents):
+def step_confirm(target, mode, rules, agents, tokenize=False):
     home = str(Path.home())
     disp = str(target).replace(home, "~")
     n_on = sum(1 for r in rules if r["on"])
@@ -360,6 +406,8 @@ def step_confirm(target, mode, rules, agents):
         lines.append(row(kv("Mode", mode, GRN if mode == "enforce" else YEL)))
         lines.append(row(kv("Rules", f"{n_on}/{len(rules)} enabled")))
         lines.append(row(kv("Agents", ags)))
+        lines.append(row(kv("Tokenize", "yes  (secret prevention)" if tokenize else "no",
+                              GRN if tokenize else DIM)))
         lines.append(row())
         lines.append(bdr("╰", "─", "╯"))
         lines.append("")
@@ -401,7 +449,7 @@ def spinner_run(label, fn):
     sys.stdout.write(f"\r  {icon}  {label}{suffix}            \n")
     sys.stdout.flush()
 
-def do_install(target, mode, rules, agents):
+def do_install(target, mode, rules, agents, tokenize=False):
     # Switch back to normal buffer for install output
     sys.stdout.write(ALT_OFF)
     sys.stdout.write("\033[H\033[J" + HIDE)
@@ -452,6 +500,19 @@ def do_install(target, mode, rules, agents):
                                capture_output=True, timeout=30)
             return r.returncode == 0, ""
         spinner_run(f"Installing {agent} hooks", install)
+
+    # 3b. Tokenization hooks (opt-in — Claude Code only for now)
+    if tokenize and "claude" in agents:
+        def install_tokenize():
+            if not cli.exists():
+                return False, "cli.py not found"
+            if not shutil.which("jq"):
+                return False, "jq not found (brew install jq)"
+            r = subprocess.run([sys.executable, str(cli), "tokenize", "install",
+                                "--workspace", str(target), "--scope", "project"],
+                               capture_output=True, timeout=30)
+            return r.returncode == 0, "enabled" if r.returncode == 0 else r.stderr.decode()[:40]
+        spinner_run("Installing tokenization hooks", install_tokenize)
 
     # 4. CLAUDE.md
     def update_claude():
@@ -544,12 +605,14 @@ def do_install(target, mode, rules, agents):
 
 def run_non_interactive(target):
     mode = os.environ.get("PRISMOR_MODE", "observe")
+    tokenize = os.environ.get("PRISMOR_TOKENIZE", "").lower() in {"1", "true", "yes", "on"}
     rules = load_rules()
     target = Path(target).resolve()
     det = detect_agents(target)
     agents = [n for n, ok in det.items() if ok] or ["claude"]
-    print(f"[prismor] Non-interactive (mode={mode}, agents={','.join(agents)})")
-    do_install(target, mode, rules, agents)
+    tok_tag = ", tokenize=yes" if tokenize else ""
+    print(f"[prismor] Non-interactive (mode={mode}, agents={','.join(agents)}{tok_tag})")
+    do_install(target, mode, rules, agents, tokenize=tokenize)
 
 # ── Wizard ───────────────────────────────────────────────────────────────────
 
@@ -562,6 +625,7 @@ def run_wizard(target):
     rules = load_rules()
     mode = "enforce"
     agents = None
+    tokenize = True  # default yes in wizard; user can toggle at step 4
     step = 1
 
     try:
@@ -583,17 +647,24 @@ def run_wizard(target):
                 agents = result
                 step = 4
             elif step == 4:
-                result = step_confirm(target, mode, rules, agents)
+                result = step_tokenize(tokenize)
                 if result is BACK:
                     step = 3; continue
+                tokenize = result
+                step = 5
+            elif step == 5:
+                result = step_confirm(target, mode, rules, agents, tokenize=tokenize)
+                if result is BACK:
+                    step = 4; continue
                 break  # confirmed → install
     except Exception:
         rules = load_rules()
         mode = "enforce"
         agents = ["claude"]
+        tokenize = False
 
     raw_off()
-    do_install(target, mode, rules, agents)
+    do_install(target, mode, rules, agents, tokenize=tokenize)
 
 # ── Entry ────────────────────────────────────────────────────────────────────
 

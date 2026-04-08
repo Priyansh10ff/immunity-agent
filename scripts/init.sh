@@ -4,11 +4,21 @@ set -e
 # Prismor Init — Add Prismor security to any project
 # Usage: curl -fsSL https://raw.githubusercontent.com/PrismorSec/prismor/main/scripts/init.sh | bash
 #    or: bash /path/to/prismor/scripts/init.sh [TARGET_DIR]
+#
+# Environment:
+#   PRISMOR_MODE      observe | enforce   (default: observe)
+#   PRISMOR_TOKENIZE  1 | true | yes      (default: off — opts into the secret
+#                                          tokenization prevention layer)
 
 PRISMOR_REPO="https://github.com/PrismorSec/prismor.git"
 PRISMOR_DIR="${PRISMOR_HOME:-$HOME/.prismor}"
 TARGET_DIR="${1:-.}"
 MODE="${PRISMOR_MODE:-observe}"
+TOKENIZE_RAW="$(printf '%s' "${PRISMOR_TOKENIZE:-}" | tr '[:upper:]' '[:lower:]')"
+case "$TOKENIZE_RAW" in
+    1|true|yes|on) TOKENIZE=1 ;;
+    *)             TOKENIZE=0 ;;
+esac
 
 # Colors
 RED='\033[0;31m'
@@ -103,6 +113,27 @@ for agent in "${AGENTS_FOUND[@]}"; do
         warn "Could not install $agent hooks"
 done
 
+# ── Step 4b: Tokenization hooks (opt-in) ────────────────────────────────
+if [ "$TOKENIZE" = "1" ]; then
+    case " ${AGENTS_FOUND[*]} " in
+        *" claude "*)
+            if ! command -v jq >/dev/null 2>&1; then
+                warn "PRISMOR_TOKENIZE=1 set but jq is missing — install with 'brew install jq' and re-run"
+            else
+                info "Installing tokenization hooks (secret prevention layer)..."
+                python3 "$PRISMOR_DIR/warden/cli.py" tokenize install \
+                    --workspace "$TARGET_DIR" \
+                    --scope project >/dev/null 2>&1 && \
+                    ok "Tokenization hooks installed. Register secrets with: warden tokenize add <name>" || \
+                    warn "Could not install tokenization hooks"
+            fi
+            ;;
+        *)
+            warn "PRISMOR_TOKENIZE=1 set but no Claude Code agent detected — tokenization supports Claude Code only"
+            ;;
+    esac
+fi
+
 # ── Step 5: Verify feed ─────────────────────────────────────────────────
 if [ -f "$PRISMOR_DIR/keys/public.pub" ]; then
     if bash "$PRISMOR_DIR/scripts/verify_feed.sh" "$PRISMOR_DIR/advisories/immunity-feed.json" "$PRISMOR_DIR/keys/public.pub" >/dev/null 2>&1; then
@@ -122,5 +153,8 @@ echo -e "  ${GREEN}Warden:${NC}  hooks installed (mode: $MODE)"
 echo -e "  ${GREEN}Config:${NC}  $CLAUDE_MD"
 echo ""
 echo -e "  To switch to enforce mode:  ${YELLOW}PRISMOR_MODE=enforce bash $PRISMOR_DIR/scripts/init.sh $TARGET_DIR${NC}"
+if [ "$TOKENIZE" != "1" ]; then
+    echo -e "  To enable secret tokenization: ${YELLOW}PRISMOR_TOKENIZE=1 bash $PRISMOR_DIR/scripts/init.sh $TARGET_DIR${NC}"
+fi
 echo -e "  To update the feed:         ${YELLOW}git -C $PRISMOR_DIR pull${NC}"
 echo ""

@@ -17,6 +17,12 @@ Commands:
   sweep --redact  Redact secrets and save to encrypted vault
   sweep --clean   Delete residue files (passphrase required)
   sweep --restore Restore secrets from vault
+  tokenize install   Install secret-tokenization hooks (Claude Code)
+  tokenize uninstall Remove tokenization hooks
+  tokenize add NAME  Register a real secret under a placeholder name
+  tokenize list      List registered placeholder names (never values)
+  tokenize remove NAME  Delete a registered secret
+  tokenize status    Show whether tokenization hooks are installed
 """
 from __future__ import annotations
 
@@ -325,6 +331,110 @@ def main() -> None:
         sweep_warn("Dry run — no files modified. Use --redact or --clean to take action.")
         return
 
+    # ── tokenize ───────────────────────────────────────────────────────
+    if args.command == "tokenize":
+        from warden.tokenization import (
+            install as tokenize_install,
+            uninstall as tokenize_uninstall,
+            status as tokenize_status,
+            add_secret,
+            list_secrets,
+            remove_secret,
+            secrets_dir,
+        )
+
+        sub = getattr(args, "tokenize_command", None)
+
+        if sub == "install":
+            result = tokenize_install(
+                workspace=workspace,
+                scope=args.scope,
+                enable_userprompt_guard=not args.no_userprompt_guard,
+                enable_sweep_on_stop=args.sweep_on_stop,
+            )
+            print(f"Installed tokenization hooks at {result['configPath']}")
+            for label in result["hooksInstalled"]:
+                print(f"  + {label}")
+            print(f"Secrets directory: {result['secretsDir']}")
+            print()
+            print("Next step: register your first secret with")
+            print(f"  {_color('warden tokenize add <name>', _CYAN)}  (reads the value from stdin)")
+            return
+
+        if sub == "uninstall":
+            result = tokenize_uninstall(workspace=workspace, scope=args.scope)
+            if result["removed"]:
+                print(f"Removed tokenization hooks from {result['configPath']}")
+            else:
+                print(f"No tokenization hooks found at {result['configPath']}")
+            return
+
+        if sub == "status":
+            result = tokenize_status(workspace=workspace, scope=args.scope)
+            installed_color = _GREEN if result["installed"] else _YELLOW
+            print()
+            print(f"  {_color('TOKENIZATION', _BOLD)}")
+            print(f"  {_color('─' * 50, _DIM)}")
+            print(f"  {_color('Config:', _GREEN)}    {result['configPath']}")
+            state = "installed" if result["installed"] else "not installed"
+            print(f"  {_color('State:', _GREEN)}     {_color(state, installed_color)}")
+            if result["events"]:
+                print(f"  {_color('Hooks:', _GREEN)}     {', '.join(result['events'])}")
+            print(f"  {_color('Secrets:', _GREEN)}   {result['secretsDir']}")
+            secrets = list_secrets()
+            if secrets:
+                print(f"  {_color('Registered:', _GREEN)}  {len(secrets)} placeholder(s)")
+            else:
+                print(f"  {_color('Registered:', _GREEN)}  {_color('none', _DIM)}")
+            print()
+            return
+
+        if sub == "add":
+            name = args.name
+            if args.value_file:
+                value = Path(args.value_file).read_text(encoding="utf-8").rstrip("\n")
+            else:
+                # Read from stdin (so the value never appears in argv / history).
+                if sys.stdin.isatty():
+                    from getpass import getpass
+                    value = getpass(f"Enter value for @@SECRET:{name}@@ (input hidden): ")
+                else:
+                    value = sys.stdin.read().rstrip("\n")
+            try:
+                path = add_secret(name, value)
+            except ValueError as exc:
+                sys.stderr.write(f"error: {exc}\n")
+                raise SystemExit(1)
+            print(f"Registered @@SECRET:{name}@@ ({len(value)} bytes) at {path}")
+            print("The model can now reference this secret in tool calls as:")
+            print(f"  {_color(f'@@SECRET:{name}@@', _CYAN)}")
+            return
+
+        if sub == "list":
+            secrets = list_secrets()
+            if not secrets:
+                print(f"No secrets registered at {secrets_dir()}")
+                return
+            print(f"Registered secrets at {secrets_dir()}:")
+            print()
+            for entry in secrets:
+                ts = datetime.fromtimestamp(entry["modified"]).strftime("%Y-%m-%d %H:%M")
+                tag = _color("[auto]", _DIM) + " " if entry["auto"] else ""
+                print(f"  {tag}@@SECRET:{entry['name']}@@"
+                      f"  ({entry['bytes']} bytes, updated {ts})")
+            print()
+            return
+
+        if sub == "remove":
+            removed = remove_secret(args.name)
+            if removed:
+                print(f"Removed @@SECRET:{args.name}@@")
+            else:
+                print(f"No secret named {args.name!r}")
+            return
+
+        raise SystemExit("Usage: warden tokenize {install|uninstall|add|list|remove|status}")
+
     # ── policy subcommands ─────────────────────────────────────────────
     if args.command == "policy":
         if args.policy_command == "init":
@@ -448,6 +558,42 @@ def build_parser() -> argparse.ArgumentParser:
     sweep_parser.add_argument("--file", help="With --restore: restore only this file")
     sweep_parser.add_argument("paths", nargs="*", help="Directories to scan (default: AI tool config dirs)")
     sweep_parser.add_argument("--dirs", nargs="+", help="(deprecated) Same as positional paths")
+
+    # ── tokenize ───────────────────────────────────────────────────────
+    tokenize_parser = subparsers.add_parser(
+        "tokenize",
+        help="Secret prevention layer — tokenize/detokenize secrets at the tool boundary",
+    )
+    tokenize_sub = tokenize_parser.add_subparsers(dest="tokenize_command")
+
+    t_install = tokenize_sub.add_parser("install", help="Install tokenization hooks in .claude/settings.json")
+    t_install.add_argument("--workspace", help="Workspace path")
+    t_install.add_argument("--scope", choices=["project", "user"], default="project",
+                           help="Hook scope (default: project)")
+    t_install.add_argument("--no-userprompt-guard", action="store_true",
+                           help="Skip the UserPromptSubmit soft-block hook (use a clipboard filter instead)")
+    t_install.add_argument("--sweep-on-stop", action="store_true",
+                           help="Also wire a Stop-hook dry-run sweep for residue detection")
+
+    t_uninstall = tokenize_sub.add_parser("uninstall", help="Remove tokenization hooks")
+    t_uninstall.add_argument("--workspace", help="Workspace path")
+    t_uninstall.add_argument("--scope", choices=["project", "user"], default="project",
+                             help="Hook scope (default: project)")
+
+    t_add = tokenize_sub.add_parser("add", help="Register a real secret under a placeholder name")
+    t_add.add_argument("name", help="Placeholder name (used as @@SECRET:name@@ in tool calls)")
+    t_add.add_argument("--from-file", dest="value_file",
+                       help="Read value from this file (otherwise read from stdin / hidden prompt)")
+
+    tokenize_sub.add_parser("list", help="List registered placeholder names (never values)")
+
+    t_remove = tokenize_sub.add_parser("remove", help="Delete a registered secret")
+    t_remove.add_argument("name", help="Placeholder name to remove")
+
+    t_status = tokenize_sub.add_parser("status", help="Show whether tokenization hooks are installed")
+    t_status.add_argument("--workspace", help="Workspace path")
+    t_status.add_argument("--scope", choices=["project", "user"], default="project",
+                          help="Hook scope (default: project)")
 
     return parser
 

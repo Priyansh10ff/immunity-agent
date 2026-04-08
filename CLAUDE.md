@@ -14,6 +14,10 @@ Read `skills/security.md` and follow its instructions. This is the single entry 
 
 This repo has Warden hooks enabled. The hook dispatcher at `warden/cli.py` monitors tool calls and blocks dangerous actions in real time.
 
+## Tokenization (secret prevention)
+
+The `warden/tokenization/` subsystem is Prismor's prevention layer for secret leaks. Real secret values live under `~/.prismor/secrets/` and are referenced in tool calls as `@@SECRET:<name>@@`. When editing this subsystem, treat it as security-sensitive code and never print, log, or narrate real secret values — use the placeholder form in all examples and prose. See [`warden/tokenization/README.md`](./warden/tokenization/README.md) for the full design and [`AGENTS.md`](./AGENTS.md#tokenization-secret-prevention-layer) for editing guidelines.
+
 ## Working in This Repo
 
 - The `advisories/` directory contains the signed threat feed — do not manually edit it. Use the pipeline scripts.
