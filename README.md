@@ -24,6 +24,19 @@ Standard OS-level and endpoint security tools monitor the kernel and filesystem.
 
 ---
 
+## Quick Start
+
+One command to clone Prismor and install all four layers (skills, runtime hooks, threat feed, secret tokenization) in the current project:
+
+```bash
+git clone https://github.com/PrismorSec/prismor.git ~/.prismor
+PRISMOR_MODE=enforce PRISMOR_TOKENIZE=1 bash ~/.prismor/scripts/init.sh .
+```
+
+That gives you: enforce-mode Warden hooks monitoring every tool call, the tokenization prevention layer keeping real secrets out of model context and upstream API requests, and the signed advisory feed loaded on session start. Register your first secret with `warden tokenize add stripe_key` (value read from stdin, never argv), then reference it in any future tool call as `@@SECRET:stripe_key@@` — the hook substitutes the real value at execution time and scrubs it back out of the captured output before the model ever sees it. If you prefer to step through the wizard, drop the env vars and run `bash ~/.prismor/scripts/init.sh .` — it detects a TTY and presents an interactive menu with four steps (mode → rules → agents → tokenization).
+
+---
+
 ## Use Cases
 
 Prismor works at two layers: what the agent *knows* (skills loaded at session start) and what the agent *does* (runtime hook on every tool call).
@@ -147,7 +160,7 @@ PRISMOR_MODE=enforce bash ~/.prismor/scripts/init.sh /path/to/project --non-inte
 Tell your agent at session start:
 
 ```
-Read ~/.prismor/skills/security.md and follow its instructions.
+Read https://raw.githubusercontent.com/PrismorSec/security-playbook/main/security.md and follow its instructions.
 ```
 
 Or add to your project's `CLAUDE.md`:
@@ -155,7 +168,7 @@ Or add to your project's `CLAUDE.md`:
 ```markdown
 ## Security (Prismor)
 
-At the start of every session, read `~/.prismor/skills/security.md` and follow its instructions.
+At the start of every session, read `https://raw.githubusercontent.com/PrismorSec/security-playbook/main/security.md` and follow its instructions.
 ```
 
 ### Warden CLI
@@ -184,6 +197,12 @@ warden policy init                             # create .prismor-warden/policy.y
 warden install-hooks --agent all --mode enforce
 warden install-hooks --agent claude --mode observe
 warden install-hooks --agent openclaw --mode enforce
+
+# Secret tokenization (Claude Code)
+warden tokenize install                        # install prevention hooks
+warden tokenize add stripe_key                 # register a secret (stdin)
+warden tokenize list                           # registered placeholders
+warden tokenize status
 
 # CI/export
 warden analyze --input session.jsonl --sarif
@@ -221,6 +240,61 @@ The vault (`~/.prismor/sweep.vault.enc`) is AES-256 encrypted with a passphrase 
 
 See [Sweep documentation](https://prismor.dev/docs/sweep) for full setup and usage guide.
 
+### Tokenize: Secret Prevention Layer (Claude Code hooks)
+
+Sweep finds secrets that have **already** leaked into AI tool caches. **Tokenize** stops them from leaking in the first place.
+
+AI coding agents persist full conversation transcripts to local JSONL files and transmit them verbatim to the LLM provider on every turn. Any real secret that enters the model's context — via paste, tool output, or a `Read` of a `.env` file — is immediately on disk and in flight to the upstream API. Tokenize closes that hole at the tool boundary using Claude Code's hook system.
+
+You enroll a real secret once under a human-readable placeholder. From then on, the model refers to it as `@@SECRET:name@@`. A `PreToolUse` hook substitutes the placeholder with the real value *only* at the moment a local tool executes, and wraps the command so its captured stdout is scrubbed back to the placeholder before the model sees it. The real value is resident only inside the hook process and the local subprocess — never in the model's context, the JSONL transcript, or any upstream API request.
+
+```bash
+# Install the hooks into .claude/settings.json
+warden tokenize install
+
+# Register a real secret (value read from stdin / hidden prompt, never argv)
+warden tokenize add stripe_key
+
+# Register a secret from a file
+warden tokenize add aws_prod --from-file ~/.keys/aws
+
+# Check install state and registered placeholders
+warden tokenize status
+warden tokenize list            # names only — never prints values
+
+# Remove a secret (tool calls still referencing it will fail closed)
+warden tokenize remove stripe_key
+
+# Uninstall hooks cleanly (leaves other Warden hooks alone)
+warden tokenize uninstall
+```
+
+Once installed, tell your agent the convention — once, in your project `CLAUDE.md`:
+
+```markdown
+## Secrets
+
+Real secret values are tokenized by Prismor Warden. When you need to use a secret
+in a shell command, reference it as `@@SECRET:name@@`. The Warden detokenize hook
+will substitute the real value at execution time. Never echo, print, or narrate
+the real value — use the placeholder in all code, commands, and prose.
+```
+
+**Pasted secrets.** When a user pastes a recognizable secret into a prompt (Stripe, GitHub PAT, AWS access key, Slack token, GitLab PAT, JWT), the `UserPromptSubmit` soft-block hook auto-tokenizes it under a deterministic hashed name and asks the user to resubmit with the sanitized version it shows them. UX cost is one re-paste; the original prompt is *not* transmitted to the upstream API. Prefix a prompt with `!!allow ` to bypass detection for a single message.
+
+**Layering with Sweep.** Tokenize is *prevention*; Sweep is *remediation*. Together they cover most of the realistic leak surface for solo-developer use. Opt into an automatic post-session scan by installing with `--sweep-on-stop`, which wires a dry-run sweep to fire on every Claude Code Stop event.
+
+| Leak surface | Tokenize | Sweep |
+|---|---|---|
+| Model-emitted tool call with placeholder | **prevents** | cleans after |
+| MCP tool response containing secret | **prevents** | cleans after |
+| Bash stdout containing secret | **prevents** (sed-wrap) | cleans after |
+| User pastes secret into prompt | soft-block | cleans after |
+| Pre-existing residue in `.claude/projects` / `.cursor` / `.codeium` / `.codex` | — | **cleans** |
+| Model narrates secret in assistant text | — | cleans after |
+
+See [`warden/tokenization/README.md`](warden/tokenization/README.md) for the full design, residual-threat taxonomy, and per-hook behavior.
+
 ### Threat Feed
 
 A daily-updated, Ed25519-signed advisory feed covering AI-ecosystem CVEs:
@@ -235,12 +309,14 @@ Coverage includes LangChain, LlamaIndex, OpenAI, Anthropic, CrewAI, AutoGPT, pro
 
 ### Security Skills
 
+Security skills live in the [security-playbook](https://github.com/PrismorSec/security-playbook) repo.
+
 | Skill | What It Covers |
 |-------|---------------|
-| [Behavioral Security](skills/behavioral-security/SKILL.md) | Command deny-lists, secret protection, anti-prompt-injection, HITL gates |
-| [Code Security](skills/code-security/SKILL.md) | OWASP Top 10 - 22 rule files across Python, JS, Java, Go, Ruby, C# |
-| [LLM Security](skills/llm-security/SKILL.md) | OWASP LLM Top 10 2025 - prompt injection, excessive agency, data poisoning |
-| [Static Analysis](skills/static-analysis/SKILL.md) | Pattern-based scanning, custom rule authoring, SARIF output |
+| [Behavioral Security](https://github.com/PrismorSec/security-playbook/blob/main/behavioral-security/SKILL.md) | Command deny-lists, secret protection, anti-prompt-injection, HITL gates |
+| [Code Security](https://github.com/PrismorSec/security-playbook/blob/main/code-security/SKILL.md) | OWASP Top 10 - 22 rule files across Python, JS, Java, Go, Ruby, C# |
+| [LLM Security](https://github.com/PrismorSec/security-playbook/blob/main/llm-security/SKILL.md) | OWASP LLM Top 10 2025 - prompt injection, excessive agency, data poisoning |
+| [Static Analysis](https://github.com/PrismorSec/security-playbook/blob/main/static-analysis/SKILL.md) | Pattern-based scanning, custom rule authoring, SARIF output |
 
 Each rule file shows vulnerable and secure code side by side in real frameworks (Flask, Express, Spring, etc.).
 
@@ -268,7 +344,7 @@ Code security and LLM security rules are adapted from the [Semgrep Skills reposi
 PRs are welcome. Guidelines:
 
 - New detection rules go in `warden/default_policy.yaml` - follow the schema in `warden/policy_schema.json`
-- New skills go under `skills/` with a `SKILL.md` and `skill.json`
+- New skills go in the [security-playbook](https://github.com/PrismorSec/security-playbook) repo with a `SKILL.md` and `skill.json`
 - Tests live in `tests/` - run `pytest` before opening a PR
 - For threat feed contributions, use the **Threat Intelligence** issue template
 

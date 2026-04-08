@@ -1,22 +1,18 @@
 # CLAUDE.md Template — Add Prismor Security to Your Project
 #
 # Copy this section into your project's CLAUDE.md file.
-# Replace PRISMOR_PATH with the path to your local Prismor clone.
 #
 # Quick setup:
-#   git clone https://github.com/PrismorSec/prismor.git ~/.prismor
-#   Then add the block below to your project's CLAUDE.md
-#
-# Or use the automated setup:
 #   bash ~/.prismor/scripts/init.sh /path/to/your/project
+#
+# Or manually add the block below to your project's CLAUDE.md
 
 ## Security (Prismor)
 
-At the start of every session, read `PRISMOR_PATH/skills/security.md` and follow its instructions.
+At the start of every session, read `https://raw.githubusercontent.com/PrismorSec/security-playbook/main/security.md` and follow its instructions.
 
 This loads:
 - Behavioral guardrails (deny-listed commands, secret protection, anti-prompt-injection)
-- Live threat intelligence feed (daily-updated, signed CVE data for AI frameworks)
 - Secure coding rules (OWASP Top 10 with multi-language code examples)
 - LLM security rules (OWASP Top 10 for LLMs 2025)
 
@@ -24,3 +20,15 @@ For runtime protection, install Warden hooks:
 ```
 python3 PRISMOR_PATH/warden/cli.py install-hooks --agent claude --workspace . --mode observe
 ```
+
+## Secrets (tokenization convention)
+
+This project uses Prismor Warden's tokenization layer to keep real secret values out of your model context, JSONL transcript, and upstream API requests. Real secrets live under `~/.prismor/secrets/` and are referenced by placeholders of the form `@@SECRET:<name>@@`.
+
+**Rules for the agent:**
+
+- When you need to use a secret in a shell command or tool call, reference it as `@@SECRET:<name>@@` (e.g. `curl -H "Authorization: Bearer @@SECRET:stripe_key@@" ...`). The Warden `PreToolUse` hook will substitute the real value at execution time.
+- **Never** print, echo, log, narrate, or copy the real value of any secret. Use the placeholder in all code, commands, prose, and explanations.
+- If a command's output would contain a secret, the wrapper scrubs it automatically — do not strip or bypass the wrapper.
+- If you are asked to register a new secret, use `warden tokenize add <name>` (value read from stdin). Do not write it inline in a shell command.
+- If a secret is missing, the `PreToolUse` hook will fail closed with a clear message — ask the user to run `warden tokenize add <name>` rather than trying to work around it.

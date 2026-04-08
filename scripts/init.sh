@@ -4,11 +4,21 @@ set -e
 # Prismor Init — Add Prismor security to any project
 # Usage: curl -fsSL https://raw.githubusercontent.com/PrismorSec/prismor/main/scripts/init.sh | bash
 #    or: bash /path/to/prismor/scripts/init.sh [TARGET_DIR]
+#
+# Environment:
+#   PRISMOR_MODE      observe | enforce   (default: observe)
+#   PRISMOR_TOKENIZE  1 | true | yes      (default: off — opts into the secret
+#                                          tokenization prevention layer)
 
 PRISMOR_REPO="https://github.com/PrismorSec/prismor.git"
 PRISMOR_DIR="${PRISMOR_HOME:-$HOME/.prismor}"
 TARGET_DIR="${1:-.}"
 MODE="${PRISMOR_MODE:-observe}"
+TOKENIZE_RAW="$(printf '%s' "${PRISMOR_TOKENIZE:-}" | tr '[:upper:]' '[:lower:]')"
+case "$TOKENIZE_RAW" in
+    1|true|yes|on) TOKENIZE=1 ;;
+    *)             TOKENIZE=0 ;;
+esac
 
 # Colors
 RED='\033[0;31m'
@@ -35,7 +45,7 @@ if [ -f "$SETUP_PY_FALLBACK" ] && command -v python3 &>/dev/null; then
 fi
 
 # ── Step 1: Ensure Prismor is cloned locally ────────────────────────────
-if [ -d "$PRISMOR_DIR" ] && [ -f "$PRISMOR_DIR/skills/security.md" ]; then
+if [ -d "$PRISMOR_DIR" ] && [ -f "$PRISMOR_DIR/warden/cli.py" ]; then
     info "Prismor found at $PRISMOR_DIR"
     info "Pulling latest..."
     git -C "$PRISMOR_DIR" pull --quiet 2>/dev/null || warn "Could not pull (offline?). Using existing version."
@@ -70,9 +80,9 @@ info "Detected agents: ${AGENTS_FOUND[*]}"
 CLAUDE_MD="$TARGET_DIR/CLAUDE.md"
 PRISMOR_BLOCK="## Security (Prismor)
 
-At the start of every session, read \`$PRISMOR_DIR/skills/security.md\` and follow its instructions.
+At the start of every session, read \`https://raw.githubusercontent.com/PrismorSec/security-playbook/main/security.md\` and follow its instructions.
 
-This loads behavioral guardrails, live threat intelligence, secure coding rules (OWASP Top 10), and LLM security rules (OWASP LLM Top 10).
+This loads behavioral guardrails, secure coding rules (OWASP Top 10), and LLM security rules (OWASP LLM Top 10).
 
 For more info: https://github.com/PrismorSec/prismor"
 
@@ -103,6 +113,27 @@ for agent in "${AGENTS_FOUND[@]}"; do
         warn "Could not install $agent hooks"
 done
 
+# ── Step 4b: Tokenization hooks (opt-in) ────────────────────────────────
+if [ "$TOKENIZE" = "1" ]; then
+    case " ${AGENTS_FOUND[*]} " in
+        *" claude "*)
+            if ! command -v jq >/dev/null 2>&1; then
+                warn "PRISMOR_TOKENIZE=1 set but jq is missing — install with 'brew install jq' and re-run"
+            else
+                info "Installing tokenization hooks (secret prevention layer)..."
+                python3 "$PRISMOR_DIR/warden/cli.py" tokenize install \
+                    --workspace "$TARGET_DIR" \
+                    --scope project >/dev/null 2>&1 && \
+                    ok "Tokenization hooks installed. Register secrets with: warden tokenize add <name>" || \
+                    warn "Could not install tokenization hooks"
+            fi
+            ;;
+        *)
+            warn "PRISMOR_TOKENIZE=1 set but no Claude Code agent detected — tokenization supports Claude Code only"
+            ;;
+    esac
+fi
+
 # ── Step 5: Verify feed ─────────────────────────────────────────────────
 if [ -f "$PRISMOR_DIR/keys/public.pub" ]; then
     if bash "$PRISMOR_DIR/scripts/verify_feed.sh" "$PRISMOR_DIR/advisories/immunity-feed.json" "$PRISMOR_DIR/keys/public.pub" >/dev/null 2>&1; then
@@ -116,11 +147,14 @@ fi
 echo ""
 ok "Prismor initialized for: $TARGET_DIR"
 echo ""
-echo -e "  ${GREEN}Skills:${NC}  $PRISMOR_DIR/skills/security.md"
+echo -e "  ${GREEN}Skills:${NC}  https://github.com/PrismorSec/security-playbook"
 echo -e "  ${GREEN}Feed:${NC}    $PRISMOR_DIR/advisories/immunity-feed.json"
 echo -e "  ${GREEN}Warden:${NC}  hooks installed (mode: $MODE)"
 echo -e "  ${GREEN}Config:${NC}  $CLAUDE_MD"
 echo ""
 echo -e "  To switch to enforce mode:  ${YELLOW}PRISMOR_MODE=enforce bash $PRISMOR_DIR/scripts/init.sh $TARGET_DIR${NC}"
+if [ "$TOKENIZE" != "1" ]; then
+    echo -e "  To enable secret tokenization: ${YELLOW}PRISMOR_TOKENIZE=1 bash $PRISMOR_DIR/scripts/init.sh $TARGET_DIR${NC}"
+fi
 echo -e "  To update the feed:         ${YELLOW}git -C $PRISMOR_DIR pull${NC}"
 echo ""
