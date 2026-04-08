@@ -147,8 +147,6 @@ fi
 echo ""
 ok "Prismor initialized for: $TARGET_DIR"
 echo ""
-echo -e "  ${GREEN}Skills:${NC}  https://github.com/PrismorSec/security-playbook"
-echo -e "  ${GREEN}Feed:${NC}    $PRISMOR_DIR/advisories/immunity-feed.json"
 echo -e "  ${GREEN}Warden:${NC}  hooks installed (mode: $MODE)"
 echo -e "  ${GREEN}Config:${NC}  $CLAUDE_MD"
 echo ""
