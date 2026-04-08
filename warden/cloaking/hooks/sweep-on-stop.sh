@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Prismor Warden — tokenization Stop hook.
+# Prismor Warden — cloaking Stop hook.
 #
 # Runs a dry-run `warden sweep` against ~/.claude after every session ends,
 # so the developer sees a warning if any real secret leaked into the JSONL
-# transcript despite the tokenization hooks. We intentionally do NOT run
+# transcript despite the cloaking hooks. We intentionally do NOT run
 # --redact here because redaction requires an interactive passphrase; the
 # dry-run scan is non-interactive and side-effect-free.
 #

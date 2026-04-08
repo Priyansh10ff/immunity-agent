@@ -17,12 +17,12 @@ Commands:
   sweep --redact  Redact secrets and save to encrypted vault
   sweep --clean   Delete residue files (passphrase required)
   sweep --restore Restore secrets from vault
-  tokenize install   Install secret-tokenization hooks (Claude Code)
-  tokenize uninstall Remove tokenization hooks
-  tokenize add NAME  Register a real secret under a placeholder name
-  tokenize list      List registered placeholder names (never values)
-  tokenize remove NAME  Delete a registered secret
-  tokenize status    Show whether tokenization hooks are installed
+  cloak install   Install secret-cloaking hooks (Claude Code)
+  cloak uninstall Remove cloaking hooks
+  cloak add NAME  Register a real secret under a placeholder name
+  cloak list      List registered placeholder names (never values)
+  cloak remove NAME  Delete a registered secret
+  cloak status    Show whether cloaking hooks are installed
 """
 from __future__ import annotations
 
@@ -331,49 +331,49 @@ def main() -> None:
         sweep_warn("Dry run — no files modified. Use --redact or --clean to take action.")
         return
 
-    # ── tokenize ───────────────────────────────────────────────────────
-    if args.command == "tokenize":
-        from warden.tokenization import (
-            install as tokenize_install,
-            uninstall as tokenize_uninstall,
-            status as tokenize_status,
+    # ── cloak ──────────────────────────────────────────────────────────
+    if args.command == "cloak":
+        from warden.cloaking import (
+            install as cloak_install,
+            uninstall as cloak_uninstall,
+            status as cloak_status,
             add_secret,
             list_secrets,
             remove_secret,
             secrets_dir,
         )
 
-        sub = getattr(args, "tokenize_command", None)
+        sub = getattr(args, "cloak_command", None)
 
         if sub == "install":
-            result = tokenize_install(
+            result = cloak_install(
                 workspace=workspace,
                 scope=args.scope,
                 enable_userprompt_guard=not args.no_userprompt_guard,
                 enable_sweep_on_stop=args.sweep_on_stop,
             )
-            print(f"Installed tokenization hooks at {result['configPath']}")
+            print(f"Installed cloaking hooks at {result['configPath']}")
             for label in result["hooksInstalled"]:
                 print(f"  + {label}")
             print(f"Secrets directory: {result['secretsDir']}")
             print()
             print("Next step: register your first secret with")
-            print(f"  {_color('warden tokenize add <name>', _CYAN)}  (reads the value from stdin)")
+            print(f"  {_color('warden cloak add <name>', _CYAN)}  (reads the value from stdin)")
             return
 
         if sub == "uninstall":
-            result = tokenize_uninstall(workspace=workspace, scope=args.scope)
+            result = cloak_uninstall(workspace=workspace, scope=args.scope)
             if result["removed"]:
-                print(f"Removed tokenization hooks from {result['configPath']}")
+                print(f"Removed cloaking hooks from {result['configPath']}")
             else:
-                print(f"No tokenization hooks found at {result['configPath']}")
+                print(f"No cloaking hooks found at {result['configPath']}")
             return
 
         if sub == "status":
-            result = tokenize_status(workspace=workspace, scope=args.scope)
+            result = cloak_status(workspace=workspace, scope=args.scope)
             installed_color = _GREEN if result["installed"] else _YELLOW
             print()
-            print(f"  {_color('TOKENIZATION', _BOLD)}")
+            print(f"  {_color('CLOAKING', _BOLD)}")
             print(f"  {_color('─' * 50, _DIM)}")
             print(f"  {_color('Config:', _GREEN)}    {result['configPath']}")
             state = "installed" if result["installed"] else "not installed"
@@ -433,7 +433,7 @@ def main() -> None:
                 print(f"No secret named {args.name!r}")
             return
 
-        raise SystemExit("Usage: warden tokenize {install|uninstall|add|list|remove|status}")
+        raise SystemExit("Usage: warden cloak {install|uninstall|add|list|remove|status}")
 
     # ── policy subcommands ─────────────────────────────────────────────
     if args.command == "policy":
@@ -559,14 +559,14 @@ def build_parser() -> argparse.ArgumentParser:
     sweep_parser.add_argument("paths", nargs="*", help="Directories to scan (default: AI tool config dirs)")
     sweep_parser.add_argument("--dirs", nargs="+", help="(deprecated) Same as positional paths")
 
-    # ── tokenize ───────────────────────────────────────────────────────
-    tokenize_parser = subparsers.add_parser(
-        "tokenize",
-        help="Secret prevention layer — tokenize/detokenize secrets at the tool boundary",
+    # ── cloak ──────────────────────────────────────────────────────────
+    cloak_parser = subparsers.add_parser(
+        "cloak",
+        help="Secret prevention layer — cloak/decloak secrets at the tool boundary",
     )
-    tokenize_sub = tokenize_parser.add_subparsers(dest="tokenize_command")
+    cloak_sub = cloak_parser.add_subparsers(dest="cloak_command")
 
-    t_install = tokenize_sub.add_parser("install", help="Install tokenization hooks in .claude/settings.json")
+    t_install = cloak_sub.add_parser("install", help="Install cloaking hooks in .claude/settings.json")
     t_install.add_argument("--workspace", help="Workspace path")
     t_install.add_argument("--scope", choices=["project", "user"], default="project",
                            help="Hook scope (default: project)")
@@ -575,22 +575,22 @@ def build_parser() -> argparse.ArgumentParser:
     t_install.add_argument("--sweep-on-stop", action="store_true",
                            help="Also wire a Stop-hook dry-run sweep for residue detection")
 
-    t_uninstall = tokenize_sub.add_parser("uninstall", help="Remove tokenization hooks")
+    t_uninstall = cloak_sub.add_parser("uninstall", help="Remove cloaking hooks")
     t_uninstall.add_argument("--workspace", help="Workspace path")
     t_uninstall.add_argument("--scope", choices=["project", "user"], default="project",
                              help="Hook scope (default: project)")
 
-    t_add = tokenize_sub.add_parser("add", help="Register a real secret under a placeholder name")
+    t_add = cloak_sub.add_parser("add", help="Register a real secret under a placeholder name")
     t_add.add_argument("name", help="Placeholder name (used as @@SECRET:name@@ in tool calls)")
     t_add.add_argument("--from-file", dest="value_file",
                        help="Read value from this file (otherwise read from stdin / hidden prompt)")
 
-    tokenize_sub.add_parser("list", help="List registered placeholder names (never values)")
+    cloak_sub.add_parser("list", help="List registered placeholder names (never values)")
 
-    t_remove = tokenize_sub.add_parser("remove", help="Delete a registered secret")
+    t_remove = cloak_sub.add_parser("remove", help="Delete a registered secret")
     t_remove.add_argument("name", help="Placeholder name to remove")
 
-    t_status = tokenize_sub.add_parser("status", help="Show whether tokenization hooks are installed")
+    t_status = cloak_sub.add_parser("status", help="Show whether cloaking hooks are installed")
     t_status.add_argument("--workspace", help="Workspace path")
     t_status.add_argument("--scope", choices=["project", "user"], default="project",
                           help="Hook scope (default: project)")

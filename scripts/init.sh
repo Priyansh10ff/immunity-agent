@@ -7,17 +7,17 @@ set -e
 #
 # Environment:
 #   PRISMOR_MODE      observe | enforce   (default: observe)
-#   PRISMOR_TOKENIZE  1 | true | yes      (default: off — opts into the secret
-#                                          tokenization prevention layer)
+#   PRISMOR_CLOAK     1 | true | yes      (default: off — opts into the secret
+#                                          cloaking prevention layer)
 
 PRISMOR_REPO="https://github.com/PrismorSec/prismor.git"
 PRISMOR_DIR="${PRISMOR_HOME:-$HOME/.prismor}"
 TARGET_DIR="${1:-.}"
 MODE="${PRISMOR_MODE:-observe}"
-TOKENIZE_RAW="$(printf '%s' "${PRISMOR_TOKENIZE:-}" | tr '[:upper:]' '[:lower:]')"
-case "$TOKENIZE_RAW" in
-    1|true|yes|on) TOKENIZE=1 ;;
-    *)             TOKENIZE=0 ;;
+CLOAK_RAW="$(printf '%s' "${PRISMOR_CLOAK:-}" | tr '[:upper:]' '[:lower:]')"
+case "$CLOAK_RAW" in
+    1|true|yes|on) CLOAK=1 ;;
+    *)             CLOAK=0 ;;
 esac
 
 # Colors
@@ -113,23 +113,23 @@ for agent in "${AGENTS_FOUND[@]}"; do
         warn "Could not install $agent hooks"
 done
 
-# ── Step 4b: Tokenization hooks (opt-in) ────────────────────────────────
-if [ "$TOKENIZE" = "1" ]; then
+# ── Step 4b: Cloaking hooks (opt-in) ────────────────────────────────────
+if [ "$CLOAK" = "1" ]; then
     case " ${AGENTS_FOUND[*]} " in
         *" claude "*)
             if ! command -v jq >/dev/null 2>&1; then
-                warn "PRISMOR_TOKENIZE=1 set but jq is missing — install with 'brew install jq' and re-run"
+                warn "PRISMOR_CLOAK=1 set but jq is missing — install with 'brew install jq' and re-run"
             else
-                info "Installing tokenization hooks (secret prevention layer)..."
-                python3 "$PRISMOR_DIR/warden/cli.py" tokenize install \
+                info "Installing cloaking hooks (secret prevention layer)..."
+                python3 "$PRISMOR_DIR/warden/cli.py" cloak install \
                     --workspace "$TARGET_DIR" \
                     --scope project >/dev/null 2>&1 && \
-                    ok "Tokenization hooks installed. Register secrets with: warden tokenize add <name>" || \
-                    warn "Could not install tokenization hooks"
+                    ok "Cloaking hooks installed. Register secrets with: warden cloak add <name>" || \
+                    warn "Could not install cloaking hooks"
             fi
             ;;
         *)
-            warn "PRISMOR_TOKENIZE=1 set but no Claude Code agent detected — tokenization supports Claude Code only"
+            warn "PRISMOR_CLOAK=1 set but no Claude Code agent detected — cloaking supports Claude Code only"
             ;;
     esac
 fi
@@ -153,8 +153,8 @@ echo -e "  ${GREEN}Warden:${NC}  hooks installed (mode: $MODE)"
 echo -e "  ${GREEN}Config:${NC}  $CLAUDE_MD"
 echo ""
 echo -e "  To switch to enforce mode:  ${YELLOW}PRISMOR_MODE=enforce bash $PRISMOR_DIR/scripts/init.sh $TARGET_DIR${NC}"
-if [ "$TOKENIZE" != "1" ]; then
-    echo -e "  To enable secret tokenization: ${YELLOW}PRISMOR_TOKENIZE=1 bash $PRISMOR_DIR/scripts/init.sh $TARGET_DIR${NC}"
+if [ "$CLOAK" != "1" ]; then
+    echo -e "  To enable secret cloaking: ${YELLOW}PRISMOR_CLOAK=1 bash $PRISMOR_DIR/scripts/init.sh $TARGET_DIR${NC}"
 fi
 echo -e "  To update the feed:         ${YELLOW}git -C $PRISMOR_DIR pull${NC}"
 echo ""

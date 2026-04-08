@@ -1,7 +1,7 @@
-"""Install/uninstall tokenization hooks in a Claude Code settings.json.
+"""Install/uninstall cloaking hooks in a Claude Code settings.json.
 
 Mirrors the merge-in-place pattern used by ``warden/hooks.py`` so that
-tokenization hooks coexist cleanly with Warden's existing runtime-monitor
+cloaking hooks coexist cleanly with Warden's existing runtime-monitor
 hooks on the same ``.claude/settings.json`` file. Each hook entry is
 identified by a unique marker string (its absolute script path), and
 uninstall only strips entries matching the marker — leaving everything
@@ -16,18 +16,18 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
-from warden.tokenization.secrets_store import secrets_dir
+from warden.cloaking.secrets_store import secrets_dir
 
-# Hook scripts shipped under warden/tokenization/hooks/
+# Hook scripts shipped under warden/cloaking/hooks/
 _HOOKS_SUBDIR = Path(__file__).resolve().parent / "hooks"
 
-_DETOKENIZE = _HOOKS_SUBDIR / "detokenize.sh"
-_RETOKENIZE_MCP = _HOOKS_SUBDIR / "retokenize-mcp.sh"
+_DECLOAK = _HOOKS_SUBDIR / "decloak.sh"
+_RECLOAK_MCP = _HOOKS_SUBDIR / "recloak-mcp.sh"
 _USERPROMPT_GUARD = _HOOKS_SUBDIR / "userprompt-guard.sh"
 _SWEEP_ON_STOP = _HOOKS_SUBDIR / "sweep-on-stop.sh"
 
-# All tokenization hook commands share this marker so uninstall can find them.
-_MARKER = "warden/tokenization/hooks/"
+# All cloaking hook commands share this marker so uninstall can find them.
+_MARKER = "warden/cloaking/hooks/"
 
 
 def _claude_settings_path(workspace: Path, scope: str) -> Path:
@@ -53,7 +53,7 @@ def _merge_claude_entries(
     """Merge a matcher block into an existing list, deduping by command.
 
     This mirrors the helper in ``warden/hooks.py``. We do not import it
-    directly to keep tokenization independently usable.
+    directly to keep cloaking independently usable.
     """
     next_entries = list(entries)
     existing = next(
@@ -81,7 +81,7 @@ def install(
     enable_userprompt_guard: bool = True,
     enable_sweep_on_stop: bool = False,
 ) -> Dict[str, Any]:
-    """Install the tokenization hooks into ``settings.json``.
+    """Install the cloaking hooks into ``settings.json``.
 
     Args:
         workspace: Project directory (used when ``scope='project'``).
@@ -112,21 +112,21 @@ def install(
 
     installed: List[str] = []
 
-    # PreToolUse: detokenize on Bash matcher.
+    # PreToolUse: decloak on Bash matcher.
     hooks["PreToolUse"] = _merge_claude_entries(
         hooks.get("PreToolUse", []),
-        {"matcher": "Bash", "hooks": [_hook_entry(_DETOKENIZE)]},
+        {"matcher": "Bash", "hooks": [_hook_entry(_DECLOAK)]},
     )
-    installed.append("PreToolUse:Bash (detokenize)")
+    installed.append("PreToolUse:Bash (decloak)")
 
-    # PostToolUse: retokenize MCP responses.
+    # PostToolUse: recloak MCP responses.
     hooks["PostToolUse"] = _merge_claude_entries(
         hooks.get("PostToolUse", []),
-        {"matcher": "mcp__.*", "hooks": [_hook_entry(_RETOKENIZE_MCP)]},
+        {"matcher": "mcp__.*", "hooks": [_hook_entry(_RECLOAK_MCP)]},
     )
-    installed.append("PostToolUse:mcp__.* (retokenize)")
+    installed.append("PostToolUse:mcp__.* (recloak)")
 
-    # UserPromptSubmit: soft-block with auto-tokenize.
+    # UserPromptSubmit: soft-block with auto-cloak.
     if enable_userprompt_guard:
         hooks["UserPromptSubmit"] = _merge_claude_entries(
             hooks.get("UserPromptSubmit", []),
@@ -143,7 +143,7 @@ def install(
         installed.append("Stop (sweep)")
 
     # Also seed the secrets-dir env var so the scripts pick up overrides
-    # set through ``warden tokenize`` rather than the default location.
+    # set through ``warden cloak`` rather than the default location.
     env = dict(config.get("env", {}))
     env["PRISMOR_SECRETS_DIR"] = str(sdir)
 
@@ -158,7 +158,7 @@ def install(
 
 
 def uninstall(*, workspace: Path, scope: str = "project") -> Dict[str, Any]:
-    """Remove tokenization hooks from ``settings.json``.
+    """Remove cloaking hooks from ``settings.json``.
 
     Only entries whose command path contains ``_MARKER`` are stripped. Any
     other Warden or user hooks in the file are left untouched.
@@ -208,7 +208,7 @@ def uninstall(*, workspace: Path, scope: str = "project") -> Dict[str, Any]:
 
 
 def status(*, workspace: Path, scope: str = "project") -> Dict[str, Any]:
-    """Report installation state of tokenization hooks."""
+    """Report installation state of cloaking hooks."""
     path = _claude_settings_path(workspace, scope)
     result: Dict[str, Any] = {
         "configPath": str(path),

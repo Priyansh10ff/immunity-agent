@@ -5,8 +5,8 @@ Usage: python3 setup.py [TARGET_DIR] [--non-interactive]
 
 Environment variables (non-interactive mode):
     PRISMOR_MODE      observe | enforce    (default: observe)
-    PRISMOR_TOKENIZE  1 | true | yes       (default: off — opts into the
-                                            secret-tokenization prevention
+    PRISMOR_CLOAK     1 | true | yes       (default: off — opts into the
+                                            secret-cloaking prevention
                                             layer; requires jq on PATH)
 """
 
@@ -338,25 +338,25 @@ def step_agents(target):
             return chosen if chosen else ["claude"]
         elif key in ('q','Q','\x03'): cleanup(); sys.exit(0)
 
-# ── Step 4: Secret Tokenization ──────────────────────────────────────────────
+# ── Step 4: Secret Cloaking ──────────────────────────────────────────────────
 
 def step_tokenize(current=True):
-    """Yes/no toggle for the secret-tokenization prevention layer.
+    """Yes/no toggle for the secret-cloaking prevention layer.
 
     Installs PreToolUse/PostToolUse/UserPromptSubmit hooks that keep real
     secret values out of the model's context, the JSONL transcript, and
     upstream API requests. Requires ``jq`` on the user's PATH.
     """
     opts = [
-        ("yes", "Install tokenization hooks  (recommended — prevents secret leaks to the LLM provider)"),
+        ("yes", "Install cloaking hooks  (recommended — prevents secret leaks to the LLM provider)"),
         ("no",  "Skip — only runtime policy hooks will be installed"),
     ]
     sel = 0 if current else 1
 
     while True:
-        lines = header_lines(4, 4, "SECRET TOKENIZATION")
+        lines = header_lines(4, 4, "SECRET CLOAKING")
         lines.append(f"  {w('Prevents real secrets from reaching model context, JSONL transcripts,', DIM)}")
-        lines.append(f"  {w('or upstream API requests. See warden/tokenization/README.md.', DIM)}")
+        lines.append(f"  {w('or upstream API requests. See warden/cloaking/README.md.', DIM)}")
         lines.append("")
         for i, (name, desc) in enumerate(opts):
             arrow = w("▸ ", CYAN) if i == sel else "  "
@@ -406,7 +406,7 @@ def step_confirm(target, mode, rules, agents, tokenize=False):
         lines.append(row(kv("Mode", mode, GRN if mode == "enforce" else YEL)))
         lines.append(row(kv("Rules", f"{n_on}/{len(rules)} enabled")))
         lines.append(row(kv("Agents", ags)))
-        lines.append(row(kv("Tokenize", "yes  (secret prevention)" if tokenize else "no",
+        lines.append(row(kv("Cloak", "yes  (secret prevention)" if tokenize else "no",
                               GRN if tokenize else DIM)))
         lines.append(row())
         lines.append(bdr("╰", "─", "╯"))
@@ -501,18 +501,18 @@ def do_install(target, mode, rules, agents, tokenize=False):
             return r.returncode == 0, ""
         spinner_run(f"Installing {agent} hooks", install)
 
-    # 3b. Tokenization hooks (opt-in — Claude Code only for now)
+    # 3b. Cloaking hooks (opt-in — Claude Code only for now)
     if tokenize and "claude" in agents:
         def install_tokenize():
             if not cli.exists():
                 return False, "cli.py not found"
             if not shutil.which("jq"):
                 return False, "jq not found (brew install jq)"
-            r = subprocess.run([sys.executable, str(cli), "tokenize", "install",
+            r = subprocess.run([sys.executable, str(cli), "cloak", "install",
                                 "--workspace", str(target), "--scope", "project"],
                                capture_output=True, timeout=30)
             return r.returncode == 0, "enabled" if r.returncode == 0 else r.stderr.decode()[:40]
-        spinner_run("Installing tokenization hooks", install_tokenize)
+        spinner_run("Installing cloaking hooks", install_tokenize)
 
     # 4. CLAUDE.md
     def update_claude():
@@ -605,14 +605,14 @@ def do_install(target, mode, rules, agents, tokenize=False):
 
 def run_non_interactive(target):
     mode = os.environ.get("PRISMOR_MODE", "observe")
-    tokenize = os.environ.get("PRISMOR_TOKENIZE", "").lower() in {"1", "true", "yes", "on"}
+    cloak = os.environ.get("PRISMOR_CLOAK", "").lower() in {"1", "true", "yes", "on"}
     rules = load_rules()
     target = Path(target).resolve()
     det = detect_agents(target)
     agents = [n for n, ok in det.items() if ok] or ["claude"]
-    tok_tag = ", tokenize=yes" if tokenize else ""
+    tok_tag = ", cloak=yes" if cloak else ""
     print(f"[prismor] Non-interactive (mode={mode}, agents={','.join(agents)}{tok_tag})")
-    do_install(target, mode, rules, agents, tokenize=tokenize)
+    do_install(target, mode, rules, agents, tokenize=cloak)
 
 # ── Wizard ───────────────────────────────────────────────────────────────────
 

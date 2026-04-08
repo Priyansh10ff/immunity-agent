@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Prismor Warden — tokenization UserPromptSubmit hook (soft-block).
+# Prismor Warden — cloaking UserPromptSubmit hook (soft-block).
 #
 # Scans the user's submitted prompt for recognizable secret patterns. On a
-# match, auto-tokenizes the value (writes it to $PRISMOR_SECRETS_DIR with a
+# match, auto-cloaks the value (writes it to $PRISMOR_SECRETS_DIR with a
 # hashed name) and BLOCKS the prompt with a reason that shows the sanitized
 # version. The user copies the sanitized prompt and resubmits — from that
 # point forward, the model only ever sees the `@@SECRET:auto_xxxxxx@@`
@@ -29,7 +29,7 @@ prompt="$(printf '%s' "$input" | jq -r '.prompt // empty')"
 
 # Optional user bypass: a prompt starting with `!!allow ` is passed through
 # unchanged. Useful when the user is deliberately discussing a secret in
-# prose (e.g., analyzing a leaked key) and doesn't want auto-tokenization.
+# prose (e.g., analyzing a leaked key) and doesn't want auto-cloaking.
 if [[ "$prompt" == "!!allow "* ]]; then
   exit 0
 fi
@@ -63,7 +63,7 @@ matches="$(
 
 [[ -n "$matches" ]] || exit 0
 
-# ── Tokenize each match ───────────────────────────────────────────────────
+# ── Cloak each match ─────────────────────────────────────────────────────
 sanitized="$prompt"
 reported_placeholders=""
 while IFS= read -r real_value; do
@@ -88,7 +88,7 @@ while IFS= read -r real_value; do
 done <<< "$matches"
 
 # ── Emit soft-block decision ──────────────────────────────────────────────
-reason="Prismor tokenization: detected secret(s) in your prompt.
+reason="Prismor cloaking: detected secret(s) in your prompt.
 
 Stored under ${SECRETS_DIR} as:
 ${reported_placeholders%$'\n'}

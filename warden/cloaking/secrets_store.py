@@ -1,4 +1,4 @@
-"""Secret registry for Prismor Warden tokenization.
+"""Secret registry for Prismor Warden cloaking.
 
 Stores real secret values on disk under ``$PRISMOR_SECRETS_DIR`` (default:
 ``~/.prismor/secrets``) with tight permissions (directory ``0700``, files
@@ -10,7 +10,7 @@ Design notes:
   * ``add_secret`` refuses empty values and rejects names that would traverse
     out of the secrets directory.
   * Removing a secret leaves any commands that referenced it failing closed
-    — the detokenize hook denies the tool call when a referenced secret
+    — the decloak hook denies the tool call when a referenced secret
     file is missing.
 """
 from __future__ import annotations
@@ -21,7 +21,7 @@ import stat
 from pathlib import Path
 from typing import List
 
-# Valid placeholder names mirror the regex used by the detokenize hook.
+# Valid placeholder names mirror the regex used by the decloak hook.
 _NAME_RE = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
 
 

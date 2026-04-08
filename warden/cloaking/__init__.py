@@ -1,4 +1,4 @@
-"""Prismor Warden — tokenization subsystem.
+"""Prismor Warden — cloaking subsystem.
 
 Prevention layer that keeps real secret values out of AI coding agent
 context, JSONL transcripts, and upstream API requests. Complements
@@ -6,7 +6,7 @@ context, JSONL transcripts, and upstream API requests. Complements
 at the tool boundary via Claude Code hooks.
 
 Public entry points (imported by ``warden/cli.py``):
-  install    — merge tokenization hooks into .claude/settings.json
+  install    — merge cloaking hooks into .claude/settings.json
   uninstall  — remove them
   add_secret — register a real secret value under a placeholder name
   list_secrets   — list registered placeholder names (never values)
@@ -15,8 +15,8 @@ Public entry points (imported by ``warden/cli.py``):
 """
 from __future__ import annotations
 
-from warden.tokenization.installer import install, uninstall, status
-from warden.tokenization.secrets_store import (
+from warden.cloaking.installer import install, uninstall, status
+from warden.cloaking.secrets_store import (
     add_secret,
     list_secrets,
     remove_secret,

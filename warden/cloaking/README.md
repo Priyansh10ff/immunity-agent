@@ -1,4 +1,4 @@
-# Warden Tokenize
+# Warden Cloak
 
 **Prevention layer for secrets in AI coding agents.** Keeps real secret values out of the model's context, the on-disk JSONL transcript, and the upstream LLM API — while still letting the agent use those secrets to execute local tool calls.
 
@@ -11,7 +11,7 @@ Complements `warden sweep` (post-hoc disk-residue cleanup) by stopping leaks at 
 You enroll a real secret once under a human-readable placeholder:
 
 ```bash
-warden tokenize add stripe_key    # value read from stdin, never argv
+warden cloak add stripe_key    # value read from stdin, never argv
 ```
 
 From that point on, the model refers to the secret as `@@SECRET:stripe_key@@`. When the agent emits a tool call containing that placeholder, Warden's `PreToolUse` hook:
@@ -28,7 +28,7 @@ User ──► Claude API ──► tool_use("@@SECRET:stripe_key@@")           
                              │                                          │
                              ▼                                          │
                     PreToolUse hook                                     │
-                    detokenize + wrap                                   │
+                    decloak + wrap                                      │
                              │                                          │
                              ▼                                          │
                  bash -c "( real cmd ) 2>&1 | sed s|REAL|@@...|g"       │
@@ -44,30 +44,30 @@ User ──► Claude API ──► tool_use("@@SECRET:stripe_key@@")           
 From inside a project:
 
 ```bash
-warden tokenize install
+warden cloak install
 ```
 
 This merges four hook entries into `.claude/settings.json` (preserving any Warden runtime-monitor hooks already there):
 
 | Event | Matcher | Script | Purpose |
 |---|---|---|---|
-| `PreToolUse` | `Bash` | `detokenize.sh` | Substitute placeholders, wrap with `sed` |
-| `PostToolUse` | `mcp__.*` | `retokenize-mcp.sh` | Scrub real values from MCP responses |
-| `UserPromptSubmit` | — | `userprompt-guard.sh` | Soft-block + auto-tokenize pasted secrets |
+| `PreToolUse` | `Bash` | `decloak.sh` | Substitute placeholders, wrap with `sed` |
+| `PostToolUse` | `mcp__.*` | `recloak-mcp.sh` | Scrub real values from MCP responses |
+| `UserPromptSubmit` | — | `userprompt-guard.sh` | Soft-block + auto-cloak pasted secrets |
 | `Stop` (opt) | — | `sweep-on-stop.sh` | Dry-run sweep for residue (off by default) |
 
 Flags:
 
 ```bash
-warden tokenize install --scope user           # install globally in ~/.claude
-warden tokenize install --no-userprompt-guard  # skip the paste-detection hook
-warden tokenize install --sweep-on-stop        # add the Stop-hook sweep
+warden cloak install --scope user           # install globally in ~/.claude
+warden cloak install --no-userprompt-guard  # skip the paste-detection hook
+warden cloak install --sweep-on-stop        # add the Stop-hook sweep
 ```
 
 Uninstall leaves unrelated Claude Code settings untouched:
 
 ```bash
-warden tokenize uninstall
+warden cloak uninstall
 ```
 
 ---
@@ -76,18 +76,18 @@ warden tokenize uninstall
 
 ```bash
 # Register — value is read from stdin (or hidden prompt if interactive)
-warden tokenize add stripe_key          # prompts you to paste the value
-printf '%s' "$(cat ~/.keys/stripe)" | warden tokenize add stripe_key
-warden tokenize add aws_prod --from-file ~/.keys/aws
+warden cloak add stripe_key          # prompts you to paste the value
+printf '%s' "$(cat ~/.keys/stripe)" | warden cloak add stripe_key
+warden cloak add aws_prod --from-file ~/.keys/aws
 
 # List registered placeholder names — NEVER shows values
-warden tokenize list
+warden cloak list
 
 # Delete a registered secret (any tool call still referencing it will fail closed)
-warden tokenize remove stripe_key
+warden cloak remove stripe_key
 
 # Show install state
-warden tokenize status
+warden cloak status
 ```
 
 Secrets live under `$PRISMOR_HOME/secrets/` (default `~/.prismor/secrets/`) with the directory at `0700` and each file at `0600`. The directory should be **excluded from backups and sync** (Time Machine, iCloud, Dropbox). Override the location with `PRISMOR_SECRETS_DIR`.
@@ -129,11 +129,11 @@ warden sweep --redact   # scan + encrypted-vault redact
 
 ## Layering with Warden runtime monitor
 
-Tokenize and Warden's runtime monitor coexist on the same `.claude/settings.json`. Install order does not matter; each feature merges its own matcher blocks and uninstall strips only its own entries. Recommended combination:
+Cloak and Warden's runtime monitor coexist on the same `.claude/settings.json`. Install order does not matter; each feature merges its own matcher blocks and uninstall strips only its own entries. Recommended combination:
 
 ```bash
 warden install-hooks --agent claude --mode enforce   # policy enforcement
-warden tokenize install                              # secret prevention
+warden cloak install                                 # secret prevention
 ```
 
 Then on a cadence (or via the opt-in `--sweep-on-stop` flag above):
@@ -147,13 +147,13 @@ warden sweep --redact
 ## Files shipped in this module
 
 ```
-warden/tokenization/
+warden/cloaking/
 ├── __init__.py             # public API re-exports
 ├── installer.py            # install/uninstall settings.json merger
 ├── secrets_store.py        # add/list/remove operations on $PRISMOR_SECRETS_DIR
 ├── hooks/
-│   ├── detokenize.sh       # PreToolUse:Bash
-│   ├── retokenize-mcp.sh   # PostToolUse:mcp__.*
+│   ├── decloak.sh          # PreToolUse:Bash
+│   ├── recloak-mcp.sh      # PostToolUse:mcp__.*
 │   ├── userprompt-guard.sh # UserPromptSubmit soft-block
 │   └── sweep-on-stop.sh    # Stop (opt-in)
 └── README.md               # this file

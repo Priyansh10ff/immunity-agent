@@ -26,14 +26,14 @@ Standard OS-level and endpoint security tools monitor the kernel and filesystem.
 
 ## Quick Start
 
-One command to clone Prismor and install all four layers (skills, runtime hooks, threat feed, secret tokenization) in the current project:
+One command to clone Prismor and install all four layers (skills, runtime hooks, threat feed, secret cloaking) in the current project:
 
 ```bash
 git clone https://github.com/PrismorSec/prismor.git ~/.prismor
-PRISMOR_MODE=enforce PRISMOR_TOKENIZE=1 bash ~/.prismor/scripts/init.sh .
+PRISMOR_MODE=enforce PRISMOR_CLOAK=1 bash ~/.prismor/scripts/init.sh .
 ```
 
-That gives you: enforce-mode Warden hooks monitoring every tool call, the tokenization prevention layer keeping real secrets out of model context and upstream API requests, and the signed advisory feed loaded on session start. Register your first secret with `warden tokenize add stripe_key` (value read from stdin, never argv), then reference it in any future tool call as `@@SECRET:stripe_key@@` — the hook substitutes the real value at execution time and scrubs it back out of the captured output before the model ever sees it. If you prefer to step through the wizard, drop the env vars and run `bash ~/.prismor/scripts/init.sh .` — it detects a TTY and presents an interactive menu with four steps (mode → rules → agents → tokenization).
+That gives you: enforce-mode Warden hooks monitoring every tool call, the cloaking prevention layer keeping real secrets out of model context and upstream API requests, and the signed advisory feed loaded on session start. Register your first secret with `warden cloak add stripe_key` (value read from stdin, never argv), then reference it in any future tool call as `@@SECRET:stripe_key@@` — the hook substitutes the real value at execution time and scrubs it back out of the captured output before the model ever sees it. If you prefer to step through the wizard, drop the env vars and run `bash ~/.prismor/scripts/init.sh .` — it detects a TTY and presents an interactive menu with four steps (mode → rules → agents → cloaking).
 
 ---
 
@@ -198,11 +198,11 @@ warden install-hooks --agent all --mode enforce
 warden install-hooks --agent claude --mode observe
 warden install-hooks --agent openclaw --mode enforce
 
-# Secret tokenization (Claude Code)
-warden tokenize install                        # install prevention hooks
-warden tokenize add stripe_key                 # register a secret (stdin)
-warden tokenize list                           # registered placeholders
-warden tokenize status
+# Secret cloaking (Claude Code)
+warden cloak install                           # install prevention hooks
+warden cloak add stripe_key                    # register a secret (stdin)
+warden cloak list                              # registered placeholders
+warden cloak status
 
 # CI/export
 warden analyze --input session.jsonl --sarif
@@ -240,33 +240,33 @@ The vault (`~/.prismor/sweep.vault.enc`) is AES-256 encrypted with a passphrase 
 
 See [Sweep documentation](https://prismor.dev/docs/sweep) for full setup and usage guide.
 
-### Tokenize: Secret Prevention Layer (Claude Code hooks)
+### Cloak: Secret Prevention Layer (Claude Code hooks)
 
-Sweep finds secrets that have **already** leaked into AI tool caches. **Tokenize** stops them from leaking in the first place.
+Sweep finds secrets that have **already** leaked into AI tool caches. **Cloak** stops them from leaking in the first place.
 
-AI coding agents persist full conversation transcripts to local JSONL files and transmit them verbatim to the LLM provider on every turn. Any real secret that enters the model's context — via paste, tool output, or a `Read` of a `.env` file — is immediately on disk and in flight to the upstream API. Tokenize closes that hole at the tool boundary using Claude Code's hook system.
+AI coding agents persist full conversation transcripts to local JSONL files and transmit them verbatim to the LLM provider on every turn. Any real secret that enters the model's context — via paste, tool output, or a `Read` of a `.env` file — is immediately on disk and in flight to the upstream API. Cloak closes that hole at the tool boundary using Claude Code's hook system.
 
 You enroll a real secret once under a human-readable placeholder. From then on, the model refers to it as `@@SECRET:name@@`. A `PreToolUse` hook substitutes the placeholder with the real value *only* at the moment a local tool executes, and wraps the command so its captured stdout is scrubbed back to the placeholder before the model sees it. The real value is resident only inside the hook process and the local subprocess — never in the model's context, the JSONL transcript, or any upstream API request.
 
 ```bash
 # Install the hooks into .claude/settings.json
-warden tokenize install
+warden cloak install
 
 # Register a real secret (value read from stdin / hidden prompt, never argv)
-warden tokenize add stripe_key
+warden cloak add stripe_key
 
 # Register a secret from a file
-warden tokenize add aws_prod --from-file ~/.keys/aws
+warden cloak add aws_prod --from-file ~/.keys/aws
 
 # Check install state and registered placeholders
-warden tokenize status
-warden tokenize list            # names only — never prints values
+warden cloak status
+warden cloak list               # names only — never prints values
 
 # Remove a secret (tool calls still referencing it will fail closed)
-warden tokenize remove stripe_key
+warden cloak remove stripe_key
 
 # Uninstall hooks cleanly (leaves other Warden hooks alone)
-warden tokenize uninstall
+warden cloak uninstall
 ```
 
 Once installed, tell your agent the convention — once, in your project `CLAUDE.md`:
@@ -274,17 +274,17 @@ Once installed, tell your agent the convention — once, in your project `CLAUDE
 ```markdown
 ## Secrets
 
-Real secret values are tokenized by Prismor Warden. When you need to use a secret
-in a shell command, reference it as `@@SECRET:name@@`. The Warden detokenize hook
+Real secret values are cloaked by Prismor Warden. When you need to use a secret
+in a shell command, reference it as `@@SECRET:name@@`. The Warden decloak hook
 will substitute the real value at execution time. Never echo, print, or narrate
 the real value — use the placeholder in all code, commands, and prose.
 ```
 
-**Pasted secrets.** When a user pastes a recognizable secret into a prompt (Stripe, GitHub PAT, AWS access key, Slack token, GitLab PAT, JWT), the `UserPromptSubmit` soft-block hook auto-tokenizes it under a deterministic hashed name and asks the user to resubmit with the sanitized version it shows them. UX cost is one re-paste; the original prompt is *not* transmitted to the upstream API. Prefix a prompt with `!!allow ` to bypass detection for a single message.
+**Pasted secrets.** When a user pastes a recognizable secret into a prompt (Stripe, GitHub PAT, AWS access key, Slack token, GitLab PAT, JWT), the `UserPromptSubmit` soft-block hook auto-cloaks it under a deterministic hashed name and asks the user to resubmit with the sanitized version it shows them. UX cost is one re-paste; the original prompt is *not* transmitted to the upstream API. Prefix a prompt with `!!allow ` to bypass detection for a single message.
 
-**Layering with Sweep.** Tokenize is *prevention*; Sweep is *remediation*. Together they cover most of the realistic leak surface for solo-developer use. Opt into an automatic post-session scan by installing with `--sweep-on-stop`, which wires a dry-run sweep to fire on every Claude Code Stop event.
+**Layering with Sweep.** Cloak is *prevention*; Sweep is *remediation*. Together they cover most of the realistic leak surface for solo-developer use. Opt into an automatic post-session scan by installing with `--sweep-on-stop`, which wires a dry-run sweep to fire on every Claude Code Stop event.
 
-| Leak surface | Tokenize | Sweep |
+| Leak surface | Cloak | Sweep |
 |---|---|---|
 | Model-emitted tool call with placeholder | **prevents** | cleans after |
 | MCP tool response containing secret | **prevents** | cleans after |
@@ -293,7 +293,7 @@ the real value — use the placeholder in all code, commands, and prose.
 | Pre-existing residue in `.claude/projects` / `.cursor` / `.codeium` / `.codex` | — | **cleans** |
 | Model narrates secret in assistant text | — | cleans after |
 
-See [`warden/tokenization/README.md`](warden/tokenization/README.md) for the full design, residual-threat taxonomy, and per-hook behavior.
+See [`warden/cloaking/README.md`](warden/cloaking/README.md) for the full design, residual-threat taxonomy, and per-hook behavior.
 
 ### Threat Feed
 

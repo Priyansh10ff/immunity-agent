@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Prismor Warden — tokenization PostToolUse hook (Claude Code, mcp__.* matcher).
+# Prismor Warden — cloaking PostToolUse hook (Claude Code, mcp__.* matcher).
 #
 # Scrubs any registered real secret value out of MCP tool responses, replacing
 # it with the corresponding `@@SECRET:name@@` placeholder before the model
 # sees it. Only MCP tools support `hookSpecificOutput.updatedMCPToolOutput` —
-# built-in Bash uses the in-command sed-wrap from detokenize.sh instead.
+# built-in Bash uses the in-command sed-wrap from decloak.sh instead.
 #
 # Stdin:  Claude Code PostToolUse JSON payload
 # Stdout: JSON with hookSpecificOutput.updatedMCPToolOutput (if anything was
@@ -14,7 +14,7 @@ set -uo pipefail
 SECRETS_DIR="${PRISMOR_SECRETS_DIR:-$HOME/.prismor/secrets}"
 
 if ! command -v jq >/dev/null 2>&1; then
-  exit 0  # silent no-op; detokenize.sh is the one that fails loud
+  exit 0  # silent no-op; decloak.sh is the one that fails loud
 fi
 
 input="$(cat)"

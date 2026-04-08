@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Prismor Warden — tokenization PreToolUse hook (Claude Code, Bash matcher).
+# Prismor Warden — cloaking PreToolUse hook (Claude Code, Bash matcher).
 #
 # Substitutes `@@SECRET:name@@` placeholders in the model's bash command with
 # the real value from $PRISMOR_SECRETS_DIR/<name>, then wraps the command so
@@ -21,7 +21,7 @@ SECRETS_DIR="${PRISMOR_SECRETS_DIR:-$HOME/.prismor/secrets}"
 # Require jq — the rest of Warden already depends on Python, but hook scripts
 # are shell-only for speed. If jq is missing we fail closed with a clear msg.
 if ! command -v jq >/dev/null 2>&1; then
-  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Prismor tokenization requires jq (brew install jq)"}}\n'
+  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Prismor cloaking requires jq (brew install jq)"}}\n'
   exit 0
 fi
 
@@ -47,7 +47,7 @@ while IFS= read -r placeholder; do
   if [[ ! -f "$secret_file" ]]; then
     # Fail closed: deny the tool call rather than silently leaving the
     # placeholder in, which would confuse downstream commands.
-    jq -n --arg reason "Prismor tokenization: secret '$name' not registered. Run: warden tokenize add $name" \
+    jq -n --arg reason "Prismor cloaking: secret '$name' not registered. Run: warden cloak add $name" \
       '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$reason}}'
     exit 0
   fi

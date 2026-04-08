@@ -21,14 +21,14 @@ For runtime protection, install Warden hooks:
 python3 PRISMOR_PATH/warden/cli.py install-hooks --agent claude --workspace . --mode observe
 ```
 
-## Secrets (tokenization convention)
+## Secrets (cloaking convention)
 
-This project uses Prismor Warden's tokenization layer to keep real secret values out of your model context, JSONL transcript, and upstream API requests. Real secrets live under `~/.prismor/secrets/` and are referenced by placeholders of the form `@@SECRET:<name>@@`.
+This project uses Prismor Warden's cloaking layer to keep real secret values out of your model context, JSONL transcript, and upstream API requests. Real secrets live under `~/.prismor/secrets/` and are referenced by placeholders of the form `@@SECRET:<name>@@`.
 
 **Rules for the agent:**
 
 - When you need to use a secret in a shell command or tool call, reference it as `@@SECRET:<name>@@` (e.g. `curl -H "Authorization: Bearer @@SECRET:stripe_key@@" ...`). The Warden `PreToolUse` hook will substitute the real value at execution time.
 - **Never** print, echo, log, narrate, or copy the real value of any secret. Use the placeholder in all code, commands, prose, and explanations.
 - If a command's output would contain a secret, the wrapper scrubs it automatically — do not strip or bypass the wrapper.
-- If you are asked to register a new secret, use `warden tokenize add <name>` (value read from stdin). Do not write it inline in a shell command.
-- If a secret is missing, the `PreToolUse` hook will fail closed with a clear message — ask the user to run `warden tokenize add <name>` rather than trying to work around it.
+- If you are asked to register a new secret, use `warden cloak add <name>` (value read from stdin). Do not write it inline in a shell command.
+- If a secret is missing, the `PreToolUse` hook will fail closed with a clear message — ask the user to run `warden cloak add <name>` rather than trying to work around it.
