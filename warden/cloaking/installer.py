@@ -74,6 +74,28 @@ def _hook_entry(script: Path) -> Dict[str, Any]:
     return {"type": "command", "command": str(script)}
 
 
+_CLAUDE_MD_BLOCK = """
+## Secrets (Prismor Cloak)
+
+Real secret values are cloaked by Prismor Warden. When you need to use a secret
+in a shell command or tool call, reference it as `@@SECRET:name@@`. The Warden
+decloak hook substitutes the real value at execution time and scrubs it back out
+of the captured output before it reaches this context. Never echo, print, log,
+or narrate real secret values — use the placeholder form in all code, commands,
+and prose. Use `warden cloak list` to see registered placeholder names.
+"""
+
+
+def _inject_claude_md(workspace: Path) -> None:
+    """Append the cloak convention block to the project CLAUDE.md if missing."""
+    claude_md = workspace / "CLAUDE.md"
+    marker = "@@SECRET:"
+    if claude_md.exists() and marker in claude_md.read_text(encoding="utf-8"):
+        return
+    with claude_md.open("a", encoding="utf-8") as f:
+        f.write(_CLAUDE_MD_BLOCK)
+
+
 def install(
     *,
     workspace: Path,
@@ -149,6 +171,9 @@ def install(
 
     new_config = {**config, "hooks": hooks, "env": env}
     _write_json(path, new_config)
+
+    if scope == "project":
+        _inject_claude_md(workspace)
 
     return {
         "configPath": str(path),

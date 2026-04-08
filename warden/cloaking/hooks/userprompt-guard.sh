@@ -27,10 +27,11 @@ input="$(cat)"
 prompt="$(printf '%s' "$input" | jq -r '.prompt // empty')"
 [[ -n "$prompt" ]] || exit 0
 
-# Optional user bypass: a prompt starting with `!!allow ` is passed through
-# unchanged. Useful when the user is deliberately discussing a secret in
-# prose (e.g., analyzing a leaked key) and doesn't want auto-cloaking.
-if [[ "$prompt" == "!!allow "* ]]; then
+# Optional user bypass: a prompt starting with `!!allow ` (ignoring leading
+# whitespace) is passed through unchanged. Useful when the user is deliberately
+# discussing a secret in prose and doesn't want auto-cloaking.
+trimmed="$(printf '%s' "$prompt" | sed 's/^[[:space:]]*//')"
+if [[ "$trimmed" == "!!allow "* ]]; then
   exit 0
 fi
 
