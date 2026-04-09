@@ -226,92 +226,32 @@ warden analyze --input session.jsonl --sarif   # export a session as SARIF for C
 
 Sessions are stored indefinitely - there is no automatic expiry. Clean up old sessions by deleting files under `.prismor-warden/sessions/` or the database directly.
 
-### Sweep: Secret Scanner for AI Tool Configs
+### Sweep and Cloak: Secret Protection
 
-AI coding agents cache files, log conversations, and store paste buffers. Secrets from your `.env`, credentials, and config files leak into these caches without you knowing.
+Sweep and Cloak are complementary — Cloak prevents secrets from entering model context in the first place; Sweep cleans up anything that already leaked into AI tool caches.
 
 <img width="1820" height="796" alt="image" src="https://github.com/user-attachments/assets/68137da9-5e7a-4228-b55a-ec50b5cabd51" />
 
-Sweep scans the config directories of AI tools (Claude, Cursor, Windsurf, Codex, Antigravity) for leaked secrets using [gitleaks](https://github.com/gitleaks/gitleaks), then lets you redact or delete them, with an encrypted vault to recover if needed.
+**Sweep** scans the local config directories of Claude, Cursor, Windsurf, Codex, and others for secrets that have already leaked — API keys, tokens, credentials — and lets you redact or delete them. Redacted values are saved to an AES-256 encrypted vault so you can restore them if needed.
 
 ```bash
-# Scan — dry run, shows what's exposed
-warden sweep
-
-# Scan any directory
-warden sweep /path/to/folder
-
-# Redact secrets (creates encrypted vault on first run)
-warden sweep --redact
-
-# Delete residue files containing secrets
-warden sweep --clean
-
-# Restore secrets from vault
+warden sweep              # dry run — shows what's exposed
+warden sweep --redact     # redact in place, save to vault
+warden sweep --clean      # delete files containing secrets
 warden sweep --restore --all
-
-# View vault contents
-warden sweep --show-vault
 ```
 
-The vault (`~/.prismor/sweep.vault.enc`) is AES-256 encrypted with a passphrase you set on first use. The passphrase is shown once and cannot be recovered. Store it in a password manager.
-
-See [Sweep documentation](https://prismor.dev/docs/sweep) for full setup and usage guide.
-
-### Cloak: Secret Prevention Layer (Claude Code hooks)
-
-Sweep finds secrets that have **already** leaked into AI tool caches. **Cloak** stops them from leaking in the first place.
-
-AI coding agents persist full conversation transcripts to local JSONL files and transmit them verbatim to the LLM provider on every turn. Any real secret that enters the model's context — via paste, tool output, or a `Read` of a `.env` file — is immediately on disk and in flight to the upstream API. Cloak closes that hole at the tool boundary using Claude Code's hook system.
-
-You enroll a real secret once under a human-readable placeholder. From then on, the model refers to it as `@@SECRET:name@@`. A `PreToolUse` hook substitutes the placeholder with the real value *only* at the moment a local tool executes, and wraps the command so its captured stdout is scrubbed back to the placeholder before the model sees it. The real value is resident only inside the hook process and the local subprocess — never in the model's context, the JSONL transcript, or any upstream API request.
+**Cloak** works at the tool boundary. You register a real secret once under a placeholder (`@@SECRET:name@@`). A `PreToolUse` hook substitutes the real value only at execution time, then scrubs it back out of captured output before the model sees it — so the value never appears in the conversation transcript or any upstream API request. Pasted secrets are intercepted automatically.
 
 ```bash
-# Install the hooks into .claude/settings.json
-warden cloak install
-
-# Register a real secret (value read from stdin / hidden prompt, never argv)
-warden cloak add stripe_key
-
-# Register a secret from a file
+warden cloak install                        # install hooks into .claude/settings.json
+warden cloak add stripe_key                 # register a secret (read from stdin)
 warden cloak add aws_prod --from-file ~/.keys/aws
-
-# Check install state and registered placeholders
+warden cloak list                           # show registered placeholder names
 warden cloak status
-warden cloak list               # names only — never prints values
-
-# Remove a secret (tool calls still referencing it will fail closed)
-warden cloak remove stripe_key
-
-# Uninstall hooks cleanly (leaves other Warden hooks alone)
-warden cloak uninstall
 ```
 
-Once installed, tell your agent the convention — once, in your project `CLAUDE.md`:
-
-```markdown
-## Secrets
-
-Real secret values are cloaked by Prismor Warden. When you need to use a secret
-in a shell command, reference it as `@@SECRET:name@@`. The Warden decloak hook
-will substitute the real value at execution time. Never echo, print, or narrate
-the real value — use the placeholder in all code, commands, and prose.
-```
-
-**Pasted secrets.** When a user pastes a recognizable secret into a prompt (Stripe, GitHub PAT, AWS access key, Slack token, GitLab PAT, JWT), the `UserPromptSubmit` soft-block hook auto-cloaks it under a deterministic hashed name and asks the user to resubmit with the sanitized version it shows them. UX cost is one re-paste; the original prompt is *not* transmitted to the upstream API. Prefix a prompt with `!!allow ` to bypass detection for a single message.
-
-**Layering with Sweep.** Cloak is *prevention*; Sweep is *remediation*. Together they cover most of the realistic leak surface for solo-developer use. Opt into an automatic post-session scan by installing with `--sweep-on-stop`, which wires a dry-run sweep to fire on every Claude Code Stop event.
-
-| Leak surface | Cloak | Sweep |
-|---|---|---|
-| Model-emitted tool call with placeholder | **prevents** | cleans after |
-| MCP tool response containing secret | **prevents** | cleans after |
-| Bash stdout containing secret | **prevents** (sed-wrap) | cleans after |
-| User pastes secret into prompt | soft-block | cleans after |
-| Pre-existing residue in `.claude/projects` / `.cursor` / `.codeium` / `.codex` | — | **cleans** |
-| Model narrates secret in assistant text | — | cleans after |
-
-See [`warden/cloaking/README.md`](warden/cloaking/README.md) for the full design, residual-threat taxonomy, and per-hook behavior.
+See [`warden/cloaking/README.md`](warden/cloaking/README.md) for full details.
 
 ### Threat Feed
 
