@@ -148,7 +148,22 @@ def main() -> None:
 
     # ── analyze ────────────────────────────────────────────────────────
     if args.command == "analyze":
-        events = parse_jsonl(read_text(args.input))
+        # If no input specified, use most recent session
+        if args.input:
+            events = parse_jsonl(read_text(args.input))
+        else:
+            # Find most recent session in current workspace
+            sessions = list_sessions(workspace, limit=1)
+            if not sessions:
+                raise SystemExit("No sessions found in this workspace. Use --input to analyze a file, or run a session first.")
+            session = get_session(workspace, sessions[0]["sessionId"])
+            if not session:
+                raise SystemExit(f"Could not load session {sessions[0]['sessionId']}")
+            events = session.get("events", [])
+            if not events:
+                print(_color("[analyze]", _CYAN) + f" No events in session {sessions[0]['sessionId']}")
+                return
+
         result = analyze_events(events, repo_root=repo_root, workspace=workspace)
         if getattr(args, "sarif", False):
             print(json.dumps(format_sarif(result), indent=2))
@@ -491,8 +506,8 @@ def build_parser() -> argparse.ArgumentParser:
     status_parser.add_argument("--workspace", help="Workspace path")
 
     # ── analyze ────────────────────────────────────────────────────────
-    analyze = subparsers.add_parser("analyze", help="Analyze a JSONL session file")
-    analyze.add_argument("--input", required=True, help="Path to JSONL session file (or - for stdin)")
+    analyze = subparsers.add_parser("analyze", help="Analyze a session (or current session if no --input)")
+    analyze.add_argument("--input", help="Path to JSONL session file (or - for stdin). If omitted, analyzes most recent session")
     analyze.add_argument("--workspace", help="Workspace path")
     analyze.add_argument("--json", action="store_true", help="Output raw JSON")
     analyze.add_argument("--sarif", action="store_true", help="Output SARIF 2.1.0 format")

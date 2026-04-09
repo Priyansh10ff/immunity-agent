@@ -155,4 +155,16 @@ if [ "$CLOAK" != "1" ]; then
     echo -e "  To enable secret cloaking: ${YELLOW}PRISMOR_CLOAK=1 bash $PRISMOR_DIR/scripts/init.sh $TARGET_DIR${NC}"
 fi
 echo -e "  To update the feed:         ${YELLOW}git -C $PRISMOR_DIR pull${NC}"
+
+# ── Optional: Analyze current session state ────────────────────────────────
+echo ""
+echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+read -p "$(echo -e ${YELLOW}'Check current session for findings? (y/n):'${NC}) " -n 1 -r
+echo ""
+if [[ $REPLY =~ ^[Yy]$ ]]; then
+    echo ""
+    info "Analyzing your current session..."
+    python3 "$PRISMOR_DIR/warden/cli.py" analyze 2>/dev/null || \
+        warn "Session analysis failed"
+fi
 echo ""
