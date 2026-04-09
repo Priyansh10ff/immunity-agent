@@ -250,7 +250,14 @@ def main() -> None:
             events=events,
             analysis=result,
         )
-        blocking = should_block(result["findings"], event, block_categories=set(result.get("blockCategories", [])))
+        # Only evaluate the current event for real-time blocking decisions.
+        # Using all session findings would cause stale shell-event findings
+        # (e.g. from a previous agent run) to block unrelated UserPromptSubmit
+        # events, creating a false-positive loop.
+        from warden.policy_engine import PolicyEngine as _PolicyEngine
+        _current_engine = _PolicyEngine(workspace=workspace)
+        current_findings = _current_engine.evaluate(event, len(events) - 1, session_id=normalized["sessionId"])
+        blocking = should_block(current_findings, event, block_categories=set(result.get("blockCategories", [])))
         if args.mode == "enforce" and blocking is not None:
             sys.stderr.write(f"Prismor Warden blocked this action: [{blocking['severity']}] {blocking['title']}\n")
             if blocking.get("evidence"):
