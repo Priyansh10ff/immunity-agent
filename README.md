@@ -4,7 +4,7 @@
 ![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)
 [![Discord](https://img.shields.io/badge/Discord-Join%20Us-5865F2?logo=discord&logoColor=white)](https://discord.gg/8rBwhz6T)
 
-**Security for AI coding agents.** A signed threat feed, agent-native security skills, and a local runtime monitor - in one package.
+**Security for AI coding agents.** A signed threat feed, a local runtime monitor, and secret protection - in one package.
 
 ---
 
@@ -26,20 +26,20 @@ Standard OS-level and endpoint security tools monitor the kernel and filesystem.
 
 ## Quick Start
 
-One command to clone Prismor and install all four layers (skills, runtime hooks, threat feed, secret cloaking) in the current project:
+One command to clone Prismor and install all three layers (runtime hooks, threat feed, secret cloaking) in the current project:
 
 ```bash
 git clone https://github.com/PrismorSec/prismor.git ~/.prismor
 PRISMOR_MODE=enforce PRISMOR_CLOAK=1 bash ~/.prismor/scripts/init.sh .
 ```
 
-That gives you: enforce-mode Warden hooks monitoring every tool call, the cloaking prevention layer keeping real secrets out of model context and upstream API requests, and the signed advisory feed loaded on session start. Register your first secret with `warden cloak add stripe_key` (value read from stdin, never argv), then reference it in any future tool call as `@@SECRET:stripe_key@@` — the hook substitutes the real value at execution time and scrubs it back out of the captured output before the model ever sees it. If you prefer to step through the wizard, drop the env vars and run `bash ~/.prismor/scripts/init.sh .` — it detects a TTY and presents an interactive menu with four steps (mode → rules → agents → cloaking).
+That gives you: enforce-mode Warden hooks monitoring every tool call, the cloaking prevention layer keeping real secrets out of model context and upstream API requests, and the signed advisory feed loaded on session start. Register your first secret with `warden cloak add stripe_key` (value read from stdin, never argv), then reference it in any future tool call as `@@SECRET:stripe_key@@` — the hook substitutes the real value at execution time and scrubs it back out of the captured output before the model ever sees it. If you prefer to step through the wizard, drop the env vars and run `bash ~/.prismor/scripts/init.sh .` — it detects a TTY and presents an interactive menu with three steps (mode → rules → agents → cloaking).
 
 ---
 
 ## Use Cases
 
-Prismor works at two layers: what the agent *knows* (skills loaded at session start) and what the agent *does* (runtime hook on every tool call).
+Prismor hooks into every agent tool call to detect and block dangerous actions in real time. When a finding is flagged, it is automatically cross-referenced against a signed AI threat feed - so session output includes not just what was blocked, but the CVEs it maps to.
 
 ### See It In Action
 
@@ -155,22 +155,6 @@ git clone https://github.com/PrismorSec/immunity-agent.git ~/.prismor
 PRISMOR_MODE=enforce bash ~/.prismor/scripts/init.sh /path/to/project --non-interactive
 ```
 
-### Skills only (no runtime monitoring)
-
-Tell your agent at session start:
-
-```
-Read https://raw.githubusercontent.com/PrismorSec/security-playbook/main/security.md and follow its instructions.
-```
-
-Or add to your project's `CLAUDE.md`:
-
-```markdown
-## Security (Prismor)
-
-At the start of every session, read `https://raw.githubusercontent.com/PrismorSec/security-playbook/main/security.md` and follow its instructions.
-```
-
 ### Warden CLI
 
 ```bash
@@ -207,6 +191,40 @@ warden cloak status
 # CI/export
 warden analyze --input session.jsonl --sarif
 ```
+
+### Session Logs and Tool Interaction Tracking
+
+Warden logs every agent tool interaction during a session - not just the ones that get flagged. This gives you a full audit trail of what your agent did, not just what it was blocked from doing.
+
+**What gets captured per tool call:**
+
+| Tool type | Fields captured |
+|-----------|----------------|
+| Shell (Bash) | command, stdout, stderr |
+| File read | path |
+| File write | path, content |
+| Web fetch / search | url, response |
+| User prompt | prompt text |
+
+All events are stored in two places under your project's `.prismor-warden/` directory:
+
+- **`.prismor-warden/sessions/<session-id>.jsonl`** - append-only log, one JSON object per tool call
+- **`.prismor-warden/warden.db`** - SQLite database indexed for fast querying across sessions
+
+Findings are cross-referenced against the threat feed at log time, so relevant CVEs are attached to the event record. stdout/stderr are captured up to 4000 characters.
+
+Access session data with:
+
+```bash
+warden status                                  # findings from the most recent session
+warden sessions                                # list all stored sessions
+warden sessions --findings-only                # only sessions that had findings
+warden sessions --findings-only --global       # across all projects
+warden session --session-id <id>               # full detail for a specific session
+warden analyze --input session.jsonl --sarif   # export a session as SARIF for CI
+```
+
+Sessions are stored indefinitely - there is no automatic expiry. Clean up old sessions by deleting files under `.prismor-warden/sessions/` or the database directly.
 
 ### Sweep: Secret Scanner for AI Tool Configs
 
@@ -297,7 +315,17 @@ See [`warden/cloaking/README.md`](warden/cloaking/README.md) for the full design
 
 ### Threat Feed
 
-A daily-updated, Ed25519-signed advisory feed covering AI-ecosystem CVEs:
+Every time Warden flags a finding in your session, it cross-references it against a local advisory feed and surfaces any matching CVEs directly in your output - so you see not just "this command was blocked" but which known vulnerability class it maps to.
+
+The feed (`advisories/immunity-feed.json`) covers AI-ecosystem CVEs across LangChain, LlamaIndex, OpenAI, Anthropic, CrewAI, AutoGPT, prompt injection patterns, and unsafe tool execution. It is signed with Ed25519 so you can verify it hasn't been tampered with.
+
+**The feed in the Prismor repo is updated daily via GitHub Actions** - new CVEs from NVD are fetched, merged, re-signed, and committed automatically. Your local copy only updates when you pull:
+
+```bash
+git -C ~/.prismor pull    # get the latest advisories
+```
+
+To query or verify the local feed:
 
 ```bash
 bash ~/.prismor/scripts/query.sh count     # total advisories
@@ -305,20 +333,9 @@ bash ~/.prismor/scripts/query.sh critical  # critical-severity only
 bash ~/.prismor/scripts/verify_feed.sh     # verify Ed25519 signature
 ```
 
-Coverage includes LangChain, LlamaIndex, OpenAI, Anthropic, CrewAI, AutoGPT, prompt injection patterns, and unsafe tool execution.
-
 ### Security Skills
 
-Security skills live in the [security-playbook](https://github.com/PrismorSec/security-playbook) repo.
-
-| Skill | What It Covers |
-|-------|---------------|
-| [Behavioral Security](https://github.com/PrismorSec/security-playbook/blob/main/behavioral-security/SKILL.md) | Command deny-lists, secret protection, anti-prompt-injection, HITL gates |
-| [Code Security](https://github.com/PrismorSec/security-playbook/blob/main/code-security/SKILL.md) | OWASP Top 10 - 22 rule files across Python, JS, Java, Go, Ruby, C# |
-| [LLM Security](https://github.com/PrismorSec/security-playbook/blob/main/llm-security/SKILL.md) | OWASP LLM Top 10 2025 - prompt injection, excessive agency, data poisoning |
-| [Static Analysis](https://github.com/PrismorSec/security-playbook/blob/main/static-analysis/SKILL.md) | Pattern-based scanning, custom rule authoring, SARIF output |
-
-Each rule file shows vulnerable and secure code side by side in real frameworks (Flask, Express, Spring, etc.).
+Security skills have moved to the [PrismorSec/security-playbook](https://github.com/PrismorSec/security-playbook) repo.
 
 ### Integration Templates
 
@@ -354,7 +371,7 @@ Code security and LLM security rules are adapted from the [Semgrep Skills reposi
 PRs are welcome. Guidelines:
 
 - New detection rules go in `warden/default_policy.yaml` - follow the schema in `warden/policy_schema.json`
-- New skills go in the [security-playbook](https://github.com/PrismorSec/security-playbook) repo with a `SKILL.md` and `skill.json`
+- For skills contributions, see the [security-playbook](https://github.com/PrismorSec/security-playbook) repo
 - Tests live in `tests/` - run `pytest` before opening a PR
 - For threat feed contributions, use the **Threat Intelligence** issue template
 
