@@ -4,7 +4,7 @@
 ![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)
 [![Discord](https://img.shields.io/badge/Discord-Join%20Us-5865F2?logo=discord&logoColor=white)](https://discord.gg/8rBwhz6T)
 
-**Security for AI coding agents.** A signed threat feed, a local runtime monitor, and secret protection - in one package.
+**Security for AI agents.** A signed threat feed, a local runtime monitor, and secret protection - in one package.
 
 ---
 
