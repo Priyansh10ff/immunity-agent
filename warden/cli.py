@@ -4,6 +4,8 @@
 Commands:
   check         Quick pre-check a command or file path against policy rules
   scan          Scan all MCP servers and skills for security risks
+  audit         Full security posture check across all Warden subsystems
+  audit --fix   Auto-remediate fixable issues
   status        Show findings from the most recent session
   analyze       Analyze a JSONL session file
   ingest        Analyze and store a session
@@ -200,6 +202,111 @@ def main() -> None:
 
         if has_blocking:
             raise SystemExit(2)
+        return
+
+    # ── audit: full security posture check ──────────────────────────
+    if args.command == "audit":
+        from warden.audit import run_audit, apply_fixes, AuditFinding
+        findings = run_audit(workspace=workspace, repo_root=repo_root)
+
+        if getattr(args, "json", False):
+            print(json.dumps([f.to_dict() for f in findings], indent=2))
+            return
+
+        print()
+        print(f"  {_color('PRISMOR WARDEN', _BOLD)}  security audit")
+        print(f"  {_color('─' * 58, _DIM)}")
+        print()
+
+        # Group findings by category for clean display
+        categories_seen: list[str] = []
+        grouped: dict[str, list] = {}
+        for f in findings:
+            if f.category not in grouped:
+                grouped[f.category] = []
+                categories_seen.append(f.category)
+            grouped[f.category].append(f)
+
+        # Category display labels
+        _CAT_LABELS = {
+            "hooks": "Hook Integrations",
+            "policy": "Policy Coverage",
+            "cloaking": "Cloaking (Secret Prevention)",
+            "permissions": "Secret Permissions",
+            "feed": "Threat Feed",
+            "network": "Network Isolation",
+        }
+
+        _SEV_ICON = {
+            "CRITICAL": _color("CRITICAL", _RED),
+            "HIGH":     _color("HIGH", _RED),
+            "MEDIUM":   _color("MEDIUM", _YELLOW),
+            "LOW":      _color("LOW", _DIM),
+            "INFO":     _color("INFO", _DIM),
+            "PASS":     _color("PASS", _GREEN),
+        }
+
+        for cat in categories_seen:
+            label = _CAT_LABELS.get(cat, cat.title())
+            print(f"  {_color(label, _BOLD)}")
+
+            for f in grouped[cat]:
+                icon = _SEV_ICON.get(f.severity, f.severity)
+                fix_hint = ""
+                if f.fixable:
+                    fix_hint = f"  {_color('[fixable]', _CYAN)}"
+                print(f"    {icon}  {f.message}{fix_hint}")
+
+            print()
+
+        # Summary
+        total = len(findings)
+        passed = sum(1 for f in findings if f.severity == "PASS")
+        issues = total - passed
+        fixable = sum(1 for f in findings if f.fixable)
+
+        print(f"  {_color('─' * 58, _DIM)}")
+
+        if issues == 0:
+            print(f"  {_color('All checks passed.', _GREEN)}  ({passed} passed)")
+        else:
+            # Count by severity
+            sev_counts: dict[str, int] = {}
+            for f in findings:
+                if f.severity != "PASS":
+                    sev_counts[f.severity] = sev_counts.get(f.severity, 0) + 1
+            parts = []
+            for sev in ("CRITICAL", "HIGH", "MEDIUM", "LOW"):
+                count = sev_counts.get(sev, 0)
+                if count:
+                    color = _RED if sev in ("CRITICAL", "HIGH") else _YELLOW if sev == "MEDIUM" else _DIM
+                    parts.append(_color(f"{count} {sev.lower()}", color))
+            print(f"  {issues} issue(s): {', '.join(parts)}  |  {_color(f'{passed} passed', _GREEN)}")
+
+            if fixable > 0:
+                print(f"  {_color(f'{fixable} issue(s) can be auto-fixed', _CYAN)} — run {_color('warden audit --fix', _BOLD)}")
+
+        print()
+
+        # Apply fixes if requested
+        if getattr(args, "fix", False) and fixable > 0:
+            print(f"  {_color('Applying fixes...', _BOLD)}")
+            print()
+            actions = apply_fixes(findings)
+            for action in actions:
+                print(f"    {_color('FIXED', _GREEN)}  {action}")
+            if actions:
+                print()
+                print(f"  {_color(f'{len(actions)} fix(es) applied.', _GREEN)} Run {_color('warden audit', _BOLD)} again to verify.")
+            else:
+                print(f"    {_color('No fixes were applied.', _DIM)}")
+            print()
+
+        # Exit code: 2 for critical, 1 for high/medium, 0 for clean
+        if any(f.severity == "CRITICAL" for f in findings):
+            raise SystemExit(2)
+        if any(f.severity in ("HIGH", "MEDIUM") for f in findings):
+            raise SystemExit(1)
         return
 
     # ── status: show most recent session findings ──────────────────────
@@ -576,6 +683,12 @@ def build_parser() -> argparse.ArgumentParser:
     scan_parser.add_argument("--workspace", help="Workspace path")
     scan_parser.add_argument("--agent", choices=["claude", "cursor", "windsurf", "openclaw"], help="Only scan configs for this agent")
     scan_parser.add_argument("--json", action="store_true", help="Output raw JSON")
+
+    # ── audit ──────────────────────────────────────────────────────────
+    audit_parser = subparsers.add_parser("audit", help="Full security posture audit across all Warden subsystems")
+    audit_parser.add_argument("--workspace", help="Workspace path")
+    audit_parser.add_argument("--fix", action="store_true", help="Auto-remediate fixable issues")
+    audit_parser.add_argument("--json", action="store_true", help="Output raw JSON")
 
     # ── status ─────────────────────────────────────────────────────────
     status_parser = subparsers.add_parser("status", help="Show findings from the most recent session")
