@@ -18,6 +18,7 @@ CATEGORY_TO_FEED_TYPES = {
     "db_access": {"data_exfiltration"},
     "privilege_escalation": {"policy_bypass"},
     "path_traversal": {"data_exfiltration"},
+    "skill_risk": {"unsafe_tool_execution", "policy_bypass", "prompt_injection"},
 }
 
 

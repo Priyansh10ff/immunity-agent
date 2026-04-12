@@ -27,6 +27,7 @@ _DEFAULT_FIELDS: Dict[str, List[str]] = {
     "network": ["url"],
     "prompt": ["combined_text"],
     "tool_result": ["combined_text"],
+    "skill_manifest": ["combined_text"],
 }
 
 

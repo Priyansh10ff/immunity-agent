@@ -3,6 +3,7 @@
 
 Commands:
   check         Quick pre-check a command or file path against policy rules
+  scan          Scan all MCP servers and skills for security risks
   status        Show findings from the most recent session
   analyze       Analyze a JSONL session file
   ingest        Analyze and store a session
@@ -130,6 +131,75 @@ def main() -> None:
             raise SystemExit(2)
         if any(f.get("action") == "warn" for f in findings):
             raise SystemExit(1)
+        return
+
+    # ── scan: scan MCP servers and skills ────────────────────────────
+    if args.command == "scan":
+        from warden.scanner import scan_skills
+        result = scan_skills(workspace=workspace, agent=getattr(args, "agent", None))
+
+        if getattr(args, "json", False):
+            print(json.dumps(result, indent=2))
+            return
+
+        configs = result["configs"]
+        findings = result["findings"]
+        n_entries = result["entries"]
+        summary = result["summary"]
+
+        print()
+        print(f"  {_color('PRISMOR WARDEN', _BOLD)}  skill scanner")
+        print(f"  {_color('─' * 50, _DIM)}")
+        print()
+
+        if not configs:
+            print(f"  {_color('No agent configs found.', _DIM)}")
+            print(f"  Looked for MCP/skill configs in Claude Code, Cursor, Windsurf, OpenClaw.")
+            print()
+            return
+
+        for cfg in configs:
+            print(f"  {_color('Config:', _GREEN)}  [{cfg['agent']}] {cfg['path']}")
+        print(f"  {_color('Entries:', _GREEN)} {n_entries} skill(s) / MCP server(s)")
+        print()
+
+        if not findings:
+            print(f"  {_color('PASS', _GREEN)}  No issues found across {n_entries} entries.")
+            print()
+            return
+
+        for f in findings:
+            sev = f["severity"]
+            color = _RED if sev == "CRITICAL" else _YELLOW if sev == "HIGH" else _DIM
+            action_label = f.get("action", "warn").upper()
+            print(f"  {_color(f'[{sev}]', color)}  {f['title']}")
+            print(f"           skill: {_color(f['skillName'], _CYAN)}  ({f['agent']})")
+            print(f"           rule: {f.get('ruleId', '?')}  ({action_label})")
+            evidence = f.get("evidence", "")
+            if evidence:
+                # Truncate long evidence lines for display
+                if len(evidence) > 100:
+                    evidence = evidence[:97] + "..."
+                print(f"           evidence: {_color(evidence, _DIM)}")
+            print()
+
+        # Summary line
+        parts = []
+        for sev in ("CRITICAL", "HIGH", "MEDIUM", "LOW"):
+            count = summary.get(sev, 0)
+            if count:
+                color = _RED if sev == "CRITICAL" else _YELLOW if sev == "HIGH" else _DIM
+                parts.append(_color(f"{count} {sev.lower()}", color))
+        print(f"  {_color('─' * 50, _DIM)}")
+        print(f"  {len(findings)} finding(s): {', '.join(parts)}")
+
+        has_blocking = any(f.get("action") == "block" for f in findings)
+        if has_blocking:
+            print(f"  {_color('Recommendation: review blocking findings before using these skills.', _RED)}")
+        print()
+
+        if has_blocking:
+            raise SystemExit(2)
         return
 
     # ── status: show most recent session findings ──────────────────────
@@ -500,6 +570,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="What to check: command (default), read (file read), write (file write)",
     )
     check_parser.add_argument("--workspace", help="Workspace path for project-level policy")
+
+    # ── scan ──────────────────────────────────────────────────────────
+    scan_parser = subparsers.add_parser("scan", help="Scan all MCP servers and skills for security risks")
+    scan_parser.add_argument("--workspace", help="Workspace path")
+    scan_parser.add_argument("--agent", choices=["claude", "cursor", "windsurf", "openclaw"], help="Only scan configs for this agent")
+    scan_parser.add_argument("--json", action="store_true", help="Output raw JSON")
 
     # ── status ─────────────────────────────────────────────────────────
     status_parser = subparsers.add_parser("status", help="Show findings from the most recent session")

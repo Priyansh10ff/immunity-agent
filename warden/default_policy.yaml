@@ -19,6 +19,7 @@ settings:
     - rce_canary
     - db_modification
     - privilege_escalation
+    - skill_risk
 
   # Regex patterns used to identify dependency manifest files.
   # Matched paths cause risky_write findings to be upgraded to HIGH severity.
@@ -212,6 +213,87 @@ rules:
     fields: [path]
     patterns:
       - '(^|/)(\.github/workflows/.+\.(yml|yaml)|Dockerfile|docker-compose\.ya?ml|package\.json|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|requirements.*\.txt|pyproject\.toml|Pipfile|Gemfile|go\.mod|Cargo\.toml|pom\.xml|build\.gradle(\.kts)?|terraform\.tfvars|\.env(\..*)?)$'
+    action: warn
+
+  # ── CRITICAL: Skill exfiltration URLs ──────────────────────────────
+  - id: skill-exfil-url
+    severity: CRITICAL
+    category: skill_risk
+    title: Skill references known exfiltration endpoint
+    event_types: [skill_manifest]
+    fields: [combined_text]
+    patterns:
+      - 'webhook\.site|ngrok-free\.app|ngrok\.io|requestbin|pipedream'
+      - 'pastebin\.com|discord(app)?\.com/api/webhooks|transfer\.sh'
+      - 'hookbin\.com|burpcollaborator|interact\.sh|oast\.'
+    action: block
+
+  # ── CRITICAL: Encoded payloads in skills ──────────────────────────
+  - id: skill-encoded-payload
+    severity: CRITICAL
+    category: skill_risk
+    title: Skill contains base64/hex encoded payload
+    event_types: [skill_manifest]
+    fields: [combined_text]
+    patterns:
+      - 'base64\s*-?d'
+      - '\\x[0-9a-fA-F]{20,}'
+      - 'eval\(atob\('
+      - 'fromCharCode\(\d+,\d+,\d+'
+    action: block
+
+  # ── CRITICAL: Shell injection via skill config ────────────────────
+  - id: skill-shell-injection
+    severity: CRITICAL
+    category: skill_risk
+    title: Skill injects shell commands in config or prompts
+    event_types: [skill_manifest]
+    fields: [combined_text]
+    patterns:
+      - '\b(curl|wget)\b[^|;\n]*\|\s*(bash|sh|python)\b'
+      - '\$\(.*\)|`[^`]+`'
+      - '\bsubprocess\b|\bos\.system\b|\bchild_process\b'
+      - '\bexec\s*\(|\beval\s*\('
+    action: block
+
+  # ── HIGH: Prompt override attempt in skill ────────────────────────
+  - id: skill-prompt-override
+    severity: HIGH
+    category: skill_risk
+    title: Skill attempts to override system instructions
+    event_types: [skill_manifest]
+    fields: [combined_text]
+    patterns:
+      - 'ignore\s+(all\s+)?(any\s+)?(previous|prior|above)\s+instructions'
+      - 'you\s+are\s+now|new\s+persona|act\s+as\s+if'
+      - 'disregard.*system\s*prompt'
+      - 'forget\s+(everything|all|your)\s+(previous|prior|instructions)'
+    action: block
+
+  # ── HIGH: Skill references sensitive file paths ───────────────────
+  - id: skill-secret-access
+    severity: HIGH
+    category: skill_risk
+    title: Skill references sensitive credential paths
+    event_types: [skill_manifest]
+    fields: [combined_text]
+    patterns:
+      - '(^|/)\.env(\.|/|$)|\.ssh/id_(rsa|ed25519)|\.aws/credentials'
+      - '\.npmrc|\.pypirc|\.docker/config\.json'
+      - '/etc/(passwd|shadow|sudoers)'
+    action: block
+
+  # ── MEDIUM: Overly broad permissions ──────────────────────────────
+  - id: skill-overpermission
+    severity: MEDIUM
+    category: skill_risk
+    title: Skill requests broad filesystem or network access
+    event_types: [skill_manifest]
+    fields: [combined_text]
+    patterns:
+      - '"allowedPaths"\s*:\s*\[\s*"[/*]"'
+      - '"allowedDomains"\s*:\s*\[\s*"\*"'
+      - '"permissions"\s*:\s*\[\s*"\*"'
     action: warn
 
 allowlists: []
