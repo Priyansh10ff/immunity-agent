@@ -19,6 +19,7 @@ CATEGORY_TO_FEED_TYPES = {
     "privilege_escalation": {"policy_bypass"},
     "path_traversal": {"data_exfiltration"},
     "skill_risk": {"unsafe_tool_execution", "policy_bypass", "prompt_injection"},
+    "network_isolation": {"data_exfiltration", "unsafe_tool_execution"},
 }
 
 

@@ -133,6 +133,11 @@ Commit the policy file to share rules across your team. CI picks it up automatic
 | Database modification | HIGH | Flags `DROP TABLE`, `DELETE FROM`, `TRUNCATE` in shell commands |
 | Path traversal | HIGH | Flags `../../` traversal, reads of `/etc/passwd`, `/proc/self/environ` |
 | Risky file writes | MEDIUM | Flags writes to Dockerfile, CI workflows, `package.json`, `go.mod` |
+| Raw IP outbound | HIGH | Flags `curl`/`wget`/`nc` to raw IP addresses instead of domains |
+| Bind all interfaces | HIGH | Flags services binding to `0.0.0.0` — warns before exposing to all networks |
+| Reverse tunnel | MEDIUM | Flags `ssh -R`, ngrok, cloudflared tunnel, port forwarding |
+| Network data upload | HIGH | Flags `curl --data`, `wget --post-data`, `nc < /file` upload patterns |
+| Egress allowlist | HIGH | Flags outbound requests to domains not in your allowlist (when configured) |
 | Skill exfiltration URLs | CRITICAL | Flags skills referencing webhook.site, ngrok, pastebin, Discord webhooks |
 | Skill encoded payloads | CRITICAL | Flags base64/hex encoded payloads in skill configs |
 | Skill shell injection | CRITICAL | Flags `curl \| bash`, `eval()`, `subprocess` in skill configs |
@@ -187,6 +192,33 @@ Each MCP server and skill entry is evaluated against Warden's policy rules. Find
 - Prompt override attempts ("ignore instructions", persona hijack)
 - Sensitive file references (`.env`, `.ssh/id_rsa`, `.aws/credentials`)
 - Overly broad permissions (wildcard paths, wildcard domains)
+
+### Network Isolation
+
+AI agents frequently make outbound network calls — fetching URLs, installing packages, calling APIs. Without controls, a prompt injection or malicious skill can silently exfiltrate data to an attacker-controlled endpoint. Warden's network isolation rules make your agent's network activity visible and controllable.
+
+**What it detects at runtime:**
+- Outbound connections to raw IP addresses (not domains) — often a sign of exfiltration or C2
+- Services binding to `0.0.0.0` — warns before the agent exposes a port to all network interfaces
+- Reverse tunnels and port forwarding (`ssh -R`, ngrok, cloudflared)
+- Data upload patterns (`curl --data`, `wget --post-data`)
+
+**Egress allowlist** — lock down which domains the agent can contact. Configure in your project's `.prismor-warden/policy.yaml`:
+
+```yaml
+settings:
+  egress_allowlist:
+    - "*.github.com"
+    - "*.googleapis.com"
+    - "registry.npmjs.org"
+    - "pypi.org"
+    - "api.anthropic.com"
+    - "api.openai.com"
+```
+
+When the allowlist is set, any outbound request to a domain not on the list produces a warning. Supports wildcards — `*.github.com` matches `api.github.com`, `raw.github.com`, etc. Leave empty (default) to allow all domains.
+
+The `0.0.0.0` bind detection is particularly important: if an agent starts a dev server bound to all interfaces instead of `127.0.0.1`, it becomes reachable from outside. Warden catches this at the shell command level, before the port opens.
 
 ---
 

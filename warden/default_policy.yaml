@@ -21,6 +21,20 @@ settings:
     - privilege_escalation
     - skill_risk
 
+  # Egress allowlist — when set, any outbound network call to a domain NOT in
+  # this list triggers a warning. Supports wildcards: "*.github.com" matches
+  # api.github.com, raw.github.com, etc. Leave empty to allow all domains.
+  # Configure per-project in .prismor-warden/policy.yaml.
+  egress_allowlist: []
+  # Example:
+  #   egress_allowlist:
+  #     - "*.github.com"
+  #     - "*.googleapis.com"
+  #     - "registry.npmjs.org"
+  #     - "pypi.org"
+  #     - "api.anthropic.com"
+  #     - "api.openai.com"
+
   # Regex patterns used to identify dependency manifest files.
   # Matched paths cause risky_write findings to be upgraded to HIGH severity.
   manifest_patterns:
@@ -213,6 +227,65 @@ rules:
     fields: [path]
     patterns:
       - '(^|/)(\.github/workflows/.+\.(yml|yaml)|Dockerfile|docker-compose\.ya?ml|package\.json|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|requirements.*\.txt|pyproject\.toml|Pipfile|Gemfile|go\.mod|Cargo\.toml|pom\.xml|build\.gradle(\.kts)?|terraform\.tfvars|\.env(\..*)?)$'
+    action: warn
+
+  # ── Network Isolation ──────────────────────────────────────────────
+  # These rules detect outbound connections to raw IPs, services binding
+  # to all interfaces, and other network exposure patterns.
+
+  # ── HIGH: Outbound connection to raw IP address ───────────────────
+  - id: raw-ip-outbound
+    severity: HIGH
+    category: network_isolation
+    title: Outbound connection to raw IP address (not a domain)
+    event_types: [shell, network]
+    fields: [command, url]
+    patterns:
+      - '\b(curl|wget|http|nc|ncat|socat|ssh|scp|rsync|ftp)\b[^\n]*\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b'
+      - 'https?://\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}'
+    action: warn
+
+  # ── HIGH: Service binding to 0.0.0.0 (all interfaces) ────────────
+  - id: bind-all-interfaces
+    severity: HIGH
+    category: network_isolation
+    title: Service binding to 0.0.0.0 — exposes to all network interfaces
+    event_types: [shell]
+    fields: [command]
+    patterns:
+      - '\b(--host|--bind|--listen|-[a-zA-Z]*H)\s+0\.0\.0\.0\b'
+      - '\b0\.0\.0\.0:\d+'
+      - "LISTEN_ADDR.*0\\.0\\.0\\.0"
+      - '\bBIND_ADDRESS.*0\.0\.0\.0'
+      - '\b(uvicorn|gunicorn|flask|node|python|ruby)\b[^\n]*0\.0\.0\.0'
+    action: warn
+
+  # ── MEDIUM: Reverse tunnel / port forwarding ──────────────────────
+  - id: reverse-tunnel
+    severity: MEDIUM
+    category: network_isolation
+    title: Reverse tunnel or port forwarding detected
+    event_types: [shell]
+    fields: [command]
+    patterns:
+      - '\bssh\b[^\n]*-R\s+\d+'
+      - '\bssh\b[^\n]*-L\s+\d+'
+      - '\bssh\b[^\n]*-D\s+\d+'
+      - '\bngrok\b|\bcloudflared\s+tunnel\b|\blt\s+--port\b'
+      - '\bsocat\b[^\n]*TCP-LISTEN'
+    action: warn
+
+  # ── HIGH: Network tool used with suspicious flags ─────────────────
+  - id: network-exfil-tool
+    severity: HIGH
+    category: network_isolation
+    title: Network tool used with data upload or POST flags
+    event_types: [shell]
+    fields: [command]
+    patterns:
+      - '\bcurl\b[^\n]*(-d\s|--data|--upload-file|-T\s|-F\s|--form)'
+      - '\bwget\b[^\n]*--post-(data|file)'
+      - '\bnc\b[^\n]*<\s*/'
     action: warn
 
   # ── CRITICAL: Skill exfiltration URLs ──────────────────────────────

@@ -10,6 +10,7 @@ import re
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
 
 try:
     import yaml
@@ -85,6 +86,7 @@ class PolicyEngine:
         self.allowlists: List[AllowlistEntry] = []
         self.block_categories: set[str] = set()
         self._manifest_re: Optional[re.Pattern[str]] = None
+        self.egress_allowlist: List[str] = []
         self._load(workspace, policy_path)
 
     def _load(self, workspace: Optional[Path], policy_path: Optional[Path]) -> None:
@@ -125,6 +127,8 @@ class PolicyEngine:
         if manifest_pats:
             joined = "|".join(f"(?:{p})" for p in manifest_pats)
             self._manifest_re = re.compile(joined, re.IGNORECASE)
+
+        self.egress_allowlist = list(settings.get("egress_allowlist", []) or [])
 
         # Compile rules.
         for rule_data in rules_by_id.values():
@@ -198,6 +202,44 @@ class PolicyEngine:
                 "action": rule.action,
             })
 
+        # ── Egress allowlist check ──────────────────────────────────────
+        if self.egress_allowlist and event_type == "network":
+            url = field_values.get("url", "")
+            if url:
+                domain = _extract_domain(url)
+                if domain and not self._is_domain_allowed(domain):
+                    finding_id = f"egress-not-allowed-{index}"
+                    prefixed_id = f"{session_id}:{finding_id}" if session_id else finding_id
+                    findings.append({
+                        "id": prefixed_id,
+                        "severity": "HIGH",
+                        "category": "network_isolation",
+                        "title": f"Outbound request to domain not in egress allowlist: {domain}",
+                        "evidence": _truncate(url),
+                        "eventIndex": index,
+                        "ruleId": "egress-allowlist",
+                        "action": "warn",
+                    })
+
+        # Also check shell commands for URLs to non-allowed domains.
+        if self.egress_allowlist and event_type == "shell":
+            command_text = field_values.get("command", "")
+            for domain in _extract_domains_from_command(command_text):
+                if not self._is_domain_allowed(domain):
+                    finding_id = f"egress-not-allowed-{index}-{domain}"
+                    prefixed_id = f"{session_id}:{finding_id}" if session_id else finding_id
+                    findings.append({
+                        "id": prefixed_id,
+                        "severity": "HIGH",
+                        "category": "network_isolation",
+                        "title": f"Shell command contacts domain not in egress allowlist: {domain}",
+                        "evidence": _truncate(command_text),
+                        "eventIndex": index,
+                        "ruleId": "egress-allowlist",
+                        "action": "warn",
+                    })
+                    break  # One finding per command is enough.
+
         return findings
 
     def check_command(self, command: str) -> List[Dict[str, Any]]:
@@ -214,6 +256,25 @@ class PolicyEngine:
         for entry in self.allowlists:
             if entry.applies_to(rule_id) and entry.patterns.search(evidence):
                 return True
+        return False
+
+    def _is_domain_allowed(self, domain: str) -> bool:
+        """Check if a domain matches any entry in the egress allowlist.
+
+        Supports exact match and wildcard subdomains (e.g. "*.github.com"
+        matches "api.github.com" and "raw.github.com").
+        """
+        domain_lower = domain.lower()
+        for pattern in self.egress_allowlist:
+            pattern_lower = pattern.lower()
+            if pattern_lower.startswith("*."):
+                # Wildcard: *.example.com matches example.com and sub.example.com
+                suffix = pattern_lower[2:]
+                if domain_lower == suffix or domain_lower.endswith("." + suffix):
+                    return True
+            else:
+                if domain_lower == pattern_lower:
+                    return True
         return False
 
 
@@ -233,6 +294,31 @@ def _extract_fields(event: Dict[str, Any]) -> Dict[str, str]:
         "url": str(event.get("url", "")),
         "combined_text": "\n".join(combined_parts),
     }
+
+
+def _extract_domain(url: str) -> str:
+    """Extract the hostname from a URL string."""
+    try:
+        parsed = urlparse(url)
+        if parsed.hostname:
+            return parsed.hostname
+    except Exception:
+        pass
+    return ""
+
+
+# Regex to find URLs in shell commands.
+_URL_IN_COMMAND_RE = re.compile(r'https?://([a-zA-Z0-9][-a-zA-Z0-9.]*[a-zA-Z0-9])')
+
+
+def _extract_domains_from_command(command: str) -> List[str]:
+    """Extract domain names from URLs found in a shell command string."""
+    domains: List[str] = []
+    for match in _URL_IN_COMMAND_RE.finditer(command):
+        host = match.group(1).split("/")[0].split(":")[0]
+        if "." in host and not re.match(r'^\d{1,3}(\.\d{1,3}){3}$', host):
+            domains.append(host)
+    return domains
 
 
 def _truncate(value: str, max_length: int = 220) -> str:
