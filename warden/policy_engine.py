@@ -15,7 +15,17 @@ from urllib.parse import urlparse
 try:
     import yaml
 except ImportError:
-    yaml = None  # type: ignore[assignment]
+    sys.stderr.write(
+        "\n"
+        "FATAL: PyYAML is required but not installed.\n"
+        "  The policy engine cannot load any rules without it.\n"
+        "  All security checks will be non-functional.\n"
+        "\n"
+        "  Install with:  pip3 install pyyaml\n"
+        "           or:   apt-get install python3-yaml\n"
+        "\n"
+    )
+    raise SystemExit(1)
 
 
 _DEFAULT_POLICY_PATH = Path(__file__).parent / "default_policy.yaml"
