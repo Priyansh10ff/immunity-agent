@@ -20,6 +20,8 @@ settings:
     - db_modification
     - privilege_escalation
     - skill_risk
+    - persistence
+    - security_bypass
 
   # Egress allowlist — when set, any outbound network call to a domain NOT in
   # this list triggers a warning. Supports wildcards: "*.github.com" matches
@@ -367,6 +369,198 @@ rules:
       - '"allowedPaths"\s*:\s*\[\s*"[/*]"'
       - '"allowedDomains"\s*:\s*\[\s*"\*"'
       - '"permissions"\s*:\s*\[\s*"\*"'
+    action: warn
+
+  # ════════════════════════════════════════════════════════════════════
+  # Expanded detection rules — credential aggregation, persistence,
+  # config tampering, env hijacking, DNS exfil, registry poisoning
+  # ════════════════════════════════════════════════════════════════════
+
+  # ── CRITICAL: Credential aggregation / bulk copy ──────────────────
+  - id: credential-aggregation
+    severity: CRITICAL
+    category: secret_exfiltration
+    title: Blocks copying/archiving credential directories
+    event_types: [shell]
+    fields: [command]
+    patterns:
+      - '\b(tar|zip|7z|gzip)\b[^\n]*(\.ssh|\.aws|\.claude|\.gnupg|\.credentials)'
+      - '\b(cp|mv|rsync)\b[^\n]*(-r|-a)[^\n]*(\.ssh|\.aws|\.claude|\.gnupg)'
+      - '\b(cp|mv|rsync)\b[^\n]*(\.ssh|\.aws|\.claude|\.gnupg)[^\n]*/tmp'
+    action: block
+
+  # ── HIGH: Credential staging (encode to file without network) ─────
+  - id: credential-staging
+    severity: HIGH
+    category: secret_exfiltration
+    title: Flags encoding secrets to files (staging for exfiltration)
+    event_types: [shell]
+    fields: [command]
+    patterns:
+      - '\b(cat|sed|grep|awk)\b[^\n]*(\.env|id_rsa|credentials|\.credentials)[^\n]*\|\s*(base64|gzip|xxd|openssl)'
+      - '\bbase64\b[^\n]*(\.env|id_rsa|credentials|\.claude)'
+    action: block
+
+  # ── HIGH: Persistence — systemd services/timers ───────────────────
+  - id: persistence-systemd
+    severity: HIGH
+    category: persistence
+    title: Detects systemd service/timer creation or enablement
+    event_types: [shell, file_write]
+    fields: [command, path]
+    patterns:
+      - '\bsystemctl\b[^\n]*(enable|start|daemon-reload)'
+      - '(^|/)\.config/systemd/user/'
+    action: warn
+
+  # ── HIGH: Persistence — shell profile injection ───────────────────
+  - id: persistence-shell-profile
+    severity: HIGH
+    category: persistence
+    title: Detects writes to shell profile/rc files
+    event_types: [shell, file_write]
+    fields: [command, path]
+    patterns:
+      - '>>\s*~/?\.(bashrc|zshrc|profile|bash_profile|zprofile)'
+      - '(^|/)\.(bashrc|zshrc|profile|bash_profile|zprofile|zshenv)$'
+    action: warn
+
+  # ── HIGH: Persistence — git hooks ─────────────────────────────────
+  - id: persistence-git-hooks
+    severity: HIGH
+    category: persistence
+    title: Detects creation/modification of git hooks
+    event_types: [shell, file_write]
+    fields: [command, path]
+    patterns:
+      - '(^|/)\.git/hooks/(pre-commit|post-commit|pre-push|post-merge|pre-rebase|post-checkout)'
+      - 'chmod\s+\+x[^\n]*\.git/hooks'
+    action: warn
+
+  # ── HIGH: Persistence — macOS launch agents ──────────────────────
+  - id: persistence-launch-agent
+    severity: HIGH
+    category: persistence
+    title: Detects macOS LaunchAgent/Daemon creation
+    event_types: [shell, file_write]
+    fields: [command, path]
+    patterns:
+      - '\blaunchctl\b[^\n]*(load|bootstrap)'
+      - '(^|/)Library/Launch(Agents|Daemons)/'
+    action: warn
+
+  # ── CRITICAL: Agent config tampering ──────────────────────────────
+  - id: agent-config-tampering
+    severity: CRITICAL
+    category: security_bypass
+    title: Blocks modification/deletion of agent hook configurations
+    event_types: [shell, file_write]
+    fields: [command, path]
+    patterns:
+      - '(>|rm|mv|cp|truncate)[^\n]*\.claude/settings\.json'
+      - '(>|rm|mv|cp|truncate)[^\n]*\.prismor-warden/policy\.yaml'
+      - '(^|/)\.claude/settings(\.local)?\.json$'
+      - '(^|/)\.prismor-warden/policy\.yaml$'
+    action: block
+
+  # ── CRITICAL: Claude Code credential access ───────────────────────
+  - id: claude-credential-access
+    severity: CRITICAL
+    category: secret_access
+    title: Blocks access to Claude Code credentials and session transcripts
+    event_types: [shell, file_read, file_write]
+    fields: [command, path]
+    patterns:
+      - '(^|/)\.claude/\.credentials\.json'
+      - '(^|/)\.claude/sessions/'
+      - '(^|/)\.claude/projects/[^\n]*\.jsonl'
+    action: block
+
+  # ── HIGH: Symlink to sensitive files ──────────────────────────────
+  - id: symlink-to-sensitive
+    severity: HIGH
+    category: path_traversal
+    title: Detects symlink creation pointing to sensitive files
+    event_types: [shell]
+    fields: [command]
+    patterns:
+      - '\bln\b[^\n]*-[a-zA-Z]*s[^\n]*(\.env|\.ssh|\.aws|\.claude|\.credentials|id_rsa|\.gnupg)'
+    action: block
+
+  # ── HIGH: Environment variable hijacking ──────────────────────────
+  - id: env-var-hijack
+    severity: HIGH
+    category: privilege_escalation
+    title: Detects dangerous environment variable manipulation
+    event_types: [shell]
+    fields: [command]
+    patterns:
+      - '\b(export\s+)?LD_PRELOAD='
+      - '\b(export\s+)?LD_LIBRARY_PATH='
+      - '\b(export\s+)?NODE_OPTIONS=.*--require'
+      - '\b(export\s+)?PYTHONSTARTUP='
+      - '\b(export\s+)?GIT_SSH_COMMAND='
+    action: block
+
+  # ── CRITICAL: Python reverse shell (in-command) ───────────────────
+  - id: python-reverse-shell
+    severity: CRITICAL
+    category: rce_canary
+    title: Blocks Python reverse shell patterns
+    event_types: [shell]
+    fields: [command]
+    patterns:
+      - 'python3?\s+-c\s+[^\n]*(socket\.socket|pty\.spawn|os\.dup2)'
+      - 'python3?\s+-c\s+[^\n]*connect\([^\n]*\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}'
+    action: block
+
+  # ── HIGH: DNS exfiltration ────────────────────────────────────────
+  - id: dns-exfiltration
+    severity: HIGH
+    category: secret_exfiltration
+    title: Detects DNS-based data exfiltration
+    event_types: [shell]
+    fields: [command]
+    patterns:
+      - '\b(dig|nslookup|host)\b[^\n]*\$\('
+      - '\b(dig|nslookup|host)\b[^\n]*\`'
+    action: block
+
+  # ── HIGH: Git remote hijacking ───────────────────────────────────
+  - id: git-remote-hijack
+    severity: HIGH
+    category: secret_exfiltration
+    title: Detects git remote URL changes and force pushes
+    event_types: [shell]
+    fields: [command]
+    patterns:
+      - '\bgit\s+remote\s+(set-url|add|rename)\b'
+      - '\bgit\s+push\b[^\n]*--force'
+    action: warn
+
+  # ── HIGH: Package manager registry poisoning ─────────────────────
+  - id: package-registry-poisoning
+    severity: HIGH
+    category: remote_execution
+    title: Detects package manager registry manipulation
+    event_types: [shell]
+    fields: [command]
+    patterns:
+      - '\bpip3?\s+install\b[^\n]*--index-url\b'
+      - '\bpip3?\s+install\b[^\n]*--extra-index-url\b'
+      - '\bnpm\s+config\s+set\s+registry\b'
+    action: warn
+
+  # ── HIGH: Python one-liner network exfiltration ──────────────────
+  - id: python-network-exfil
+    severity: HIGH
+    category: secret_exfiltration
+    title: Detects Python one-liner network exfiltration
+    event_types: [shell]
+    fields: [command]
+    patterns:
+      - 'python3?\s+-c\s+[^\n]*(urllib|requests|httpx)[^\n]*(open|post|put|send)'
+      - 'python3?\s+-c\s+[^\n]*socket[^\n]*connect[^\n]*send'
     action: warn
 
 allowlists: []
