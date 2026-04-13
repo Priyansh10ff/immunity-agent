@@ -20,7 +20,7 @@ This creates risks that traditional security tooling isn't designed for:
 - **Privilege escalation** - an agent modifies sudoers, CI pipelines, or file permissions to resolve a permission error
 - **Dependency manipulation** - an agent installs or rewrites a package at the direction of injected input
 
-Standard OS-level and endpoint security tools monitor the kernel and filesystem. By the time they see an action, the agent has already decided to take it. The gap is at the agent layer, not the OS layer.
+Standard OS-level and endpoint security tools monitor the kernel and filesystem. By the time they see an action, the agent has already decided to take it. The gap is at the agent layer.
 
 ---
 
@@ -83,7 +83,7 @@ flowchart TD
 
 Kernel-level and endpoint security tools intercept syscalls after the agent has already constructed and dispatched the command. They have no context about why the agent issued it or what the user actually asked for. Warden operates upstream of that — at the agent hook layer — where blocking is safe and context is available.
 
-### Dynamic rules, not a static blocklist
+### Dynamic configurable rule engine
 
 Prismor's policy engine is YAML-driven and configurable per-project:
 
@@ -117,7 +117,8 @@ allowlists:
 
 Commit the policy file to share rules across your team. CI picks it up automatically.
 
-**Default detection rules:**
+**Default detection rules examples:**
+For full list refer /warden
 
 | Category | Severity | What It Does |
 |----------|----------|-------------|
@@ -128,19 +129,6 @@ Commit the policy file to share rules across your team. CI picks it up automatic
 | Privilege escalation | CRITICAL | Blocks `chmod +s`, sudoers edits, `useradd`, `setcap` |
 | Prompt injection | HIGH | Detects "ignore instructions", "reveal system prompt" in agent I/O |
 | Remote execution | HIGH | Blocks `curl \| bash`, `wget \| sh` fetch-and-execute chains |
-| Sensitive file access | HIGH | Flags reads/writes to `.env`, `.ssh/id_rsa`, `.aws/credentials` |
-| Suspicious network | HIGH | Flags calls to webhook.site, ngrok, pastebin, Discord webhooks |
-| Database modification | HIGH | Flags `DROP TABLE`, `DELETE FROM`, `TRUNCATE` in shell commands |
-| Path traversal | HIGH | Flags `../../` traversal, reads of `/etc/passwd`, `/proc/self/environ` |
-| Risky file writes | MEDIUM | Flags writes to Dockerfile, CI workflows, `package.json`, `go.mod` |
-| Raw IP outbound | HIGH | Flags `curl`/`wget`/`nc` to raw IP addresses instead of domains |
-| Bind all interfaces | HIGH | Flags services binding to `0.0.0.0` — warns before exposing to all networks |
-| Reverse tunnel | MEDIUM | Flags `ssh -R`, ngrok, cloudflared tunnel, port forwarding |
-| Network data upload | HIGH | Flags `curl --data`, `wget --post-data`, `nc < /file` upload patterns |
-| Egress allowlist | HIGH | Flags outbound requests to domains not in your allowlist (when configured) |
-| Skill exfiltration URLs | CRITICAL | Flags skills referencing webhook.site, ngrok, pastebin, Discord webhooks |
-| Skill encoded payloads | CRITICAL | Flags base64/hex encoded payloads in skill configs |
-| Skill shell injection | CRITICAL | Flags `curl \| bash`, `eval()`, `subprocess` in skill configs |
 | Skill prompt override | HIGH | Flags "ignore instructions", persona hijack in skill prompts |
 | Skill secret access | HIGH | Flags skills referencing `.env`, `.ssh/id_rsa`, `.aws/credentials` |
 | Skill overpermission | MEDIUM | Flags skills requesting wildcard filesystem or network access |
@@ -185,17 +173,10 @@ The scanner automatically discovers configs from:
 
 Each MCP server and skill entry is evaluated against Warden's policy rules. Findings are sorted by severity (critical first) so the most dangerous issues are always at the top.
 
-**What it detects:**
-- Exfiltration endpoints (webhook.site, ngrok, pastebin, Discord webhooks)
-- Encoded payloads (base64, hex, `eval(atob(...))`)
-- Shell injection (`curl | bash`, `subprocess`, `eval()`)
-- Prompt override attempts ("ignore instructions", persona hijack)
-- Sensitive file references (`.env`, `.ssh/id_rsa`, `.aws/credentials`)
-- Overly broad permissions (wildcard paths, wildcard domains)
 
 ### Network Isolation
 
-AI agents frequently make outbound network calls — fetching URLs, installing packages, calling APIs. Without controls, a prompt injection or malicious skill can silently exfiltrate data to an attacker-controlled endpoint. Warden's network isolation rules make your agent's network activity visible and controllable.
+AI agents frequently make outbound network calls by fetching URLs, installing packages, calling APIs. Without controls, a prompt injection or malicious skill can silently exfiltrate data to an attacker-controlled endpoint. Warden's network isolation rules make your agent's network activity visible and controllable.
 
 **What it detects at runtime:**
 - Outbound connections to raw IP addresses (not domains) — often a sign of exfiltration or C2
