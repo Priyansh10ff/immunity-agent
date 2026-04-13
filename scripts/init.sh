@@ -38,6 +38,25 @@ if [ -t 0 ] && [ -f "$SETUP_PY" ] && command -v python3 &>/dev/null; then
     exec python3 "$SETUP_PY" "$TARGET_DIR"
 fi
 
+# ── Preflight: check critical dependencies ──────────────────────────────
+if command -v python3 &>/dev/null; then
+    if ! python3 -c "import yaml" 2>/dev/null; then
+        warn "PyYAML is not installed. It is required for the policy engine."
+        warn "Without it, Warden cannot load any detection rules."
+        echo ""
+        info "Install with one of:"
+        info "  pip3 install pyyaml"
+        info "  apt-get install python3-yaml"
+        info "  brew install pyyaml"
+        echo ""
+        err "Aborting installation. Install PyYAML first, then re-run."
+        exit 1
+    fi
+else
+    err "python3 is required but not found in PATH."
+    exit 1
+fi
+
 # ── Non-interactive / piped fallback ─────────────────────────────────────
 SETUP_PY_FALLBACK="${PRISMOR_DIR}/scripts/setup.py"
 if [ -f "$SETUP_PY_FALLBACK" ] && command -v python3 &>/dev/null; then

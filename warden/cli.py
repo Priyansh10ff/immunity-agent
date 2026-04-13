@@ -43,6 +43,23 @@ __version__ = "0.2.0"
 if __package__ in {None, ""}:
     sys.path.append(str(Path(__file__).resolve().parent.parent))
 
+# ── Dependency check ────────────────────────────────────────────────
+# PyYAML is required for the policy engine to load any rules.
+# Without it, all security checks silently pass — a total bypass.
+try:
+    import yaml as _yaml_check  # noqa: F401
+except ImportError:
+    sys.stderr.write(
+        "\n"
+        "ERROR: PyYAML is required but not installed.\n"
+        "  Warden cannot load any policy rules without it.\n"
+        "\n"
+        "  Install with:  pip3 install pyyaml\n"
+        "           or:   apt-get install python3-yaml\n"
+        "\n"
+    )
+    sys.exit(1)
+
 from warden.feed import load_feed, match_advisories
 from warden.hooks import install_hooks, normalize_payload, should_block, uninstall_hooks
 from warden.policy_engine import PolicyEngine, validate_policy
