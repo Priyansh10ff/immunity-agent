@@ -30,6 +30,19 @@ except ImportError:
 
 _DEFAULT_POLICY_PATH = Path(__file__).parent / "default_policy.yaml"
 
+# Rules that cannot be disabled or weakened by project-level policy overrides.
+# These protect against the most dangerous attack patterns (destructive commands,
+# credential exfiltration, reverse shells) and against disabling Warden itself.
+# A project-level .prismor-warden/policy.yaml that tries to set enabled: false
+# on any of these rule IDs will be ignored with a warning.
+_NON_OVERRIDABLE_RULE_IDS = frozenset({
+    "destructive-command",
+    "secret-exfiltration",
+    "rce-canary",
+    "privilege-escalation",
+    "dos-resource-exhaustion",
+})
+
 # Canonical field for each event type when 'fields' is not specified in the rule.
 _DEFAULT_FIELDS: Dict[str, List[str]] = {
     "shell": ["command"],
@@ -129,6 +142,24 @@ class PolicyEngine:
             override_raw = _load_yaml(override_path)
             if override_raw is not None:
                 for rule in override_raw.get("rules", []):
+                    rule_id = rule.get("id", "")
+                    if rule_id in _NON_OVERRIDABLE_RULE_IDS:
+                        # Check if the override attempts to disable or weaken.
+                        if not rule.get("enabled", True):
+                            sys.stderr.write(
+                                f"[warden] Ignoring project-level override for "
+                                f"non-overridable rule '{rule_id}' "
+                                f"(cannot be disabled by project policy)\n"
+                            )
+                            continue
+                        # Allow strengthening (e.g. adding patterns) but preserve
+                        # the default rule as the base.
+                        default = rules_by_id.get(rule_id)
+                        if default:
+                            merged = {**default, **rule}
+                            merged["enabled"] = True  # force enabled
+                            rules_by_id[rule_id] = merged
+                            continue
                     rules_by_id[rule["id"]] = rule  # override by id
                 allowlist_raw.extend(override_raw.get("allowlists", []) or [])
                 # Project settings override defaults key-by-key.
