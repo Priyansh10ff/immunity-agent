@@ -133,6 +133,8 @@ For full list refer /warden
 | Skill secret access | HIGH | Flags skills referencing `.env`, `.ssh/id_rsa`, `.aws/credentials` |
 | Skill overpermission | MEDIUM | Flags skills requesting wildcard filesystem or network access |
 
+> **Extended coverage** — 15 additional rules cover bulk credential theft, persistence mechanisms (systemd, shell profiles, git hooks, LaunchAgents), supply chain attacks (git remote hijacking, package registry poisoning), and DNS-based exfiltration.
+
 ### Session Logs
 
 Warden logs every agent tool interaction — not just findings. This gives you a full audit trail of what your agent did, not just what it was blocked from doing.
