@@ -2,7 +2,6 @@
 
 ![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)
 ![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)
-[![Discord](https://img.shields.io/badge/Discord-Join%20Us-5865F2?logo=discord&logoColor=white)](https://discord.gg/8rBwhz6T)
 
 **Runtime security for AI coding agents.** A local policy monitor, secret prevention, and secret cleanup — in one package.
 
@@ -118,23 +117,20 @@ allowlists:
 
 Commit the policy file to share rules across your team. CI picks it up automatically.
 
-**Default detection rules examples:**
-For full list refer /warden
+**Default detection rules examples** — see [`warden/default_policy.yaml`](warden/default_policy.yaml) for the complete list.
 
-| Category | Severity | What It Does |
-|----------|----------|-------------|
-| Destructive commands | CRITICAL | Blocks `rm -rf /`, `mkfs`, `dd` to disk, `shutdown`, `reboot` |
-| Secret exfiltration | CRITICAL | Blocks `cat .env \| curl`, piping secrets to external hosts |
-| DoS / resource exhaustion | CRITICAL | Blocks fork bombs, while-true loops, `/dev/urandom` abuse |
-| RCE / reverse shells | CRITICAL | Blocks `bash -i /dev/tcp`, crontab injection, `ncat` listeners |
-| Privilege escalation | CRITICAL | Blocks `chmod +s`, sudoers edits, `useradd`, `setcap` |
-| Prompt injection | HIGH | Detects "ignore instructions", "reveal system prompt" in agent I/O |
-| Remote execution | HIGH | Blocks `curl \| bash`, `wget \| sh` fetch-and-execute chains |
-| Skill prompt override | HIGH | Flags "ignore instructions", persona hijack in skill prompts |
-| Skill secret access | HIGH | Flags skills referencing `.env`, `.ssh/id_rsa`, `.aws/credentials` |
-| Skill overpermission | MEDIUM | Flags skills requesting wildcard filesystem or network access |
-
-> **Extended coverage** — 15 additional rules cover bulk credential theft, persistence mechanisms (systemd, shell profiles, git hooks, LaunchAgents), supply chain attacks (git remote hijacking, package registry poisoning), and DNS-based exfiltration.
+| Category                  | Severity | What It Does                                                       |
+| ------------------------- | -------- | ------------------------------------------------------------------ |
+| Destructive commands      | CRITICAL | Blocks `rm -rf /`, `mkfs`, `dd` to disk, `shutdown`, `reboot`      |
+| Secret exfiltration       | CRITICAL | Blocks `cat .env \| curl`, piping secrets to external hosts        |
+| DoS / resource exhaustion | CRITICAL | Blocks fork bombs, while-true loops, `/dev/urandom` abuse          |
+| RCE / reverse shells      | CRITICAL | Blocks `bash -i /dev/tcp`, crontab injection, `ncat` listeners     |
+| Privilege escalation      | CRITICAL | Blocks `chmod +s`, sudoers edits, `useradd`, `setcap`              |
+| Prompt injection          | HIGH     | Detects "ignore instructions", "reveal system prompt" in agent I/O |
+| Remote execution          | HIGH     | Blocks `curl \| bash`, `wget \| sh` fetch-and-execute chains       |
+| Skill prompt override     | HIGH     | Flags "ignore instructions", persona hijack in skill prompts       |
+| Skill secret access       | HIGH     | Flags skills referencing `.env`, `.ssh/id_rsa`, `.aws/credentials` |
+| Skill overpermission      | MEDIUM   | Flags skills requesting wildcard filesystem or network access      |
 
 ### Session Logs
 
@@ -142,13 +138,13 @@ Warden logs every agent tool interaction — not just findings. This gives you a
 
 **What gets captured per tool call:**
 
-| Tool type | Fields captured |
-|-----------|----------------|
-| Shell (Bash) | command, stdout, stderr |
-| File read | path |
-| File write | path, content |
-| Web fetch / search | url, response |
-| User prompt | prompt text |
+| Tool type          | Fields captured         |
+| ------------------ | ----------------------- |
+| Shell (Bash)       | command, stdout, stderr |
+| File read          | path                    |
+| File write         | path, content           |
+| Web fetch / search | url, response           |
+| User prompt        | prompt text             |
 
 All events are stored under `.prismor-warden/` in your project:
 
@@ -157,7 +153,7 @@ All events are stored under `.prismor-warden/` in your project:
 
 ### Skill Scanner
 
-MCP servers and skills extend what your agent can do — but they also extend the attack surface. Studies have found that [a significant percentage of community skills contain malicious patterns](https://www.youtube.com/watch?v=example). Warden's skill scanner checks every MCP server and skill config installed on your machine before you use them.
+MCP servers and skills extend what your agent can do — but they also extend the attack surface. Studies have found that a significant percentage of community skills contain malicious patterns. Warden's skill scanner checks every MCP server and skill config installed on your machine before you use them.
 
 ```bash
 warden scan                    # scan all agents (Claude, Cursor, Windsurf, OpenClaw)
@@ -167,21 +163,21 @@ warden scan --json             # machine-readable output
 
 The scanner automatically discovers configs from:
 
-| Agent | Config locations checked |
-|-------|------------------------|
-| Claude Code | `~/.claude/settings.json`, `.claude/settings.json` |
-| Cursor | `~/.cursor/mcp.json`, `.cursor/mcp.json` |
-| Windsurf | `~/.codeium/windsurf/mcp_config.json`, `.windsurf/mcp.json` |
-| OpenClaw | `~/.openclaw/config.json`, `~/.openclaw/skills.json` |
+| Agent       | Config locations checked                                    |
+| ----------- | ----------------------------------------------------------- |
+| Claude Code | `~/.claude/settings.json`, `.claude/settings.json`          |
+| Cursor      | `~/.cursor/mcp.json`, `.cursor/mcp.json`                    |
+| Windsurf    | `~/.codeium/windsurf/mcp_config.json`, `.windsurf/mcp.json` |
+| OpenClaw    | `~/.openclaw/config.json`, `~/.openclaw/skills.json`        |
 
 Each MCP server and skill entry is evaluated against Warden's policy rules. Findings are sorted by severity (critical first) so the most dangerous issues are always at the top.
-
 
 ### Network Isolation
 
 AI agents frequently make outbound network calls by fetching URLs, installing packages, calling APIs. Without controls, a prompt injection or malicious skill can silently exfiltrate data to an attacker-controlled endpoint. Warden's network isolation rules make your agent's network activity visible and controllable.
 
 **What it detects at runtime:**
+
 - Outbound connections to raw IP addresses (not domains) — often a sign of exfiltration or C2
 - Services binding to `0.0.0.0` — warns before the agent exposes a port to all network interfaces
 - Reverse tunnels and port forwarding (`ssh -R`, ngrok, cloudflared)
@@ -206,7 +202,7 @@ The `0.0.0.0` bind detection is particularly important: if an agent starts a dev
 
 ### Security Audit
 
-Run a single command to check your entire security posture — hooks, policy, cloaking, permissions, feed integrity, and network isolation:
+Run a single command to check your entire security posture — hooks, policy, cloaking, permissions, and network isolation:
 
 ```bash
 warden audit               # full security posture check
@@ -214,17 +210,16 @@ warden audit --fix         # auto-remediate fixable issues
 warden audit --json        # machine-readable output
 ```
 
-The audit checks seven areas and reports findings grouped by category, sorted by severity:
+The audit reports findings grouped by category, sorted by severity:
 
-| Check | What it verifies |
-|-------|-----------------|
-| Hook integrations | Are Warden hooks installed? Which agents? Enforce or observe mode? |
-| Policy coverage | Are all default rules active? Any disabled? |
-| Cloaking status | Are cloaking hooks installed? Secrets registered? |
-| Secret permissions | Are `~/.prismor/secrets/` permissions correct (0700/0600)? |
-| Feed signature | Is the advisory feed Ed25519 signature valid? |
-| Egress allowlist | Is outbound network lockdown configured? |
-| Network isolation | Are all network isolation rules enabled? |
+| Check              | What it verifies                                                   |
+| ------------------ | ------------------------------------------------------------------ |
+| Hook integrations  | Are Warden hooks installed? Which agents? Enforce or observe mode? |
+| Policy coverage    | Are all default rules active? Any disabled?                        |
+| Cloaking status    | Are cloaking hooks installed? Secrets registered?                  |
+| Secret permissions | Are `~/.prismor/secrets/` permissions correct (0700/0600)?         |
+| Egress allowlist   | Is outbound network lockdown configured?                           |
+| Network isolation  | Are all network isolation rules enabled?                           |
 
 Issues that can be auto-fixed (like installing missing hooks or correcting file permissions) are marked `[fixable]` — run `warden audit --fix` to apply them. The exit code reflects the worst severity found: `2` for critical, `1` for high/medium, `0` for clean.
 
@@ -272,7 +267,7 @@ The setup wizard lets you:
 
 1. Choose enforcement mode (`observe` or `enforce`)
 2. Toggle detection rules on/off — each rule shows exactly what it catches
-3. Select which agents to hook (Claude Code, Cursor, Windsurf)
+3. Select which agents to hook (Claude Code, Cursor, Windsurf, OpenClaw)
 4. Review and confirm before installing
 
 After setup, restart your shell and the `warden` command is available from any directory.
@@ -388,13 +383,13 @@ settings:
 
 Warden monitors tool-use events (shell commands, file reads/writes, network calls). The following attack patterns **cannot be detected** by tool-level hooks alone:
 
-| Gap | Why | Workaround |
-|-----|-----|-----------|
-| Secrets in model text output | Model prose is not a tool event | Use `--network none` to prevent exfil even if secrets are disclosed in conversation |
-| Code generation that reads credentials | A generated `.py` file reading credentials is a file write (content not scanned) | Add `.credentials.json` to `.gitignore` and use OS keychain storage |
-| Symlink reads (after creation) | File read hook sees the apparent path, not the symlink target | Symlink creation is detected; resolve symlinks in your hook scripts |
-| Multi-step social engineering | Each step (read file, encode, send) is individually benign | Session-level correlation (roadmap) |
-| Project-level policy overrides | `.prismor-warden/policy.yaml` can disable rules | Make policy files read-only: `chmod 444 .prismor-warden/policy.yaml` |
+| Gap                                    | Why                                                                              | Workaround                                                                          |
+| -------------------------------------- | -------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| Secrets in model text output           | Model prose is not a tool event                                                  | Use `--network none` to prevent exfil even if secrets are disclosed in conversation |
+| Code generation that reads credentials | A generated `.py` file reading credentials is a file write (content not scanned) | Add `.credentials.json` to `.gitignore` and use OS keychain storage                 |
+| Symlink reads (after creation)         | File read hook sees the apparent path, not the symlink target                    | Symlink creation is detected; resolve symlinks in your hook scripts                 |
+| Multi-step social engineering          | Each step (read file, encode, send) is individually benign                       | Session-level correlation (roadmap)                                                 |
+| Project-level policy overrides         | `.prismor-warden/policy.yaml` can disable rules                                  | Make policy files read-only: `chmod 444 .prismor-warden/policy.yaml`                |
 
 ### Post-Install Verification
 
@@ -432,5 +427,4 @@ PRs are welcome. Guidelines:
 
 ---
 
-- [Discord](https://discord.gg/8rBwhz6T)
 - [Prismor.dev](https://prismor.dev)
