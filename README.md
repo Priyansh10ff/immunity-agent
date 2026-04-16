@@ -1,7 +1,11 @@
-# Prismor
+# Immunity Agent
 
 ![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)
 ![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)
+
+<p align="center">
+<img width="614" height="409" alt="Immunity Agent by Prismor" src="https://github.com/user-attachments/assets/c1d0da3f-d0ee-4823-b8ed-b36f035400c7" />
+</p>
 
 **Runtime security for AI coding agents.** A local policy monitor, secret prevention, and secret cleanup — in one package.
 
