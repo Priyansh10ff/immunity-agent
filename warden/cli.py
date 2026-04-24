@@ -40,10 +40,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-__version__ = "0.2.0"
-
 if __package__ in {None, ""}:
     sys.path.append(str(Path(__file__).resolve().parent.parent))
+
+from warden import __version__
 
 # ── Dependency check ────────────────────────────────────────────────
 # PyYAML is required for the policy engine to load any rules.
