@@ -1,0 +1,885 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Warden Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --purple: #B4A5F6; --pink: #E8BAEE; --amber: #F9E5A6;
+    --sky: #A8D5F7; --mint: #A7F3D0; --red: #FCA5A5;
+    --slate: #CBD5E1; --gray-50: #f9fafb; --gray-100: #f3f4f6;
+    --gray-200: #e5e7eb; --gray-300: #d1d5db; --gray-400: #9ca3af;
+    --gray-500: #6b7280; --gray-700: #374151; --gray-800: #1f2937;
+    --gray-900: #111827; --pink-600: #db2777; --green-500: #22c55e;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, monospace;
+    background: var(--gray-50); color: var(--gray-800);
+    padding: 24px; max-width: 1280px; margin: 0 auto;
+  }
+  .header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 24px;
+  }
+  .header h1 { font-size: 18px; font-weight: 600; color: var(--gray-900); }
+  .header-right { display: flex; align-items: center; gap: 12px; }
+  .last-updated { font-size: 10px; color: var(--gray-400); }
+  .badge {
+    font-size: 10px; padding: 2px 8px; border-radius: 9999px;
+    display: inline-flex; align-items: center; gap: 4px;
+  }
+  .badge-live { background: #dcfce7; color: #15803d; }
+  .badge-demo { background: var(--gray-100); color: var(--gray-400); }
+  .badge-dot { width: 6px; height: 6px; border-radius: 50%; }
+  .badge-live .badge-dot { background: #22c55e; }
+  .badge-demo .badge-dot { background: var(--gray-300); }
+
+  .grid { display: grid; gap: 16px; margin-bottom: 16px; }
+  .grid-4 { grid-template-columns: repeat(4, 1fr); }
+  .grid-3 { grid-template-columns: repeat(3, 1fr); }
+  .grid-2 { grid-template-columns: repeat(2, 1fr); }
+  .grid-1-2 { grid-template-columns: 1fr 2fr; }
+
+  .card {
+    background: #fff; border: 1px solid var(--gray-200);
+    border-radius: 8px; padding: 20px;
+  }
+  .card-title {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--gray-400); margin-bottom: 12px;
+  }
+
+  /* KPI */
+  .kpi-value { font-size: 28px; font-weight: 600; color: var(--gray-900); }
+  .kpi-value.accent { color: var(--pink-600); }
+  .kpi-delta { font-size: 11px; color: var(--gray-400); margin-top: 4px; }
+  .kpi-delta .up { color: #ef4444; }
+  .kpi-delta .down { color: var(--green-500); }
+
+  /* Severity strip */
+  .sev-card { border-left: 3px solid transparent; }
+  .sev-card.critical { border-left-color: #7c3aed; }
+  .sev-card.high     { border-left-color: #db2777; }
+  .sev-card.medium   { border-left-color: #d97706; }
+  .sev-card.low      { border-left-color: #0284c7; }
+  .sev-count { font-size: 22px; font-weight: 600; }
+  .sev-card.critical .sev-count { color: #7c3aed; }
+  .sev-card.high     .sev-count { color: #db2777; }
+  .sev-card.medium   .sev-count { color: #d97706; }
+  .sev-card.low      .sev-count { color: #0284c7; }
+  .sev-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em;
+               color: var(--gray-400); margin-bottom: 6px; }
+
+  /* Tables */
+  table { width: 100%; border-collapse: collapse; }
+  th {
+    text-align: left; font-size: 11px; color: var(--gray-400); font-weight: 400;
+    padding-bottom: 8px; border-bottom: 1px solid var(--gray-100);
+    cursor: pointer; user-select: none; white-space: nowrap;
+  }
+  th:hover { color: var(--gray-700); }
+  th.right { text-align: right; }
+  th .sort-ind { font-size: 9px; margin-left: 3px; opacity: 0.4; }
+  th.active-sort { color: var(--gray-700); }
+  th.active-sort .sort-ind { opacity: 1; }
+  td {
+    padding: 6px 0; font-size: 11px; color: var(--gray-700);
+    border-bottom: 1px solid var(--gray-50); vertical-align: middle;
+  }
+  td.right { text-align: right; }
+  td.mono { color: var(--gray-500); }
+
+  /* Severity badges */
+  .sev-badge {
+    display: inline-block; padding: 1px 6px; border-radius: 4px;
+    font-size: 10px; font-weight: 500;
+  }
+  .sev-critical { background: #ede9fe; color: #6d28d9; border: 1px solid #c4b5fd; }
+  .sev-high     { background: #fce7f3; color: #be185d; border: 1px solid #f9a8d4; }
+  .sev-medium   { background: #fef9c3; color: #92400e; border: 1px solid #fde68a; }
+  .sev-low      { background: #e0f2fe; color: #0369a1; border: 1px solid #7dd3fc; }
+
+  /* Risk bar */
+  .risk-wrap { display: flex; align-items: center; gap: 6px; }
+  .risk-bar  { height: 4px; flex: 1; background: var(--gray-100); border-radius: 2px; min-width: 40px; }
+  .risk-fill { height: 100%; border-radius: 2px; }
+  .risk-0  { background: #4ade80; }
+  .risk-30 { background: #facc15; }
+  .risk-60 { background: #f97316; }
+  .risk-80 { background: #ef4444; }
+  .risk-num { font-size: 10px; color: var(--gray-500); min-width: 22px; text-align: right; }
+
+  /* Agent pill */
+  .agent-pill {
+    display: inline-block; padding: 1px 7px; border-radius: 4px;
+    font-size: 10px; background: var(--gray-100); color: var(--gray-600);
+  }
+
+  /* Filter + pager bar */
+  .bar {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 12px; flex-wrap: wrap;
+  }
+  .bar label { font-size: 10px; color: var(--gray-400); }
+  .bar-sep { width: 1px; height: 16px; background: var(--gray-200); margin: 0 4px; }
+  .fsel {
+    font-family: inherit; font-size: 11px; color: var(--gray-700);
+    background: var(--gray-50); border: 1px solid var(--gray-200);
+    border-radius: 4px; padding: 3px 6px; outline: none; cursor: pointer;
+  }
+  .fsel:focus { border-color: var(--purple); }
+  .finput {
+    font-family: inherit; font-size: 11px; color: var(--gray-700);
+    background: var(--gray-50); border: 1px solid var(--gray-200);
+    border-radius: 4px; padding: 3px 8px; outline: none; width: 180px;
+  }
+  .finput:focus { border-color: var(--purple); }
+  .fbtn {
+    font-family: inherit; font-size: 10px; padding: 3px 10px;
+    border: 1px solid var(--gray-200); border-radius: 4px;
+    background: var(--gray-50); color: var(--gray-500); cursor: pointer;
+  }
+  .fbtn.active { background: var(--gray-800); color: #fff; border-color: var(--gray-800); }
+  .bar-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+  .result-count { font-size: 10px; color: var(--gray-400); }
+
+  /* Pagination */
+  .pager {
+    display: flex; align-items: center; gap: 6px; margin-top: 12px;
+    padding-top: 12px; border-top: 1px solid var(--gray-100);
+  }
+  .pg-btn {
+    font-family: inherit; font-size: 11px; padding: 3px 10px;
+    border: 1px solid var(--gray-200); border-radius: 4px;
+    background: #fff; color: var(--gray-700); cursor: pointer;
+  }
+  .pg-btn:disabled { opacity: 0.35; cursor: default; }
+  .pg-btn:not(:disabled):hover { background: var(--gray-50); }
+  .pg-nums { display: flex; gap: 4px; }
+  .pg-num {
+    font-family: inherit; font-size: 11px; min-width: 28px; padding: 3px 6px;
+    border: 1px solid transparent; border-radius: 4px;
+    background: none; color: var(--gray-500); cursor: pointer; text-align: center;
+  }
+  .pg-num.cur { background: var(--gray-800); color: #fff; border-color: var(--gray-800); cursor: default; }
+  .pg-num:not(.cur):hover { background: var(--gray-50); border-color: var(--gray-200); }
+  .pg-num.ellipsis { cursor: default; pointer-events: none; }
+  .pg-info { font-size: 10px; color: var(--gray-400); margin-left: 4px; }
+  .pg-limit { font-family: inherit; font-size: 11px; padding: 3px 6px;
+              border: 1px solid var(--gray-200); border-radius: 4px;
+              background: var(--gray-50); color: var(--gray-700); cursor: pointer;
+              margin-left: auto; }
+
+  /* Live events */
+  .event-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 0; border-bottom: 1px solid var(--gray-50);
+  }
+  .event-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+  .event-dot.blocked { background: #ec4899; }
+  .event-dot.allowed { background: #4ade80; }
+  .event-meta { font-size: 10px; color: var(--gray-400); }
+  .event-action { font-size: 11px; color: var(--gray-700); }
+
+  /* Users list */
+  .user-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 0; border-bottom: 1px solid var(--gray-50);
+  }
+  .user-rank { font-size: 10px; color: var(--gray-300); width: 16px; text-align: right; }
+  .user-info { flex: 1; min-width: 0; }
+  .user-top { display: flex; justify-content: space-between; align-items: center; }
+  .user-id { font-size: 11px; color: var(--gray-700); }
+  .user-count { font-size: 11px; font-weight: 600; color: var(--pink-600); }
+  .user-bar { height: 4px; background: var(--gray-100); border-radius: 2px; margin-top: 4px; }
+  .user-bar-fill { height: 100%; border-radius: 2px; background: var(--purple); }
+  .user-seen { font-size: 10px; color: var(--gray-300); }
+
+  /* Donut legend */
+  .legend-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; margin-top: 12px; }
+  .legend-item { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--gray-500); }
+  .legend-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+
+  .chart-container { position: relative; }
+
+  /* Findings drilldown */
+  .finding-row { cursor: pointer; }
+  .finding-row:hover td { background: var(--gray-50); }
+  .finding-ev-row { display: none; }
+  .finding-ev-row.open { display: table-row; }
+  .finding-ev-cell {
+    padding: 8px 12px 12px; background: var(--gray-50);
+    font-size: 11px; color: var(--gray-600); line-height: 1.6;
+  }
+  .finding-cmd {
+    margin-top: 6px; padding: 6px 8px;
+    background: var(--gray-900); color: #e5e7eb;
+    border-radius: 4px; font-size: 10px; word-break: break-all;
+  }
+  .finding-cmd:empty { display: none; }
+  .expand-arrow { font-size: 9px; color: var(--gray-300); }
+
+  /* Empty state */
+  .empty { padding: 24px; text-align: center; font-size: 11px; color: var(--gray-400); }
+
+  @media (max-width: 768px) {
+    .grid-4, .grid-3, .grid-2, .grid-1-2 { grid-template-columns: 1fr; }
+    body { padding: 12px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Warden Dashboard</h1>
+  <div class="header-right">
+    <span id="lastUpdated" class="last-updated"></span>
+    <span id="statusBadge" class="badge badge-demo"><span class="badge-dot"></span> loading</span>
+  </div>
+</div>
+
+<!-- KPI Strip -->
+<div class="grid grid-3">
+  <div class="card">
+    <div class="card-title">Active Sessions (24h)</div>
+    <div id="kpiSessions" class="kpi-value">-</div>
+  </div>
+  <div class="card">
+    <div class="card-title">Tool Calls Inspected (24h)</div>
+    <div id="kpiToolCalls" class="kpi-value">-</div>
+    <div id="kpiToolsDelta" class="kpi-delta"></div>
+  </div>
+  <div class="card">
+    <div class="card-title">Dangerous Cmds Prevented (24h)</div>
+    <div id="kpiDangerous" class="kpi-value accent">-</div>
+    <div id="kpiDangerousDelta" class="kpi-delta"></div>
+  </div>
+</div>
+
+<!-- Severity Strip -->
+<div class="grid grid-4">
+  <div class="card sev-card critical"><div class="sev-label">Critical</div><div id="sevCritical" class="sev-count">-</div></div>
+  <div class="card sev-card high">    <div class="sev-label">High</div>    <div id="sevHigh"     class="sev-count">-</div></div>
+  <div class="card sev-card medium">  <div class="sev-label">Medium</div>  <div id="sevMedium"   class="sev-count">-</div></div>
+  <div class="card sev-card low">     <div class="sev-label">Low</div>     <div id="sevLow"      class="sev-count">-</div></div>
+</div>
+
+<!-- Row 1: Threats Donut + Block Rate Line -->
+<div class="grid grid-1-2">
+  <div class="card">
+    <div class="card-title">Threats by Category</div>
+    <div class="chart-container" style="height:190px"><canvas id="donutChart"></canvas></div>
+    <div id="donutLegend" class="legend-grid"></div>
+  </div>
+  <div class="card">
+    <div class="card-title">Block Rate &mdash; 30 days</div>
+    <div class="chart-container" style="height:240px"><canvas id="lineChart"></canvas></div>
+  </div>
+</div>
+
+<!-- Row 2: Blocked by Agent + Tool Breakdown -->
+<div class="grid grid-2">
+  <div class="card">
+    <div class="card-title">Blocked Commands by Agent</div>
+    <div class="chart-container" style="height:200px"><canvas id="agentBar"></canvas></div>
+  </div>
+  <div class="card">
+    <div class="card-title">Tool Call Breakdown</div>
+    <div class="chart-container" style="height:200px"><canvas id="toolBar"></canvas></div>
+  </div>
+</div>
+
+<!-- Row 3: Top MCP & Skills -->
+<div class="grid" style="grid-template-columns:1fr">
+  <div class="card">
+    <div class="card-title">Top MCP Servers &amp; Skills</div>
+    <div class="chart-container" style="height:220px"><canvas id="mcpBar"></canvas></div>
+  </div>
+</div>
+
+<!-- Row 4: Sessions (paginated) -->
+<div class="grid" style="grid-template-columns:1fr">
+  <div class="card">
+    <div class="card-title">Sessions</div>
+    <div class="bar">
+      <span id="sessCount" class="result-count"></span>
+      <div class="bar-right">
+        <label>Per page</label>
+        <select id="sessLimit" class="fsel">
+          <option value="10">10</option>
+          <option value="20" selected>20</option>
+          <option value="50">50</option>
+          <option value="100">100</option>
+        </select>
+      </div>
+    </div>
+    <div style="overflow-x:auto">
+      <table>
+        <thead id="sessThead">
+          <tr>
+            <th data-col="sessionId">Session<span class="sort-ind">↕</span></th>
+            <th data-col="agent">Agent<span class="sort-ind">↕</span></th>
+            <th data-col="workspace">Workspace<span class="sort-ind">↕</span></th>
+            <th data-col="riskScore">Risk Score<span class="sort-ind">↕</span></th>
+            <th data-col="findingsCount" class="right">Findings<span class="sort-ind">↕</span></th>
+            <th data-col="updatedAt">Last Active<span class="sort-ind">↕</span></th>
+          </tr>
+        </thead>
+        <tbody id="sessBody"></tbody>
+      </table>
+    </div>
+    <div id="sessPager" class="pager"></div>
+  </div>
+</div>
+
+<!-- Row 5: Top Users + Threat Patterns -->
+<div class="grid grid-1-2">
+  <div class="card">
+    <div class="card-title">Top Sessions by Blocks</div>
+    <div id="usersContainer"></div>
+  </div>
+  <div class="card">
+    <div class="card-title">Top Threat Patterns</div>
+    <div style="overflow-x:auto">
+      <table>
+        <thead><tr>
+          <th>Pattern</th><th>Category</th><th class="right">Count</th><th>Last Seen</th><th>Severity</th>
+        </tr></thead>
+        <tbody id="patternsBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Row 6: Findings Drilldown (paginated) -->
+<div class="grid" style="grid-template-columns:1fr">
+  <div class="card">
+    <div class="card-title">Findings Drilldown</div>
+    <div class="bar">
+      <label>Agent</label>
+      <select id="fAgent" class="fsel"><option value="">All</option></select>
+      <label>Severity</label>
+      <select id="fSev" class="fsel">
+        <option value="">All</option>
+        <option value="critical">Critical</option>
+        <option value="high">High</option>
+        <option value="medium">Medium</option>
+        <option value="low">Low</option>
+      </select>
+      <label>Category</label>
+      <select id="fCat" class="fsel"><option value="">All</option></select>
+      <input id="fSearch" class="finput" type="text" placeholder="search title or evidence…" />
+      <div class="bar-right">
+        <span id="findCount" class="result-count"></span>
+        <label>Per page</label>
+        <select id="findLimit" class="fsel">
+          <option value="10">10</option>
+          <option value="25" selected>25</option>
+          <option value="50">50</option>
+          <option value="100">100</option>
+        </select>
+      </div>
+    </div>
+    <div style="overflow-x:auto">
+      <table>
+        <thead><tr>
+          <th>Finding</th><th>Agent</th><th>Category</th><th>Severity</th><th>When</th><th style="width:16px"></th>
+        </tr></thead>
+        <tbody id="findBody"></tbody>
+      </table>
+    </div>
+    <div id="findPager" class="pager"></div>
+  </div>
+</div>
+
+<!-- Row 7: Events Feed (paginated) -->
+<div class="grid" style="grid-template-columns:1fr">
+  <div class="card">
+    <div class="card-title">Event Feed</div>
+    <div class="bar">
+      <button class="fbtn active" data-verdict="">All</button>
+      <button class="fbtn" data-verdict="blocked">Blocked</button>
+      <button class="fbtn" data-verdict="allowed">Allowed</button>
+      <div class="bar-sep"></div>
+      <label>Agent</label>
+      <select id="evtAgent" class="fsel"><option value="">All</option></select>
+      <div class="bar-right">
+        <span id="evtCount" class="result-count"></span>
+        <label>Per page</label>
+        <select id="evtLimit" class="fsel">
+          <option value="20">20</option>
+          <option value="30" selected>30</option>
+          <option value="50">50</option>
+          <option value="100">100</option>
+        </select>
+      </div>
+    </div>
+    <div id="evtContainer"></div>
+    <div id="evtPager" class="pager"></div>
+  </div>
+</div>
+
+<script>
+const COLORS = ['#B4A5F6','#E8BAEE','#F9E5A6','#A8D5F7','#A7F3D0','#FCA5A5'];
+const CAT_LABELS = {
+  prompt_injection: 'Prompt Injection', jailbreak_attempt: 'Jailbreak',
+  tool_call_abuse: 'Tool Call Abuse', secret_exfil: 'Secret Exfil',
+  malicious_mcp: 'Malicious MCP', dangerous_command: 'Dangerous Cmd',
+};
+
+// XSS-safe text injection
+function safe(s) {
+  const el = document.createElement('span');
+  el.textContent = String(s || '');
+  return el.outerHTML;
+}
+
+function fmtNum(n) {
+  if (n >= 1000) return (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
+  return n.toLocaleString();
+}
+
+function sevClass(s) { return 'sev-' + (s || 'low'); }
+
+function riskClass(n) {
+  if (n >= 80) return 'risk-80';
+  if (n >= 60) return 'risk-60';
+  if (n >= 30) return 'risk-30';
+  return 'risk-0';
+}
+
+// ── Pager builder ────────────────────────────────────────────────────────────
+function buildPager(containerId, state, loadFn) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  if (state.pages <= 1 && state.total === 0) { container.innerHTML = ''; return; }
+
+  const { page, pages, total, limit } = state;
+  const from = total === 0 ? 0 : (page - 1) * limit + 1;
+  const to   = Math.min(page * limit, total);
+
+  // Build page number list with ellipsis
+  const nums = [];
+  for (let i = 1; i <= pages; i++) {
+    if (i === 1 || i === pages || (i >= page - 2 && i <= page + 2)) {
+      nums.push(i);
+    } else if (nums[nums.length - 1] !== '…') {
+      nums.push('…');
+    }
+  }
+
+  container.innerHTML =
+    '<button class="pg-btn" id="' + containerId + 'Prev"' + (page <= 1 ? ' disabled' : '') + '>← Prev</button>' +
+    '<div class="pg-nums">' + nums.map(n =>
+      n === '…'
+        ? '<span class="pg-num ellipsis">…</span>'
+        : '<button class="pg-num' + (n === page ? ' cur' : '') + '" data-p="' + n + '">' + n + '</button>'
+    ).join('') + '</div>' +
+    '<button class="pg-btn" id="' + containerId + 'Next"' + (page >= pages ? ' disabled' : '') + '>Next →</button>' +
+    '<span class="pg-info">' + from + '–' + to + ' of ' + fmtNum(total) + '</span>';
+
+  container.querySelector('#' + containerId + 'Prev')
+    ?.addEventListener('click', () => { state.page--; loadFn(); });
+  container.querySelector('#' + containerId + 'Next')
+    ?.addEventListener('click', () => { state.page++; loadFn(); });
+  container.querySelectorAll('.pg-num:not(.cur):not(.ellipsis)')
+    .forEach(btn => btn.addEventListener('click', () => {
+      state.page = parseInt(btn.dataset.p, 10);
+      loadFn();
+    }));
+}
+
+// ── Chart instances ──────────────────────────────────────────────────────────
+let donutChart, lineChart, agentBarChart, toolBarChart, mcpBarChart;
+
+function initCharts() {
+  Chart.defaults.font.family = 'ui-monospace, SFMono-Regular, Menlo, monospace';
+  Chart.defaults.font.size = 10;
+  Chart.defaults.color = '#9ca3af';
+
+  donutChart = new Chart(document.getElementById('donutChart'), {
+    type: 'doughnut',
+    data: { labels: [], datasets: [{ data: [], backgroundColor: COLORS, borderWidth: 0 }] },
+    options: { cutout: '60%', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } },
+  });
+
+  lineChart = new Chart(document.getElementById('lineChart'), {
+    type: 'line',
+    data: { labels: [], datasets: [
+      { label: 'Passed',      data: [], borderColor: '#CBD5E1', borderWidth: 1.5, pointRadius: 0, tension: 0.3 },
+      { label: 'Intercepted', data: [], borderColor: '#E8BAEE', borderWidth: 2,   pointRadius: 0, tension: 0.3 },
+    ]},
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      scales: {
+        x: { grid: { display: false }, ticks: { callback: v => String(v).slice(5) } },
+        y: { grid: { color: '#f3f4f6' } },
+      },
+      plugins: { legend: { position: 'top', align: 'end', labels: { boxWidth: 10, padding: 8 } } },
+    },
+  });
+
+  agentBarChart = new Chart(document.getElementById('agentBar'), {
+    type: 'bar',
+    data: { labels: [], datasets: [{ label: 'Blocked', data: [], backgroundColor: '#F9E5A6', borderRadius: 4, barThickness: 14 }] },
+    options: {
+      indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+      scales: { x: { grid: { color: '#f3f4f6' } }, y: { grid: { display: false } } },
+      plugins: { legend: { display: false } },
+    },
+  });
+
+  toolBarChart = new Chart(document.getElementById('toolBar'), {
+    type: 'bar',
+    data: { labels: [], datasets: [{ label: 'Calls', data: [], backgroundColor: '#A8D5F7', borderRadius: 4, barThickness: 30 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      scales: { x: { grid: { display: false } }, y: { grid: { color: '#f3f4f6' } } },
+      plugins: { legend: { display: false } },
+    },
+  });
+
+  mcpBarChart = new Chart(document.getElementById('mcpBar'), {
+    type: 'bar',
+    data: { labels: [], datasets: [
+      { label: 'Total Calls', data: [], backgroundColor: '#A8D5F7', borderRadius: 4, barThickness: 18 },
+      { label: 'Blocked',     data: [], backgroundColor: '#E8BAEE', borderRadius: 4, barThickness: 18 },
+    ]},
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      scales: { x: { grid: { display: false } }, y: { grid: { color: '#f3f4f6' } } },
+      plugins: { legend: { position: 'top', align: 'end', labels: { boxWidth: 10, padding: 8 } } },
+    },
+  });
+}
+
+// ── Sessions ─────────────────────────────────────────────────────────────────
+const sessState = { page: 1, limit: 20, sort: 'updatedAt', dir: 'desc', total: 0, pages: 1 };
+
+async function loadSessions() {
+  const { page, limit, sort, dir } = sessState;
+  try {
+    const res = await fetch(`/api/sessions?page=${page}&limit=${limit}&sort=${sort}&dir=${dir}`);
+    const data = await res.json();
+    sessState.page = data.page; sessState.pages = data.pages; sessState.total = data.total;
+    renderSessions(data.items);
+    buildPager('sessPager', sessState, loadSessions);
+    document.getElementById('sessCount').textContent = fmtNum(data.total) + ' sessions';
+    updateSessHeaders();
+  } catch (e) { console.error('[warden] sessions fetch failed:', e); }
+}
+
+function renderSessions(rows) {
+  const tbody = document.getElementById('sessBody');
+  if (!rows.length) { tbody.innerHTML = '<tr><td colspan="6" class="empty">No sessions yet</td></tr>'; return; }
+  tbody.innerHTML = rows.map(s => {
+    const rc = riskClass(s.riskScore);
+    return '<tr>' +
+      '<td class="mono">' + safe(s.sessionId) + '</td>' +
+      '<td><span class="agent-pill">' + safe(s.agent) + '</span></td>' +
+      '<td style="color:var(--gray-500)">' + safe(s.workspace) + '</td>' +
+      '<td><div class="risk-wrap"><div class="risk-bar"><div class="risk-fill ' + rc + '" style="width:' + s.riskScore + '%"></div></div><span class="risk-num">' + s.riskScore + '</span></div></td>' +
+      '<td class="right"' + (s.findingsCount > 0 ? ' style="color:var(--pink-600);font-weight:600"' : '') + '>' + s.findingsCount + '</td>' +
+      '<td style="color:var(--gray-400)">' + safe(s.updatedAt) + '</td>' +
+    '</tr>';
+  }).join('');
+}
+
+function updateSessHeaders() {
+  document.querySelectorAll('#sessThead th[data-col]').forEach(th => {
+    th.classList.toggle('active-sort', th.dataset.col === sessState.sort);
+    const ind = th.querySelector('.sort-ind');
+    if (ind) ind.textContent = th.dataset.col === sessState.sort ? (sessState.dir === 'asc' ? '↑' : '↓') : '↕';
+  });
+}
+
+document.getElementById('sessThead').addEventListener('click', e => {
+  const th = e.target.closest('th[data-col]');
+  if (!th) return;
+  const col = th.dataset.col;
+  sessState.dir = (sessState.sort === col && sessState.dir === 'desc') ? 'asc' : 'desc';
+  sessState.sort = col;
+  sessState.page = 1;
+  loadSessions();
+});
+
+document.getElementById('sessLimit').addEventListener('change', e => {
+  sessState.limit = parseInt(e.target.value, 10);
+  sessState.page = 1;
+  loadSessions();
+});
+
+// ── Findings ─────────────────────────────────────────────────────────────────
+const findState = { page: 1, limit: 25, agent: '', severity: '', category: '', q: '', total: 0, pages: 1 };
+let _findAgents = [], _findCats = [];
+
+async function loadFindings() {
+  const { page, limit, agent, severity, category, q } = findState;
+  const params = new URLSearchParams({ page, limit, agent, severity, category, q });
+  try {
+    const res = await fetch('/api/findings?' + params);
+    const data = await res.json();
+    findState.page = data.page; findState.pages = data.pages; findState.total = data.total;
+
+    // Populate filter dropdowns (preserve selections)
+    if (data.agents) {
+      _findAgents = data.agents;
+      const sel = document.getElementById('fAgent');
+      const cur = sel.value;
+      sel.innerHTML = '<option value="">All</option>' + data.agents.map(a =>
+        '<option value="' + a + '"' + (a === cur ? ' selected' : '') + '>' + a + '</option>'
+      ).join('');
+    }
+    if (data.categories) {
+      _findCats = data.categories;
+      const sel = document.getElementById('fCat');
+      const cur = sel.value;
+      sel.innerHTML = '<option value="">All</option>' + data.categories.map(c =>
+        '<option value="' + c + '"' + (c === cur ? ' selected' : '') + '>' + (CAT_LABELS[c] || c) + '</option>'
+      ).join('');
+    }
+
+    renderFindings(data.items);
+    buildPager('findPager', findState, loadFindings);
+    document.getElementById('findCount').textContent = fmtNum(data.total) + ' findings';
+  } catch (e) { console.error('[warden] findings fetch failed:', e); }
+}
+
+function renderFindings(rows) {
+  const tbody = document.getElementById('findBody');
+  if (!rows.length) { tbody.innerHTML = '<tr><td colspan="6" class="empty">No findings match the current filters</td></tr>'; return; }
+  tbody.innerHTML = rows.map((f, i) => {
+    const eid = 'fev-' + i;
+    return '<tr class="finding-row" onclick="toggleEvidence(\'' + eid + '\')">' +
+      '<td>' + safe(f.title) + '</td>' +
+      '<td><span class="agent-pill">' + safe(f.agent) + '</span></td>' +
+      '<td style="color:var(--gray-500)">' + safe(CAT_LABELS[f.category] || f.category) + '</td>' +
+      '<td><span class="sev-badge ' + sevClass(f.severity) + '">' + safe(f.severity) + '</span></td>' +
+      '<td style="color:var(--gray-400)">' + safe(f.ts) + '</td>' +
+      '<td class="expand-arrow">▸</td>' +
+    '</tr>' +
+    '<tr id="' + eid + '" class="finding-ev-row">' +
+      '<td class="finding-ev-cell" colspan="6">' +
+        '<div>' + safe(f.evidence || 'No evidence recorded.') + '</div>' +
+        '<div class="finding-cmd">' + safe(f.command) + '</div>' +
+        '<div style="margin-top:6px;font-size:10px;color:var(--gray-400)">session: ' + safe(f.sessionId) + '</div>' +
+      '</td>' +
+    '</tr>';
+  }).join('');
+}
+
+function toggleEvidence(id) {
+  const row = document.getElementById(id);
+  if (!row) return;
+  row.classList.toggle('open');
+  const prev = row.previousElementSibling;
+  if (prev) {
+    const arrow = prev.querySelector('.expand-arrow');
+    if (arrow) arrow.textContent = row.classList.contains('open') ? '▾' : '▸';
+  }
+}
+
+['fAgent','fSev','fCat'].forEach(id => document.getElementById(id).addEventListener('change', e => {
+  findState[id === 'fAgent' ? 'agent' : id === 'fSev' ? 'severity' : 'category'] = e.target.value;
+  findState.page = 1;
+  loadFindings();
+}));
+
+let _findSearchTimer;
+document.getElementById('fSearch').addEventListener('input', e => {
+  clearTimeout(_findSearchTimer);
+  _findSearchTimer = setTimeout(() => { findState.q = e.target.value; findState.page = 1; loadFindings(); }, 300);
+});
+
+document.getElementById('findLimit').addEventListener('change', e => {
+  findState.limit = parseInt(e.target.value, 10);
+  findState.page = 1;
+  loadFindings();
+});
+
+// ── Events ───────────────────────────────────────────────────────────────────
+const evtState = { page: 1, limit: 30, verdict: '', agent: '', total: 0, pages: 1 };
+
+async function loadEvents() {
+  const { page, limit, verdict, agent } = evtState;
+  const params = new URLSearchParams({ page, limit, verdict, agent });
+  try {
+    const res = await fetch('/api/events?' + params);
+    const data = await res.json();
+    evtState.page = data.page; evtState.pages = data.pages; evtState.total = data.total;
+
+    if (data.agents) {
+      const sel = document.getElementById('evtAgent');
+      const cur = sel.value;
+      sel.innerHTML = '<option value="">All</option>' + data.agents.map(a =>
+        '<option value="' + a + '"' + (a === cur ? ' selected' : '') + '>' + a + '</option>'
+      ).join('');
+    }
+
+    renderEvents(data.items);
+    buildPager('evtPager', evtState, loadEvents);
+    document.getElementById('evtCount').textContent = fmtNum(data.total) + ' events';
+  } catch (e) { console.error('[warden] events fetch failed:', e); }
+}
+
+function renderEvents(rows) {
+  const container = document.getElementById('evtContainer');
+  if (!rows.length) { container.innerHTML = '<div class="empty">No events match the current filters</div>'; return; }
+  container.innerHTML = rows.map(ev =>
+    '<div class="event-row">' +
+      '<span class="event-dot ' + (ev.verdict || 'allowed') + '"></span>' +
+      '<div style="flex:1;min-width:0">' +
+        '<div class="event-meta">' + safe(ev.ts) + ' &middot; ' + safe(ev.agent) + '</div>' +
+        '<div class="event-action">' + safe(ev.action) + '</div>' +
+      '</div>' +
+      '<span class="sev-badge ' + sevClass(ev.severity) + '">' + safe(ev.severity) + '</span>' +
+    '</div>'
+  ).join('');
+}
+
+document.querySelectorAll('.fbtn[data-verdict]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.fbtn[data-verdict]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    evtState.verdict = btn.dataset.verdict;
+    evtState.page = 1;
+    loadEvents();
+  });
+});
+
+document.getElementById('evtAgent').addEventListener('change', e => {
+  evtState.agent = e.target.value;
+  evtState.page = 1;
+  loadEvents();
+});
+
+document.getElementById('evtLimit').addEventListener('change', e => {
+  evtState.limit = parseInt(e.target.value, 10);
+  evtState.page = 1;
+  loadEvents();
+});
+
+// ── Stats (charts + KPIs) ────────────────────────────────────────────────────
+async function loadStats() {
+  try {
+    const res = await fetch('/api/stats');
+    if (!res.ok) return;
+    const data = await res.json();
+
+    // Badge
+    const badge = document.getElementById('statusBadge');
+    const hasData = data.kpis && data.kpis.toolCallsInspected24h > 0;
+    badge.className = 'badge ' + (hasData ? 'badge-live' : 'badge-demo');
+    badge.innerHTML = '<span class="badge-dot"></span> ' + (hasData ? 'live' : 'no data');
+    document.getElementById('lastUpdated').textContent = 'updated ' + new Date().toLocaleTimeString();
+
+    // KPIs
+    const k = data.kpis || {};
+    document.getElementById('kpiSessions').textContent = fmtNum(k.activeSessions || 0);
+    document.getElementById('kpiToolCalls').textContent = fmtNum(k.toolCallsInspected24h || 0);
+    document.getElementById('kpiDangerous').textContent = fmtNum(k.dangerousCommandsPrevented24h || 0);
+
+    const d = k.deltas || {};
+    if (d.tools !== undefined) {
+      const cls = d.tools > 0 ? 'up' : 'down';
+      document.getElementById('kpiToolsDelta').innerHTML =
+        '<span class="' + cls + '">' + (d.tools > 0 ? '+' : '') + d.tools + '%</span> vs yesterday';
+    }
+    if (d.dangerous !== undefined) {
+      const cls = d.dangerous > 0 ? 'up' : 'down';
+      document.getElementById('kpiDangerousDelta').innerHTML =
+        '<span class="' + cls + '">' + (d.dangerous > 0 ? '+' : '') + d.dangerous + '%</span> vs yesterday';
+    }
+
+    // Severity strip
+    const sv = data.severityBreakdown || {};
+    document.getElementById('sevCritical').textContent = fmtNum(sv.critical || 0);
+    document.getElementById('sevHigh').textContent     = fmtNum(sv.high     || 0);
+    document.getElementById('sevMedium').textContent   = fmtNum(sv.medium   || 0);
+    document.getElementById('sevLow').textContent      = fmtNum(sv.low      || 0);
+
+    // Donut
+    const threats = data.threatsByCategory || {};
+    const catKeys = Object.keys(CAT_LABELS);
+    donutChart.data.labels = catKeys.map(k => CAT_LABELS[k]);
+    donutChart.data.datasets[0].data = catKeys.map(k => threats[k] || 0);
+    donutChart.update();
+    document.getElementById('donutLegend').innerHTML = catKeys.map((k, i) =>
+      '<div class="legend-item"><span class="legend-dot" style="background:' + COLORS[i] + '"></span>' + CAT_LABELS[k] + '</div>'
+    ).join('');
+
+    // Line
+    const ts = data.blockRateTimeseries || [];
+    lineChart.data.labels = ts.map(t => t.date);
+    lineChart.data.datasets[0].data = ts.map(t => t.passed);
+    lineChart.data.datasets[1].data = ts.map(t => t.intercepted);
+    lineChart.update();
+
+    // Agent bar
+    const ab = data.agentBlockedCommands || [];
+    agentBarChart.data.labels = ab.map(a => a.agent);
+    agentBarChart.data.datasets[0].data = ab.map(a => a.blocked);
+    agentBarChart.update();
+
+    // Tool bar
+    const tb = data.toolCallBreakdown || [];
+    toolBarChart.data.labels = tb.map(t => t.tool);
+    toolBarChart.data.datasets[0].data = tb.map(t => t.count);
+    toolBarChart.update();
+
+    // MCP bar
+    const mcp = data.topMcpAndSkills || [];
+    mcpBarChart.data.labels = mcp.map(m => m.name);
+    mcpBarChart.data.datasets[0].data = mcp.map(m => m.calls);
+    mcpBarChart.data.datasets[1].data = mcp.map(m => m.blocked);
+    mcpBarChart.update();
+
+    // Top users
+    const users = data.topUsersByBlocks || [];
+    const maxBlocked = users.length > 0 ? users[0].blocked : 1;
+    document.getElementById('usersContainer').innerHTML = users.map((u, i) =>
+      '<div class="user-row">' +
+        '<span class="user-rank">' + (i + 1) + '</span>' +
+        '<div class="user-info">' +
+          '<div class="user-top"><span class="user-id">' + safe(u.userId) + '</span>' +
+          '<span class="user-count">' + u.blocked + '</span></div>' +
+          '<div class="user-bar"><div class="user-bar-fill" style="width:' + (u.blocked / maxBlocked * 100) + '%"></div></div>' +
+        '</div>' +
+        '<span class="user-seen">' + safe(u.lastSeen || '') + '</span>' +
+      '</div>'
+    ).join('');
+
+    // Threat patterns
+    const patterns = data.topPatterns || [];
+    document.getElementById('patternsBody').innerHTML = patterns.map(p =>
+      '<tr>' +
+        '<td>' + safe(p.pattern || '') + '</td>' +
+        '<td style="color:#9ca3af">' + safe(CAT_LABELS[p.category] || p.category) + '</td>' +
+        '<td class="right" style="font-weight:500">' + (p.count || 0) + '</td>' +
+        '<td style="color:#9ca3af">' + safe(p.lastSeen || '') + '</td>' +
+        '<td><span class="sev-badge ' + sevClass(p.severity) + '">' + safe(p.severity || 'low') + '</span></td>' +
+      '</tr>'
+    ).join('');
+  } catch (e) { console.error('[warden] stats fetch failed:', e); }
+}
+
+// ── Boot + poll ──────────────────────────────────────────────────────────────
+initCharts();
+Promise.all([loadStats(), loadSessions(), loadFindings(), loadEvents()]);
+
+setInterval(() => {
+  loadStats();
+  loadSessions();
+  // Reload findings/events only if on page 1 with no active filters (avoid disrupting investigation)
+  if (findState.page === 1 && !findState.agent && !findState.severity && !findState.category && !findState.q) {
+    loadFindings();
+  }
+  if (evtState.page === 1 && !evtState.verdict && !evtState.agent) {
+    loadEvents();
+  }
+}, 30000);
+</script>
+</body>
+</html>

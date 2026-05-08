@@ -79,6 +79,30 @@ flowchart TD
 
 ---
 
+## Self-Hosted Dashboard
+
+Warden includes a built-in web dashboard that visualizes session data from your local workspace DBs. No cloud, no external services — everything runs on your machine.
+
+```bash
+python3 warden/cli.py serve            # http://127.0.0.1:7070
+python3 warden/cli.py serve --port 8080   # custom port
+```
+
+Open the URL in your browser. The dashboard polls `/api/stats` every 30 seconds and displays:
+
+- **KPIs** — active sessions, tool calls inspected, dangerous commands prevented (24h)
+- **Threats by category** — donut chart across 6 threat classes
+- **Block rate** — 30-day timeseries of intercepted vs passed events
+- **Agent breakdown** — blocked commands per agent (Claude Code, Cursor, Codex, etc.)
+- **Tool call breakdown** — event counts by tool type
+- **Top MCP & Skills** — most active MCP servers and skills with block counts
+- **Threat patterns** — recurring findings ranked by frequency
+- **Live event feed** — latest events with verdict and severity
+
+The server reads from all workspaces registered via `warden install-hooks`. If no workspaces are registered yet, it starts with empty data.
+
+---
+
 ## Capabilities
 
 - 🛡️ [Warden](docs/warden.md) covers the policy engine, session logs, security audit, and CLI reference
