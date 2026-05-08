@@ -15,6 +15,7 @@ Commands:
   install-hooks Install IDE hooks for real-time monitoring
   uninstall-hooks Remove IDE hooks
   hook-dispatch Internal: called by IDE hooks (not for direct use)
+  serve         Start a local HTTP API server for the Prismor web dashboard
   policy init   Generate a starter policy.yaml for your project
   policy validate  Validate a policy.yaml file
   sweep         Scan AI tool configs for leaked secrets
@@ -137,6 +138,18 @@ def main() -> None:
     # ── dashboard: global overview ───────────────────────────────────────
     if args.command == "dashboard":
         _print_dashboard()
+        return
+
+    # ── serve: local HTTP API server for web dashboard ───────────────────
+    if args.command == "serve":
+        from warden.server import run_server
+        registered = list_registered_workspaces()
+        if not registered:
+            sys.stderr.write(
+                "[warden] Warning: no registered workspaces found.\n"
+                "         Run 'warden install-hooks' in a project first to collect data.\n"
+            )
+        run_server(host=args.host, port=args.port)
         return
 
     # ── info: quick workspace summary ───────────────────────────────────
@@ -1125,6 +1138,20 @@ def build_parser() -> argparse.ArgumentParser:
 
     # ── dashboard ─────────────────────────────────────────────────────
     subparsers.add_parser("dashboard", help="Global overview of all registered workspaces")
+
+    # ── serve ──────────────────────────────────────────────────────────
+    serve_parser = subparsers.add_parser(
+        "serve",
+        help="Start a local HTTP API server for the Prismor web dashboard",
+    )
+    serve_parser.add_argument(
+        "--port", type=int, default=7070,
+        help="Port to listen on (default: 7070)",
+    )
+    serve_parser.add_argument(
+        "--host", default="127.0.0.1",
+        help="Host to bind to (default: 127.0.0.1)",
+    )
 
     # ── check ──────────────────────────────────────────────────────────
     check_parser = subparsers.add_parser("check", help="Quick pre-check a command or file path")

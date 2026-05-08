@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Warden Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --purple: #B4A5F6; --pink: #E8BAEE; --amber: #F9E5A6;
+    --sky: #A8D5F7; --mint: #A7F3D0; --red: #FCA5A5;
+    --slate: #CBD5E1; --gray-50: #f9fafb; --gray-100: #f3f4f6;
+    --gray-200: #e5e7eb; --gray-300: #d1d5db; --gray-400: #9ca3af;
+    --gray-500: #6b7280; --gray-700: #374151; --gray-800: #1f2937;
+    --gray-900: #111827; --pink-600: #db2777; --green-500: #22c55e;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, monospace;
+    background: var(--gray-50); color: var(--gray-800);
+    padding: 24px; max-width: 1280px; margin: 0 auto;
+  }
+  .header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 24px;
+  }
+  .header h1 { font-size: 18px; font-weight: 600; color: var(--gray-900); }
+  .badge {
+    font-size: 10px; padding: 2px 8px; border-radius: 9999px;
+    display: inline-flex; align-items: center; gap: 4px;
+  }
+  .badge-live { background: #dcfce7; color: #15803d; }
+  .badge-demo { background: var(--gray-100); color: var(--gray-400); }
+  .badge-dot { width: 6px; height: 6px; border-radius: 50%; }
+  .badge-live .badge-dot { background: #22c55e; }
+  .badge-demo .badge-dot { background: var(--gray-300); }
+
+  .grid { display: grid; gap: 16px; margin-bottom: 16px; }
+  .grid-3 { grid-template-columns: repeat(3, 1fr); }
+  .grid-2 { grid-template-columns: repeat(2, 1fr); }
+  .grid-1-2 { grid-template-columns: 1fr 2fr; }
+
+  .card {
+    background: #fff; border: 1px solid var(--gray-200);
+    border-radius: 8px; padding: 20px;
+  }
+  .card-title {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--gray-400); margin-bottom: 12px;
+  }
+
+  /* KPI */
+  .kpi-value { font-size: 28px; font-weight: 600; color: var(--gray-900); }
+  .kpi-value.accent { color: var(--pink-600); }
+  .kpi-delta { font-size: 11px; color: var(--gray-400); margin-top: 4px; }
+  .kpi-delta .up { color: #ef4444; }
+  .kpi-delta .down { color: var(--green-500); }
+
+  /* Tables */
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; font-size: 11px; color: var(--gray-400); font-weight: 400;
+       padding-bottom: 8px; border-bottom: 1px solid var(--gray-100); }
+  th.right { text-align: right; }
+  td { padding: 6px 0; font-size: 11px; color: var(--gray-700);
+       border-bottom: 1px solid var(--gray-50); }
+  td.right { text-align: right; }
+
+  .sev-badge {
+    display: inline-block; padding: 1px 6px; border-radius: 4px;
+    font-size: 10px; font-weight: 500;
+  }
+  .sev-critical { background: #ede9fe; color: #6d28d9; border: 1px solid #c4b5fd; }
+  .sev-high { background: #fce7f3; color: #be185d; border: 1px solid #f9a8d4; }
+  .sev-medium { background: #fef9c3; color: #92400e; border: 1px solid #fde68a; }
+  .sev-low { background: #e0f2fe; color: #0369a1; border: 1px solid #7dd3fc; }
+
+  /* Live events */
+  .event-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 0; border-bottom: 1px solid var(--gray-50);
+  }
+  .event-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+  .event-dot.blocked { background: #ec4899; }
+  .event-dot.allowed { background: #4ade80; }
+  .event-meta { font-size: 10px; color: var(--gray-400); }
+  .event-action { font-size: 11px; color: var(--gray-700); }
+
+  /* Users list */
+  .user-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 0; border-bottom: 1px solid var(--gray-50);
+  }
+  .user-rank { font-size: 10px; color: var(--gray-300); width: 16px; text-align: right; }
+  .user-info { flex: 1; min-width: 0; }
+  .user-top { display: flex; justify-content: space-between; align-items: center; }
+  .user-id { font-size: 11px; color: var(--gray-700); }
+  .user-count { font-size: 11px; font-weight: 600; color: var(--pink-600); }
+  .user-bar { height: 4px; background: var(--gray-100); border-radius: 2px; margin-top: 4px; }
+  .user-bar-fill { height: 100%; border-radius: 2px; background: var(--purple); }
+  .user-seen { font-size: 10px; color: var(--gray-300); }
+
+  /* Donut legend */
+  .legend-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; margin-top: 12px; }
+  .legend-item { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--gray-500); }
+  .legend-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+
+  .chart-container { position: relative; }
+
+  @media (max-width: 768px) {
+    .grid-3, .grid-2, .grid-1-2 { grid-template-columns: 1fr; }
+    body { padding: 12px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Warden Dashboard</h1>
+  <span id="statusBadge" class="badge badge-demo"><span class="badge-dot"></span> loading</span>
+</div>
+
+<!-- KPI Strip -->
+<div class="grid grid-3">
+  <div class="card">
+    <div class="card-title">Active Sessions</div>
+    <div id="kpiSessions" class="kpi-value">-</div>
+  </div>
+  <div class="card">
+    <div class="card-title">Tool Calls Inspected (24h)</div>
+    <div id="kpiToolCalls" class="kpi-value">-</div>
+    <div id="kpiToolsDelta" class="kpi-delta"></div>
+  </div>
+  <div class="card">
+    <div class="card-title">Dangerous Cmds Prevented</div>
+    <div id="kpiDangerous" class="kpi-value accent">-</div>
+    <div id="kpiDangerousDelta" class="kpi-delta"></div>
+  </div>
+</div>
+
+<!-- Row 1: Threats Donut + Block Rate Line -->
+<div class="grid grid-1-2">
+  <div class="card">
+    <div class="card-title">Threats by Category</div>
+    <div class="chart-container" style="height:190px">
+      <canvas id="donutChart"></canvas>
+    </div>
+    <div id="donutLegend" class="legend-grid"></div>
+  </div>
+  <div class="card">
+    <div class="card-title">Block Rate &mdash; 30 days</div>
+    <div class="chart-container" style="height:240px">
+      <canvas id="lineChart"></canvas>
+    </div>
+  </div>
+</div>
+
+<!-- Row 2: Blocked by Agent + Tool Breakdown -->
+<div class="grid grid-2">
+  <div class="card">
+    <div class="card-title">Blocked Commands by Agent</div>
+    <div class="chart-container" style="height:200px">
+      <canvas id="agentBar"></canvas>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-title">Tool Call Breakdown</div>
+    <div class="chart-container" style="height:200px">
+      <canvas id="toolBar"></canvas>
+    </div>
+  </div>
+</div>
+
+<!-- Row 3: Top MCP & Skills -->
+<div class="grid" style="grid-template-columns:1fr">
+  <div class="card">
+    <div class="card-title">Top MCP Servers &amp; Skills</div>
+    <div class="chart-container" style="height:220px">
+      <canvas id="mcpBar"></canvas>
+    </div>
+  </div>
+</div>
+
+<!-- Row 4: Top Users + Threat Patterns -->
+<div class="grid grid-1-2">
+  <div class="card">
+    <div class="card-title">Top Users by Blocks</div>
+    <div id="usersContainer"></div>
+  </div>
+  <div class="card">
+    <div class="card-title">Top Threat Patterns</div>
+    <div style="overflow-x:auto">
+      <table>
+        <thead><tr>
+          <th>Pattern</th><th>Category</th><th class="right">Count</th><th>Last Seen</th><th>Severity</th>
+        </tr></thead>
+        <tbody id="patternsBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Live Event Feed -->
+<div class="grid" style="grid-template-columns:1fr">
+  <div class="card">
+    <div class="card-title">Live Event Feed</div>
+    <div id="eventsContainer"></div>
+  </div>
+</div>
+
+<script>
+const COLORS = ['#B4A5F6','#E8BAEE','#F9E5A6','#A8D5F7','#A7F3D0','#FCA5A5'];
+const CAT_LABELS = {
+  prompt_injection: 'Prompt Injection', jailbreak_attempt: 'Jailbreak',
+  tool_call_abuse: 'Tool Call Abuse', secret_exfil: 'Secret Exfil',
+  malicious_mcp: 'Malicious MCP', dangerous_command: 'Dangerous Cmd',
+};
+
+function fmtNum(n) {
+  if (n >= 1000) return (n/1000).toFixed(1).replace(/\.0$/,'') + 'k';
+  return n.toLocaleString();
+}
+
+function sevClass(s) { return 'sev-' + (s || 'low'); }
+
+// ── Chart instances (reused on refresh) ─────────────────────────────────────
+let donutChart, lineChart, agentBarChart, toolBarChart, mcpBarChart;
+
+function initCharts() {
+  Chart.defaults.font.family = 'ui-monospace, SFMono-Regular, Menlo, monospace';
+  Chart.defaults.font.size = 10;
+  Chart.defaults.color = '#9ca3af';
+
+  donutChart = new Chart(document.getElementById('donutChart'), {
+    type: 'doughnut',
+    data: { labels: [], datasets: [{ data: [], backgroundColor: COLORS, borderWidth: 0 }] },
+    options: {
+      cutout: '60%', responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+    },
+  });
+
+  lineChart = new Chart(document.getElementById('lineChart'), {
+    type: 'line',
+    data: { labels: [], datasets: [
+      { label: 'Passed', data: [], borderColor: '#CBD5E1', borderWidth: 1.5, pointRadius: 0, tension: 0.3 },
+      { label: 'Intercepted', data: [], borderColor: '#E8BAEE', borderWidth: 2, pointRadius: 0, tension: 0.3 },
+    ]},
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      scales: { x: { grid: { display: false }, ticks: { callback: v => v.slice(5) } }, y: { grid: { color: '#f3f4f6' } } },
+      plugins: { legend: { position: 'top', align: 'end', labels: { boxWidth: 10, padding: 8 } } },
+    },
+  });
+
+  agentBarChart = new Chart(document.getElementById('agentBar'), {
+    type: 'bar',
+    data: { labels: [], datasets: [{ label: 'Blocked', data: [], backgroundColor: '#F9E5A6', borderRadius: 4, barThickness: 14 }] },
+    options: {
+      indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+      scales: { x: { grid: { color: '#f3f4f6' } }, y: { grid: { display: false } } },
+      plugins: { legend: { display: false } },
+    },
+  });
+
+  toolBarChart = new Chart(document.getElementById('toolBar'), {
+    type: 'bar',
+    data: { labels: [], datasets: [{ label: 'Calls', data: [], backgroundColor: '#A8D5F7', borderRadius: 4, barThickness: 30 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      scales: { x: { grid: { display: false } }, y: { grid: { color: '#f3f4f6' } } },
+      plugins: { legend: { display: false } },
+    },
+  });
+
+  mcpBarChart = new Chart(document.getElementById('mcpBar'), {
+    type: 'bar',
+    data: { labels: [], datasets: [
+      { label: 'Total Calls', data: [], backgroundColor: '#A8D5F7', borderRadius: 4, barThickness: 18 },
+      { label: 'Blocked', data: [], backgroundColor: '#E8BAEE', borderRadius: 4, barThickness: 18 },
+    ]},
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      scales: { x: { grid: { display: false } }, y: { grid: { color: '#f3f4f6' } } },
+      plugins: { legend: { position: 'top', align: 'end', labels: { boxWidth: 10, padding: 8 } } },
+    },
+  });
+}
+
+function updateDashboard(data) {
+  // Badge
+  const badge = document.getElementById('statusBadge');
+  const hasData = data.kpis && data.kpis.toolCallsInspected24h > 0;
+  badge.className = 'badge ' + (hasData ? 'badge-live' : 'badge-demo');
+  badge.innerHTML = '<span class="badge-dot"></span> ' + (hasData ? 'live' : 'no data');
+
+  // KPIs
+  const k = data.kpis || {};
+  document.getElementById('kpiSessions').textContent = fmtNum(k.activeSessions || 0);
+  document.getElementById('kpiToolCalls').textContent = fmtNum(k.toolCallsInspected24h || 0);
+  document.getElementById('kpiDangerous').textContent = fmtNum(k.dangerousCommandsPrevented24h || 0);
+
+  const d = k.deltas || {};
+  const toolsDelta = document.getElementById('kpiToolsDelta');
+  if (d.tools !== undefined) {
+    const cls = d.tools > 0 ? 'up' : 'down';
+    toolsDelta.innerHTML = '<span class="' + cls + '">' + (d.tools > 0 ? '+' : '') + d.tools + '%</span> vs yesterday';
+  }
+  const dangDelta = document.getElementById('kpiDangerousDelta');
+  if (d.dangerous !== undefined) {
+    const cls = d.dangerous > 0 ? 'up' : 'down';
+    dangDelta.innerHTML = '<span class="' + cls + '">' + (d.dangerous > 0 ? '+' : '') + d.dangerous + '%</span> vs yesterday';
+  }
+
+  // Donut
+  const threats = data.threatsByCategory || {};
+  const catKeys = Object.keys(CAT_LABELS);
+  donutChart.data.labels = catKeys.map(k => CAT_LABELS[k]);
+  donutChart.data.datasets[0].data = catKeys.map(k => threats[k] || 0);
+  donutChart.update();
+
+  const legendEl = document.getElementById('donutLegend');
+  legendEl.innerHTML = catKeys.map((k, i) =>
+    '<div class="legend-item"><span class="legend-dot" style="background:' + COLORS[i] + '"></span>' + CAT_LABELS[k] + '</div>'
+  ).join('');
+
+  // Line chart
+  const ts = data.blockRateTimeseries || [];
+  lineChart.data.labels = ts.map(t => t.date);
+  lineChart.data.datasets[0].data = ts.map(t => t.passed);
+  lineChart.data.datasets[1].data = ts.map(t => t.intercepted);
+  lineChart.update();
+
+  // Agent bar
+  const ab = data.agentBlockedCommands || [];
+  agentBarChart.data.labels = ab.map(a => a.agent);
+  agentBarChart.data.datasets[0].data = ab.map(a => a.blocked);
+  agentBarChart.update();
+
+  // Tool bar
+  const tb = data.toolCallBreakdown || [];
+  toolBarChart.data.labels = tb.map(t => t.tool);
+  toolBarChart.data.datasets[0].data = tb.map(t => t.count);
+  toolBarChart.update();
+
+  // MCP bar
+  const mcp = data.topMcpAndSkills || [];
+  mcpBarChart.data.labels = mcp.map(m => m.name);
+  mcpBarChart.data.datasets[0].data = mcp.map(m => m.calls);
+  mcpBarChart.data.datasets[1].data = mcp.map(m => m.blocked);
+  mcpBarChart.update();
+
+  // Top users
+  const users = data.topUsersByBlocks || [];
+  const maxBlocked = users.length > 0 ? users[0].blocked : 1;
+  document.getElementById('usersContainer').innerHTML = users.map((u, i) =>
+    '<div class="user-row">' +
+      '<span class="user-rank">' + (i+1) + '</span>' +
+      '<div class="user-info">' +
+        '<div class="user-top"><span class="user-id">' + u.userId + '</span>' +
+        '<span class="user-count">' + u.blocked + '</span></div>' +
+        '<div class="user-bar"><div class="user-bar-fill" style="width:' + (u.blocked/maxBlocked*100) + '%"></div></div>' +
+      '</div>' +
+      '<span class="user-seen">' + (u.lastSeen || '') + '</span>' +
+    '</div>'
+  ).join('');
+
+  // Top patterns
+  const patterns = data.topPatterns || [];
+  document.getElementById('patternsBody').innerHTML = patterns.map(p =>
+    '<tr>' +
+      '<td>' + (p.pattern || '') + '</td>' +
+      '<td style="color:#9ca3af">' + (CAT_LABELS[p.category] || p.category) + '</td>' +
+      '<td class="right" style="font-weight:500">' + (p.count || 0) + '</td>' +
+      '<td style="color:#9ca3af">' + (p.lastSeen || '') + '</td>' +
+      '<td><span class="sev-badge ' + sevClass(p.severity) + '">' + (p.severity || 'low') + '</span></td>' +
+    '</tr>'
+  ).join('');
+
+  // Live events
+  const events = data.liveEvents || [];
+  document.getElementById('eventsContainer').innerHTML = events.slice(0, 20).map(ev =>
+    '<div class="event-row">' +
+      '<span class="event-dot ' + (ev.verdict || 'allowed') + '"></span>' +
+      '<div style="flex:1;min-width:0">' +
+        '<div class="event-meta">' + (ev.ts || '') + ' &middot; ' + (ev.agent || '') + '</div>' +
+        '<div class="event-action">' + (ev.action || '') + '</div>' +
+      '</div>' +
+      '<span class="sev-badge ' + sevClass(ev.severity) + '">' + (ev.severity || 'low') + '</span>' +
+    '</div>'
+  ).join('');
+}
+
+async function fetchStats() {
+  try {
+    const res = await fetch('/api/stats');
+    if (!res.ok) return;
+    const data = await res.json();
+    updateDashboard(data);
+  } catch (e) {
+    console.error('[warden] fetch failed:', e);
+  }
+}
+
+initCharts();
+fetchStats();
+setInterval(fetchStats, 30000);
+</script>
+</body>
+</html>

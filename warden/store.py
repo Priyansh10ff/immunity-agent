@@ -360,3 +360,367 @@ def _truncate(value: str, max_length: int = 4000) -> str:
     if len(value) <= max_length:
         return value
     return f"{value[: max_length - 3]}..."
+
+
+# ── Dashboard aggregate stats ─────────────────────────────────────────────────
+
+_CATEGORY_MAP: Dict[str, str] = {
+    "prompt_injection":        "prompt_injection",
+    "jailbreak":               "jailbreak_attempt",
+    "remote_execution":        "tool_call_abuse",
+    "privilege_escalation":    "tool_call_abuse",
+    "db_modification":         "tool_call_abuse",
+    "rce_canary":              "tool_call_abuse",
+    "secret_exfiltration":     "secret_exfil",
+    "secret_access":           "secret_exfil",
+    "skill_risk":              "malicious_mcp",
+    "malicious_mcp":           "malicious_mcp",
+    "destructive_command":     "dangerous_command",
+    "dos_resource_exhaustion": "dangerous_command",
+    "persistence":             "dangerous_command",
+    "security_bypass":         "dangerous_command",
+    "dependency_risk":         "dangerous_command",
+}
+
+_DASH_CATEGORIES = [
+    "prompt_injection", "jailbreak_attempt", "tool_call_abuse",
+    "secret_exfil", "malicious_mcp", "dangerous_command",
+]
+
+_TYPE_LABEL: Dict[str, str] = {
+    "shell":        "bash",
+    "file_read":    "file_read",
+    "file_write":   "file_write",
+    "network":      "network",
+    "prompt":       "prompt",
+    "tool_result":  "tool_result",
+}
+
+
+def _relative_time_store(ts: str) -> str:
+    """Return a human-readable relative time string from an ISO timestamp."""
+    try:
+        from datetime import datetime, timezone
+        dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        now = datetime.now(timezone.utc)
+        diff = int((now - dt).total_seconds())
+        if diff < 60:
+            return f"{diff}s ago"
+        if diff < 3600:
+            return f"{diff // 60}m ago"
+        if diff < 86400:
+            return f"{diff // 3600}h ago"
+        return f"{diff // 86400}d ago"
+    except Exception:
+        return ts
+
+
+def _connect_ro(db_path: Path):
+    """Open a SQLite DB read-only; returns None if unavailable."""
+    try:
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        conn.row_factory = sqlite3.Row
+        return conn
+    except Exception:
+        return None
+
+
+def get_aggregate_stats(hours: int = 24) -> Dict[str, Any]:
+    """Query all registered workspace DBs and return dashboard-shaped data.
+
+    Returns empty/zero structures if no workspaces are registered or all DBs
+    are unavailable.
+    """
+    from collections import Counter
+    from datetime import datetime, timezone, timedelta
+
+    workspaces = list_registered_workspaces()
+
+    # Accumulators
+    active_sessions = 0
+    tool_calls_24h = 0
+    dangerous_prevented_24h = 0
+    tool_calls_prev = 0      # prior 24h window (for delta)
+    dangerous_prev = 0
+    active_prev = 0
+
+    threats_by_category: Counter = Counter()
+    agent_blocks: Counter = Counter()
+    tool_breakdown: Counter = Counter()
+
+    # keyed by date string → [total, flagged]
+    timeseries_acc: Dict[str, List[int]] = {}
+
+    patterns_acc: Dict[str, Dict[str, Any]] = {}  # key = title
+
+    live_events_raw: List[Dict[str, Any]] = []
+    top_users_acc: Dict[str, Dict[str, Any]] = {}
+    top_mcp_acc: Dict[str, Dict[str, Any]] = {}
+
+    for ws in workspaces:
+        db_path = get_db_path(ws)
+        conn = _connect_ro(db_path)
+        if conn is None:
+            continue
+        try:
+            # ── KPIs ──────────────────────────────────────────────────────
+            row = conn.execute(
+                "SELECT COUNT(*) FROM sessions WHERE updated_at >= datetime('now', ?)",
+                (f"-{hours} hours",),
+            ).fetchone()
+            active_sessions += (row[0] or 0)
+
+            row = conn.execute(
+                "SELECT COUNT(*) FROM sessions WHERE updated_at >= datetime('now', ?) "
+                "AND updated_at < datetime('now', ?)",
+                (f"-{hours * 2} hours", f"-{hours} hours"),
+            ).fetchone()
+            active_prev += (row[0] or 0)
+
+            row = conn.execute(
+                "SELECT COUNT(*) FROM events WHERE ts >= datetime('now', ?)",
+                (f"-{hours} hours",),
+            ).fetchone()
+            tool_calls_24h += (row[0] or 0)
+
+            row = conn.execute(
+                "SELECT COUNT(*) FROM events WHERE ts >= datetime('now', ?) "
+                "AND ts < datetime('now', ?)",
+                (f"-{hours * 2} hours", f"-{hours} hours"),
+            ).fetchone()
+            tool_calls_prev += (row[0] or 0)
+
+            row = conn.execute(
+                """
+                SELECT COUNT(*) FROM findings f
+                LEFT JOIN events e ON e.session_id = f.session_id
+                WHERE f.category IN ('destructive_command','dos_resource_exhaustion')
+                  AND e.ts >= datetime('now', ?)
+                """,
+                (f"-{hours} hours",),
+            ).fetchone()
+            dangerous_prevented_24h += (row[0] or 0)
+
+            row = conn.execute(
+                """
+                SELECT COUNT(*) FROM findings f
+                LEFT JOIN events e ON e.session_id = f.session_id
+                WHERE f.category IN ('destructive_command','dos_resource_exhaustion')
+                  AND e.ts >= datetime('now', ?)
+                  AND e.ts < datetime('now', ?)
+                """,
+                (f"-{hours * 2} hours", f"-{hours} hours"),
+            ).fetchone()
+            dangerous_prev += (row[0] or 0)
+
+            # ── Threats by category ───────────────────────────────────────
+            for row in conn.execute("SELECT category, COUNT(*) as cnt FROM findings GROUP BY category"):
+                dash_cat = _CATEGORY_MAP.get(row["category"] or "", "dangerous_command")
+                threats_by_category[dash_cat] += row["cnt"]
+
+            # ── Block rate timeseries (30 days) ───────────────────────────
+            for row in conn.execute(
+                """
+                SELECT date(e.ts) as day,
+                       COUNT(DISTINCT e.id) as total_events,
+                       COUNT(DISTINCT f.rowid) as flagged_events
+                FROM events e
+                LEFT JOIN findings f ON f.session_id = e.session_id
+                WHERE e.ts >= datetime('now', '-30 days')
+                GROUP BY day
+                """
+            ):
+                day = row["day"] or ""
+                if day not in timeseries_acc:
+                    timeseries_acc[day] = [0, 0]
+                timeseries_acc[day][0] += row["total_events"] or 0
+                timeseries_acc[day][1] += row["flagged_events"] or 0
+
+            # ── Agent blocked commands ────────────────────────────────────
+            for row in conn.execute(
+                """
+                SELECT s.agent, COUNT(f.finding_id) as blocked
+                FROM findings f JOIN sessions s ON s.session_id = f.session_id
+                GROUP BY s.agent
+                """
+            ):
+                agent = row["agent"] or "unknown"
+                agent_blocks[agent] += row["blocked"] or 0
+
+            # ── Tool call breakdown ───────────────────────────────────────
+            for row in conn.execute("SELECT type, COUNT(*) as count FROM events GROUP BY type"):
+                label = _TYPE_LABEL.get(row["type"] or "", row["type"] or "other")
+                tool_breakdown[label] += row["count"] or 0
+
+            # ── Top patterns ─────────────────────────────────────────────
+            for row in conn.execute(
+                """
+                SELECT f.title, f.category, f.severity,
+                       COUNT(*) as count, MAX(e.ts) as last_seen_ts
+                FROM findings f
+                LEFT JOIN events e ON e.session_id = f.session_id
+                GROUP BY f.title, f.category, f.severity
+                ORDER BY count DESC LIMIT 30
+                """
+            ):
+                title = row["title"] or "Unknown"
+                if title not in patterns_acc:
+                    patterns_acc[title] = {
+                        "pattern": title,
+                        "category": _CATEGORY_MAP.get(row["category"] or "", "dangerous_command"),
+                        "severity": (row["severity"] or "low").lower(),
+                        "count": 0,
+                        "lastSeen": "",
+                        "lastSeenTs": "",
+                    }
+                patterns_acc[title]["count"] += row["count"] or 0
+                ts = row["last_seen_ts"] or ""
+                if ts > patterns_acc[title]["lastSeenTs"]:
+                    patterns_acc[title]["lastSeenTs"] = ts
+                    patterns_acc[title]["lastSeen"] = _relative_time_store(ts) if ts else ""
+
+            # ── Live events ───────────────────────────────────────────────
+            for row in conn.execute(
+                """
+                SELECT e.ts, s.agent, e.type as action_type,
+                       e.command_text, e.path_text, e.url_text,
+                       f.severity,
+                       CASE WHEN f.finding_id IS NOT NULL THEN 'blocked' ELSE 'allowed' END as verdict
+                FROM events e
+                JOIN sessions s ON s.session_id = e.session_id
+                LEFT JOIN findings f ON f.session_id = e.session_id
+                WHERE e.ts >= datetime('now', '-24 hours')
+                ORDER BY e.ts DESC LIMIT 100
+                """
+            ):
+                action_parts = []
+                if row["action_type"]:
+                    action_parts.append(row["action_type"])
+                detail = row["command_text"] or row["path_text"] or row["url_text"] or ""
+                if detail:
+                    action_parts.append(detail[:60])
+                live_events_raw.append({
+                    "ts": (row["ts"] or "")[-8:] or "00:00:00",
+                    "agent": row["agent"] or "unknown",
+                    "action": ": ".join(action_parts) if action_parts else "event",
+                    "verdict": row["verdict"] or "allowed",
+                    "severity": (row["severity"] or "low").lower(),
+                })
+
+            # ── Top users by blocks ───────────────────────────────────────
+            for row in conn.execute(
+                """
+                SELECT substr(f.session_id, 1, 10) as userId,
+                       COUNT(f.finding_id) as blocked, MAX(e.ts) as last_seen_ts
+                FROM findings f
+                LEFT JOIN events e ON e.session_id = f.session_id
+                GROUP BY userId
+                ORDER BY blocked DESC LIMIT 10
+                """
+            ):
+                uid = row["userId"] or "unknown"
+                if uid not in top_users_acc:
+                    top_users_acc[uid] = {"userId": uid, "blocked": 0, "lastSeen": "", "lastSeenTs": ""}
+                top_users_acc[uid]["blocked"] += row["blocked"] or 0
+                ts = row["last_seen_ts"] or ""
+                if ts > top_users_acc[uid]["lastSeenTs"]:
+                    top_users_acc[uid]["lastSeenTs"] = ts
+                    top_users_acc[uid]["lastSeen"] = _relative_time_store(ts) if ts else ""
+
+            # ── Top MCP / skills ─────────────────────────────────────────
+            for row in conn.execute(
+                """
+                SELECT COALESCE(e.agent_event, e.type, 'unknown') as name,
+                       e.type,
+                       COUNT(*) as calls,
+                       COUNT(f.finding_id) as blocked
+                FROM events e
+                LEFT JOIN findings f ON f.session_id = e.session_id
+                GROUP BY name
+                ORDER BY calls DESC LIMIT 15
+                """
+            ):
+                name = row["name"] or "unknown"
+                if name not in top_mcp_acc:
+                    top_mcp_acc[name] = {
+                        "name": name,
+                        "type": "mcp" if "mcp" in name.lower() else "skill",
+                        "calls": 0,
+                        "blocked": 0,
+                    }
+                top_mcp_acc[name]["calls"] += row["calls"] or 0
+                top_mcp_acc[name]["blocked"] += row["blocked"] or 0
+
+        except Exception:
+            pass
+        finally:
+            conn.close()
+
+    # ── Deltas ────────────────────────────────────────────────────────────────
+    def _pct_delta(current: int, prior: int) -> float:
+        if prior == 0:
+            return 0.0
+        return round((current - prior) / prior * 100, 1)
+
+    # ── Block rate timeseries — fill 30-day window ────────────────────────────
+    today = datetime.now(timezone.utc).date()
+    timeseries: List[Dict[str, Any]] = []
+    for i in range(29, -1, -1):
+        day_date = today - timedelta(days=i)
+        day_str = day_date.isoformat()
+        total, flagged = timeseries_acc.get(day_str, [0, 0])
+        timeseries.append({
+            "date": day_str,
+            "intercepted": flagged,
+            "passed": max(0, total - flagged),
+        })
+
+    # ── Assemble threatsByCategory with all 6 keys always present ────────────
+    threats_out = {cat: threats_by_category.get(cat, 0) for cat in _DASH_CATEGORIES}
+
+    # ── Sort and trim ─────────────────────────────────────────────────────────
+    top_patterns = sorted(patterns_acc.values(), key=lambda x: x["count"], reverse=True)[:20]
+    for p in top_patterns:
+        p.pop("lastSeenTs", None)
+
+    top_users = sorted(top_users_acc.values(), key=lambda x: x["blocked"], reverse=True)[:10]
+    for u in top_users:
+        u.pop("lastSeenTs", None)
+
+    # Deduplicate live events (same ts+agent+action), keep 50
+    seen = set()
+    live_events_deduped = []
+    for ev in live_events_raw:
+        key = (ev["ts"], ev["agent"], ev["action"][:30])
+        if key not in seen:
+            seen.add(key)
+            live_events_deduped.append(ev)
+        if len(live_events_deduped) >= 50:
+            break
+
+    return {
+        "kpis": {
+            "activeSessions": active_sessions,
+            "toolCallsInspected24h": tool_calls_24h,
+            "dangerousCommandsPrevented24h": dangerous_prevented_24h,
+            "deltas": {
+                "threats": _pct_delta(sum(threats_out.values()), 0),
+                "tools": _pct_delta(tool_calls_24h, tool_calls_prev),
+                "dangerous": _pct_delta(dangerous_prevented_24h, dangerous_prev),
+            },
+        },
+        "threatsByCategory": threats_out,
+        "blockRateTimeseries": timeseries,
+        "agentBlockedCommands": [
+            {"agent": agent, "blocked": count}
+            for agent, count in agent_blocks.most_common(10)
+        ],
+        "toolCallBreakdown": [
+            {"tool": tool, "count": count}
+            for tool, count in tool_breakdown.most_common(10)
+        ],
+        "topPatterns": top_patterns,
+        "liveEvents": live_events_deduped,
+        "topUsersByBlocks": top_users,
+        "topMcpAndSkills": sorted(top_mcp_acc.values(), key=lambda x: x["calls"], reverse=True)[:15],
+    }
