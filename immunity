@@ -1,0 +1,17 @@
+#!/usr/bin/env python3
+"""immunity — supply chain enforcement wrapper.
+
+Usage: immunity <package-manager> <command> [args...]
+
+  immunity npm install express
+  immunity pip install requests
+  immunity pnpm add lodash
+  immunity cargo add serde
+"""
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from supplychain.cli import main
+
+main()
