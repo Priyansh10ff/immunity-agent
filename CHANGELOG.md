@@ -4,6 +4,31 @@ All notable changes to Immunity Agent (Prismor Warden) are documented here.
 The format loosely follows [Keep a Changelog](https://keepachangelog.com/)
 and the project uses [Semantic Versioning](https://semver.org/).
 
+## [1.4.0] — 2026-05-12
+
+Supply Chain Enforcement — `immunity` CLI. Intercepts package manager install
+commands before execution, scores each package against live threat intelligence,
+and blocks or warns based on risk signals. Ships with IOC coverage for the
+mini-shai-hulud attack (May 11 2026) out of the box.
+
+### Added
+
+- **`immunity` CLI wrapper** — shebang script at repo root intercepts
+  `npm/pip/pnpm/uv/cargo/go install` commands before execution.
+- **`supplychain/ecosystems/detector.py`** — parses install argv into a
+  structured `InstallEvent` across 9 ecosystems.
+- **`supplychain/ecosystems/metadata.py`** — fetches npm and PyPI registry
+  metadata (age, maintainers, install scripts); stdlib only, fail-open.
+- **`supplychain/scoring/engine.py`** — additive signal scorer producing
+  allow/warn/block verdicts.
+- **`supplychain/ioc.py`** — IOC database covering `@tanstack/*`,
+  `@mistralai/mistralai` 1.7.1–2.2.4, C2 domains (`getsession.org`,
+  `masscan.cloud`), and install script patterns (Bun download,
+  `router_init.js`, credential env var access, persistence writes).
+- **`docs/supply-chain.md`** — full documentation: usage, scoring table,
+  ecosystem support, IOC advisory for mini-shai-hulud, guide for adding new
+  IOCs, internal architecture.
+
 ## [1.3.0] — 2026-05-11
 
 Web Dashboard — `warden serve`. Introduces a local HTTP API server and
