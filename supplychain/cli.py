@@ -161,13 +161,6 @@ def main() -> None:
     feed = _load_feed()
     feed_hits = _check_feed(event.packages, feed)
 
-    # Boost score for any feed hit (adds context, doesn't add a new scoring path)
-    hit_names = {h["advisory_id"] for h in feed_hits}
-    if feed_hits:
-        # Mark which verdicts had a feed match for display — scoring already
-        # reflects dependency_risk category via existing feed.py mapping.
-        pass
-
     _print_report(event, verdicts, feed_hits)
 
     # ── Decision ──────────────────────────────────────────────────────────────

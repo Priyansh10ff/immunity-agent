@@ -172,10 +172,16 @@ def is_c2_domain(domain: str) -> bool:
 # ── Internal helpers ──────────────────────────────────────────────────────────
 
 def _in_range(version: str, min_v: str, max_v: str) -> bool:
-    """Simple semver tuple comparison (major.minor.patch)."""
+    """Simple semver tuple comparison (major.minor.patch).
+
+    Pre-release suffixes (1.7.1-rc1, 2.0.0-beta.1) are stripped before
+    comparison so compromised pre-release builds aren't silently skipped.
+    """
     try:
         def _t(v: str) -> tuple:
-            return tuple(int(x) for x in v.split(".")[:3])
+            # Strip pre-release/build suffix: "1.7.1-rc1" → "1.7.1"
+            core = v.split("-")[0].split("+")[0]
+            return tuple(int(x) for x in core.split(".")[:3])
         return _t(min_v) <= _t(version) <= _t(max_v)
     except (ValueError, TypeError):
         return False

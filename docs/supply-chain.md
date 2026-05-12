@@ -64,9 +64,11 @@ Each package is scored additively. IOC matches bypass the threshold and force a 
 | tarball install bypasses registry | +25 |
 | Package published < 7 days ago | +25 |
 | Package published < 30 days ago | +15 |
+| Has postinstall/preinstall script | +20 |
 | Single maintainer | +10 |
 | Custom `--registry` flag | +10 |
 | Local path dependency | +10 |
+| Maintainer data unavailable | +8 |
 
 **Verdicts:** `< 30` allow · `30–59` warn · `≥ 60` block
 
