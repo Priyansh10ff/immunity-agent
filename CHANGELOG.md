@@ -4,6 +4,37 @@ All notable changes to Immunity Agent (Prismor Warden) are documented here.
 The format loosely follows [Keep a Changelog](https://keepachangelog.com/)
 and the project uses [Semantic Versioning](https://semver.org/).
 
+## [1.3.0] — 2026-05-11
+
+Web Dashboard — `warden serve`. Introduces a local HTTP API server and
+self-contained browser dashboard that aggregates session, findings, and event
+data from all registered workspaces.
+
+### Added
+
+- **`warden serve` command** (`warden/server.py`, `warden/dashboard.html`).
+  Starts a local HTTP server (default `127.0.0.1:7070`) serving a
+  self-contained Prismor Warden dashboard. Accepts `--host` and `--port` flags.
+- **Dashboard UI** with severity breakdown strip (critical/high/medium/low
+  counts), recent sessions table with risk-score bars, and a findings drilldown
+  with agent/severity/category filters, free-text search, and expandable
+  evidence rows showing raw command/path and session ID.
+- **Server-side pagination** for sessions (`/api/sessions`), findings
+  (`/api/findings`), and events (`/api/events`) — each endpoint accepts
+  `page`, `limit`, sort, and filter query params; returns
+  `{items, total, page, pages, limit}`.
+- **Live event feed** with verdict (blocked/allowed) and agent filter controls;
+  auto-poll pauses when user has active filters or is past page 1.
+- **`get_sessions_page()`, `get_findings_page()`, `get_events_page()`** added
+  to `warden/store.py`; `get_aggregate_stats()` extended with
+  `severityBreakdown`, `recentSessions`, and `recentFindings`.
+
+### Fixed
+
+- **XSS prevention in dashboard**: replaced all `innerHTML` string
+  concatenation with a `safe()` helper that text-encodes untrusted values
+  before inserting them into the DOM.
+
 ## [1.2.0] — 2026-04-27
 
 Tier 3 — Scoped Agent and Session-Based Learning. Adds per-session rule
