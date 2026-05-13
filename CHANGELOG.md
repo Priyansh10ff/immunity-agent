@@ -4,6 +4,38 @@ All notable changes to Immunity Agent (Prismor Warden) are documented here.
 The format loosely follows [Keep a Changelog](https://keepachangelog.com/)
 and the project uses [Semantic Versioning](https://semver.org/).
 
+## [1.5.0] — 2026-05-13
+
+Expanded IOC coverage and prompt injection defense.
+
+### Added
+
+- **Prompt injection defense** (`warden/sanitizer.py`, `warden/policy_engine.py`):
+  - `sanitizer.py` — structural HTML detector catching injections hidden in HTML
+    comments, CSS-invisible elements (`display:none`, `visibility:hidden`,
+    `font-size:0`, transparent color), `aria-hidden` elements, and zero-width
+    character obfuscation. Complement to YAML regex rules.
+  - `_TaintStore` — per-session taint state persisted across hook invocations.
+    Once a prompt injection is detected, all subsequent network calls in the
+    session are escalated to CRITICAL, closing the response-blind exfiltration gap.
+  - `_check_cloaked_secrets_in_url` — checks enrolled cloaking secrets against
+    outbound URLs regardless of key shape (fills the gap the YAML patterns can't cover).
+  - Two new CRITICAL policy rules: `prompt-injection-hidden` and `secret-in-url-params`
+    (covers Anthropic, OpenAI, GitHub, AWS, Slack, Google, Stripe key shapes).
+
+- **Expanded mini-shai-hulud IOC coverage** (`supplychain/ioc.py`):
+  - New compromised namespaces: `@opensearch-project/*` (1.3M weekly downloads),
+    `@uipath/*` (65 packages).
+  - New PyPI packages: `mistralai==2.4.6`, `guardrails-ai==0.10.1`.
+  - New C2 domain: `git-tanstack.com` (Cloudflare-flagged phishing domain).
+  - New payload hash: `tanstack_runner.js` (SHA-256 `ce7e4199...`).
+  - New script patterns: AWS IMDS probe (`169.254.169.254`), HashiCorp Vault
+    probe (`127.0.0.1:8200`), GitHub GraphQL worm propagation
+    (`createCommitOnBranch`), token regexes (`ghp_*`, `npm_*`), and new
+    persistence paths (`.claude/setup.mjs`, `.claude/router_runtime.js`,
+    `.vscode/setup.mjs`).
+  - Attribution: TeamPCP — same actor as March 2026 Trivy supply chain compromise.
+
 ## [1.4.0] — 2026-05-12
 
 Supply Chain Enforcement — `immunity` CLI. Intercepts package manager install
