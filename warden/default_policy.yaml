@@ -167,6 +167,27 @@ rules:
       - '(ignore\s+(all\s+)?(any\s+)?(previous\s+)?instructions|reveal (your|the) system prompt|developer instructions|exfiltrat(e|ion)|print .*secret|show .*token|bypass guardrails|jailbreak)'
     action: block
 
+  # ── CRITICAL: Prompt injection hidden in HTML/CSS/invisible chars ─────
+  # Catches payloads that survive the naive regex above because they are
+  # wrapped in HTML comments, rendered invisible via CSS, or placed inside
+  # aria-hidden elements. Zero-width-char obfuscation is caught by the
+  # sanitizer module (warden/sanitizer.py) which runs on the raw response
+  # outside the YAML rule engine.
+  - id: prompt-injection-hidden
+    severity: CRITICAL
+    category: prompt_injection
+    title: Detects prompt injection hidden in HTML comments, CSS-invisible elements, or aria-hidden elements
+    event_types: [tool_result]
+    fields: [combined_text]
+    patterns:
+      # Injection keyword inside an HTML comment: <!-- ... ignore previous instructions ... -->
+      - '<!--.*?(?:ignore\s+(?:all\s+)?(?:any\s+)?(?:previous\s+)?instructions|disregard\s+(?:all\s+)?(?:previous\s+)?(?:instructions|rules)|forget\s+(?:everything|all\s+previous|your\s+instructions)|new\s+(?:primary\s+)?instruction|reveal\s+(?:your\s+)?(?:system\s+prompt|api\s+key|secret|token)|exfiltrat|fetch\s+https?://).*?-->'
+      # Injection text following a CSS-hidden style attribute (avoids quote-char class issues)
+      - 'style=[^>]*(?:display\s*:\s*none|visibility\s*:\s*hidden|font-size\s*:\s*0)[^>]*>[^<]{0,400}(?:ignore\s+(?:all\s+)?(?:previous\s+)?instructions|exfiltrat|fetch\s+https?://)'
+      # Injection text inside an aria-hidden element (.true. matches "true" or ''true'')
+      - 'aria-hidden\s*=\s*.true.[^>]*>[^<]{0,300}(?:ignore\s+(?:all\s+)?(?:any\s+)?(?:previous\s+)?instructions|disregard|new\s+instruction|exfiltrat|fetch\s+https?://)'
+    action: block
+
   # ── HIGH: Remote fetch-and-execute ────────────────────────────────────
   - id: remote-execution
     severity: HIGH
@@ -199,6 +220,35 @@ rules:
     fields: [url]
     patterns:
       - '(webhook\.site|ngrok-free\.app|ngrok\.io|pastebin\.com|discord(app)?\.com/api/webhooks|transfer\.sh)'
+    action: block
+
+  # ── CRITICAL: API key or token in outbound URL parameters ─────────────
+  # Catches the response-blind exfiltration pattern where a prompt-injected
+  # agent sends a secret as a URL query parameter. The attacker only needs
+  # the outbound request to hit their server — they never read a response.
+  # Patterns match well-known API key shapes; the policy engine also checks
+  # enrolled cloaking secrets dynamically (any shape, no pattern needed).
+  - id: secret-in-url-params
+    severity: CRITICAL
+    category: secret_exfiltration
+    title: API key or token detected in outbound URL parameters
+    event_types: [network]
+    fields: [url]
+    patterns:
+      # Anthropic / OpenAI style keys (sk-... prefix, 30+ chars)
+      - '[?&][^=&\s]+=sk-(?:ant-api03-|proj-)?[a-zA-Z0-9_-]{30,}'
+      # Generic sk- keys (e.g. older OpenAI format)
+      - '[?&][^=&\s]+=sk-[a-zA-Z0-9]{32,}'
+      # GitHub personal access tokens (classic and fine-grained)
+      - '[?&][^=&\s]+=(?:ghp|gho|ghs|ghr|github_pat)_[a-zA-Z0-9_]{20,}'
+      # AWS access key ID
+      - '[?&][^=&\s]+=AKIA[A-Z0-9]{16}'
+      # Slack tokens
+      - '[?&][^=&\s]+=xox[bpas]-[0-9]+-[a-zA-Z0-9-]+'
+      # Google API keys
+      - '[?&][^=&\s]+=AIza[0-9A-Za-z_-]{35}'
+      # Stripe live/test keys
+      - '[?&][^=&\s]+=sk_(?:live|test)_[a-zA-Z0-9]{24,}'
     action: block
 
   # ── HIGH: Database modification ───────────────────────────────────────
