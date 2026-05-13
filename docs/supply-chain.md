@@ -96,23 +96,40 @@ The IOC database lives in [`supplychain/ioc.py`](../supplychain/ioc.py). It is c
 
 ### Active advisories
 
-**mini-shai-hulud - May 11, 2026**
+**mini-shai-hulud - May 11, 2026** (attribution: TeamPCP)
 
-GitHub Actions pwn-request against `TanStack/router` triggered a `pull_request_target` workflow with base repository permissions. The attacker poisoned the pnpm cache (1.1 GB entry) and extracted OIDC tokens directly from the runner's memory, then used them to publish backdoored packages with valid SLSA Build Level 3 attestations.
+GitHub Actions pwn-request against `TanStack/router` triggered a `pull_request_target` workflow with base repository permissions. The attacker poisoned the pnpm cache (1.1 GB entry) via malicious commit `79ac49ee`, extracted OIDC tokens directly from runner memory, then published backdoored packages with valid SLSA Build Level 3 attestations.
 
-Affected packages:
-- `@tanstack/*` - 42 packages, 84 versions (all published May 11 2026)
-- `@mistralai/mistralai` - versions 1.7.1–2.2.4
+Affected packages (170+ total):
 
-Payload: 2.3 MB Bun-based credential harvester (`router_init.js`, SHA-256 `ab4fcadaec49c03278063dd269ea5eef82d24f2124a8e15d7b90f2fa8601266c`). Targets GitHub Actions secrets, AWS credentials, Kubernetes service accounts, and AI developer tool configs.
+| Package | Ecosystem | Compromised versions |
+|---|---|---|
+| `@tanstack/*` | npm | all versions published May 11 2026 (42 packages) |
+| `@opensearch-project/*` | npm | all versions published May 11 2026 |
+| `@uipath/*` | npm | all versions published May 11 2026 (65 packages) |
+| `@mistralai/mistralai` | npm | 1.7.1 - 2.2.4 |
+| `mistralai` | PyPI | 2.4.6 (legitimate latest: 2.4.5) |
+| `guardrails-ai` | PyPI | 0.10.1 (legitimate latest: 0.10.0) |
 
-C2 infrastructure: `*.getsession.org` (Session Protocol), `api.masscan.cloud`
+npm delivery: `preinstall` hook runs `setup.mjs`, downloads Bun runtime, executes `router_init.js` / `tanstack_runner.js` via `optionalDependencies` pointing to malicious GitHub commits.
 
-Persistence: `.claude/settings.json`, `.vscode/tasks.json`, system deadman's switch service
+PyPI delivery: payload injected into `__init__.py`, downloads `/tmp/transformers.pyz` on import.
 
-> Note: Valid SLSA Build Level 3 attestations do **not** protect against this attack. The attacker held legitimate OIDC tokens at publish time, so provenance signatures are cryptographically valid but meaningless. This is the first documented npm worm to produce valid SLSA attestations.
+Credential targets: GitHub tokens (`ghp_*`, `gho_*`, `ghs_*`), npm publish tokens (`npm_*`), AWS IAM (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`), AWS instance metadata (`169.254.169.254`), HashiCorp Vault (`127.0.0.1:8200`), Kubernetes service accounts.
 
-References: [Prismor blog](https://prismor.dev/blog/tanstack-mistral-mini-shai-hulud-supply-chain) · [Snyk](https://snyk.io/blog/tanstack-npm-packages-compromised/)
+C2 infrastructure: `filev2.getsession.org` (Session Protocol exfiltration), `git-tanstack.com` (phishing domain, Cloudflare-flagged). Secondary C2 via GitHub GraphQL - encodes instructions in commit messages, exfiltrates via repo contents API.
+
+Worm propagation: uses `createCommitOnBranch` GraphQL mutation to commit poisoned `.vscode/setup.mjs` and `.claude/setup.mjs` to feature branches, spreading to other developers who pull the branch.
+
+Persistence: `.claude/settings.json`, `.claude/setup.mjs`, `.claude/router_runtime.js`, `.vscode/tasks.json`, `.vscode/setup.mjs`
+
+Known payload hashes (SHA-256):
+- `ab4fcadaec49c03278063dd269ea5eef82d24f2124a8e15d7b90f2fa8601266c` - `router_init.js`
+- `ce7e4199506959fd7a71b64209b2c07b9c82e53a946aa7d78298dc9249230d01` - `tanstack_runner.js`
+
+> Valid SLSA Build Level 3 attestations do **not** protect against this attack. The attacker held legitimate OIDC tokens at publish time. This is the first documented npm worm to produce valid SLSA attestations. Same threat actor (TeamPCP) was responsible for the March 2026 Trivy supply chain compromise.
+
+References: [Prismor](https://prismor.dev/blog/tanstack-mistral-mini-shai-hulud-supply-chain) - [Snyk](https://snyk.io/blog/tanstack-npm-packages-compromised/) - [SafeDep](https://safedep.io/mass-npm-supply-chain-attack-tanstack-mistral/)
 
 ---
 
