@@ -137,6 +137,21 @@ def initialize_database(workspace: Path) -> Path:
                 enrichment_json TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_findings_session_id ON findings(session_id);
+            CREATE TABLE IF NOT EXISTS supply_chain_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts TEXT NOT NULL,
+                workspace_path TEXT,
+                ecosystem TEXT,
+                package_name TEXT,
+                package_version TEXT,
+                install_cmd TEXT,
+                verdict TEXT,
+                score INTEGER,
+                signals_json TEXT,
+                ioc_id TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_sc_ts ON supply_chain_events(ts);
+            CREATE INDEX IF NOT EXISTS idx_sc_verdict ON supply_chain_events(verdict);
             """
         )
         # Add learning tables (Tier 3: Session-Based Learning)
@@ -977,4 +992,216 @@ def get_events_page(
     return {
         "items": items, "total": total, "page": page, "pages": pages, "limit": limit,
         "agents": all_agents,
+    }
+
+
+# ── Supply chain store ────────────────────────────────────────────────────────
+
+def write_supply_chain_event(
+    *,
+    workspace: Path,
+    session_id: str,
+    ts: str,
+    ecosystem: str,
+    install_cmd: str,
+    verdicts: list,
+) -> None:
+    """Record immunity CLI scoring results into the warden DB. Fail-open."""
+    import uuid as _uuid
+    try:
+        db_path = initialize_database(workspace)
+        conn = sqlite3.connect(db_path)
+        try:
+            cursor = conn.cursor()
+
+            n_findings = sum(1 for v in verdicts if v.verdict in ("block", "warn"))
+            max_score = max((v.score for v in verdicts), default=0)
+            cursor.execute(
+                """
+                INSERT OR IGNORE INTO sessions (
+                    session_id, agent, source, workspace_path,
+                    started_at, updated_at, risk_score, findings_count, summary_json
+                ) VALUES (?, 'immunity-cli', 'supply_chain', ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    session_id, str(workspace), ts, ts,
+                    max_score, n_findings,
+                    json.dumps({"ecosystem": ecosystem}),
+                ),
+            )
+
+            for v in verdicts:
+                ioc_id = next(
+                    (s.id[len("ioc_"):] for s in v.signals if s.id.startswith("ioc_")),
+                    None,
+                )
+                cursor.execute(
+                    """
+                    INSERT INTO events (
+                        session_id, ts, type, agent_event, command_text, raw_json
+                    ) VALUES (?, ?, 'supply_chain', ?, ?, ?)
+                    """,
+                    (
+                        session_id, ts, ecosystem, install_cmd,
+                        json.dumps({
+                            "package": v.spec.raw,
+                            "ecosystem": ecosystem,
+                            "verdict": v.verdict,
+                            "score": v.score,
+                        }),
+                    ),
+                )
+                cursor.execute(
+                    """
+                    INSERT INTO supply_chain_events (
+                        ts, workspace_path, ecosystem, package_name, package_version,
+                        install_cmd, verdict, score, signals_json, ioc_id
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        ts, str(workspace), ecosystem,
+                        v.spec.name,
+                        getattr(v.meta, "version", None) or "",
+                        install_cmd,
+                        v.verdict,
+                        v.score,
+                        json.dumps([
+                            {"id": s.id, "points": s.points, "description": s.description}
+                            for s in v.signals
+                        ]),
+                        ioc_id,
+                    ),
+                )
+
+                if v.verdict in ("block", "warn"):
+                    top = next(iter(sorted(v.signals, key=lambda s: s.points, reverse=True)), None)
+                    has_ioc = any(s.id.startswith("ioc_") for s in v.signals)
+                    severity = "CRITICAL" if has_ioc else ("HIGH" if v.score >= 60 else "MEDIUM")
+                    cursor.execute(
+                        """
+                        INSERT INTO findings (
+                            finding_id, session_id, severity, category, title, evidence
+                        ) VALUES (?, ?, ?, 'supply_chain_block', ?, ?)
+                        """,
+                        (
+                            str(_uuid.uuid4()),
+                            session_id,
+                            severity,
+                            f"{v.verdict.upper()}: {v.spec.raw} [{ecosystem}] score {v.score}",
+                            "; ".join(s.description for s in v.signals[:3]),
+                        ),
+                    )
+
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception:
+        pass
+
+
+def get_supply_chain_stats(hours: int = 24) -> Dict[str, Any]:
+    """Aggregate supply chain enforcement data across all registered workspaces."""
+    from collections import Counter
+
+    workspaces = list_registered_workspaces()
+
+    checked_24h = 0
+    blocked_24h = 0
+    warned_24h = 0
+    ecosystem_total: Counter = Counter()
+    ecosystem_blocked: Counter = Counter()
+    pkg_blocks: Counter = Counter()
+    pkg_ecosystem: Dict[str, str] = {}
+    pkg_ioc: Dict[str, str] = {}
+    recent_blocks: list = []
+
+    for ws in workspaces:
+        db_path = get_db_path(ws)
+        conn = _connect_ro(db_path)
+        if conn is None:
+            continue
+        try:
+            for row in conn.execute(
+                "SELECT verdict, COUNT(*) as cnt FROM supply_chain_events "
+                "WHERE ts >= datetime('now', ?) GROUP BY verdict",
+                (f"-{hours} hours",),
+            ):
+                v = row["verdict"] or "allow"
+                if v == "block":
+                    blocked_24h += row["cnt"]
+                elif v == "warn":
+                    warned_24h += row["cnt"]
+                checked_24h += row["cnt"]
+
+            for row in conn.execute(
+                "SELECT ecosystem, verdict, COUNT(*) as cnt "
+                "FROM supply_chain_events GROUP BY ecosystem, verdict"
+            ):
+                eco = row["ecosystem"] or "unknown"
+                ecosystem_total[eco] += row["cnt"]
+                if row["verdict"] == "block":
+                    ecosystem_blocked[eco] += row["cnt"]
+
+            for row in conn.execute(
+                "SELECT package_name, ecosystem, ioc_id, COUNT(*) as cnt "
+                "FROM supply_chain_events WHERE verdict='block' "
+                "GROUP BY package_name ORDER BY cnt DESC LIMIT 20"
+            ):
+                name = row["package_name"] or ""
+                pkg_blocks[name] += row["cnt"]
+                pkg_ecosystem[name] = row["ecosystem"] or ""
+                if row["ioc_id"] and name not in pkg_ioc:
+                    pkg_ioc[name] = row["ioc_id"]
+
+            for row in conn.execute(
+                "SELECT ts, package_name, ecosystem, score, signals_json, verdict "
+                "FROM supply_chain_events WHERE verdict IN ('block','warn') "
+                "ORDER BY ts DESC LIMIT 60"
+            ):
+                try:
+                    sigs = json.loads(row["signals_json"] or "[]")
+                except Exception:
+                    sigs = []
+                recent_blocks.append({
+                    "ts": _relative_time_store(row["ts"]) if row["ts"] else "",
+                    "package": row["package_name"] or "",
+                    "ecosystem": row["ecosystem"] or "",
+                    "score": row["score"] or 0,
+                    "verdict": row["verdict"] or "block",
+                    "reason": sigs[0]["description"][:80] if sigs else "",
+                })
+        except Exception:
+            pass
+        finally:
+            conn.close()
+
+    recent_blocks.sort(key=lambda x: x.get("ts", ""), reverse=False)
+    recent_blocks = recent_blocks[:30]
+
+    top_blocked = sorted(pkg_blocks, key=lambda k: pkg_blocks[k], reverse=True)[:10]
+
+    return {
+        "kpis": {
+            "checkedPackages24h": checked_24h,
+            "blockedPackages24h": blocked_24h,
+            "warnedPackages24h": warned_24h,
+        },
+        "ecosystemBreakdown": [
+            {
+                "ecosystem": eco,
+                "total": ecosystem_total[eco],
+                "blocked": ecosystem_blocked.get(eco, 0),
+            }
+            for eco in sorted(ecosystem_total, key=lambda k: ecosystem_total[k], reverse=True)
+        ],
+        "topBlockedPackages": [
+            {
+                "name": name,
+                "ecosystem": pkg_ecosystem.get(name, ""),
+                "count": pkg_blocks[name],
+                "iocId": pkg_ioc.get(name, ""),
+            }
+            for name in top_blocked
+        ],
+        "recentBlocks": recent_blocks,
     }

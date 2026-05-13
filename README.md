@@ -79,6 +79,30 @@ flowchart TD
 
 ---
 
+## Supply Chain Enforcement
+
+The `immunity` CLI wraps your package manager and evaluates every install against live threat intelligence before it runs. Ships with IOC coverage for the **mini-shai-hulud** attack (May 11 2026).
+
+```bash
+immunity npm install express                    # resolves cleanly, execs npm
+immunity npm install @tanstack/react-router     # BLOCK — IOC match (score 100)
+immunity pip install requests numpy             # resolves cleanly, execs pip
+immunity pnpm add lodash
+immunity uv add fastapi
+immunity cargo add serde
+```
+
+Any command that isn't a recognised package install passes through transparently, so you can alias your package managers:
+
+```bash
+alias npm="python3 /path/to/immunity-agent/immunity npm"
+alias pip="python3 /path/to/immunity-agent/immunity pip"
+```
+
+Verdicts are additive: `< 30` allow · `30–59` warn · `≥ 60` block. IOC matches force a block regardless of score. See [docs/supply-chain.md](docs/supply-chain.md) for the full scoring table, ecosystem support, and how to add new IOCs.
+
+---
+
 ## Self-Hosted Dashboard
 
 Warden includes a built-in web dashboard that visualizes session data from your local workspace DBs. No cloud, no external services — everything runs on your machine.
@@ -106,6 +130,7 @@ The server reads from all workspaces registered via `warden install-hooks`. If n
 ## Capabilities
 
 - 🛡️ [Warden](docs/warden.md) covers the policy engine, session logs, security audit, and CLI reference
+- 📦 [Supply Chain](docs/supply-chain.md) covers install-time enforcement, IOC matching, and risk scoring
 - 🛜 [Network Isolation](docs/network-isolation.md) covers egress allowlists, raw IP detection, and tunnel blocking
 - 🔍 [Skill Scanner](docs/skill-scanner.md) covers MCP server and skill risk scanning across supported agents
 - 🔐 [Sweep and Cloak](docs/sweep-and-cloak.md) covers secret prevention at tool boundaries and cleanup for leaked secrets
