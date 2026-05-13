@@ -1,15 +1,25 @@
 """IOC (Indicators of Compromise) database for known supply chain attacks.
 
-Mini Shai-Hulud — May 11, 2026
+Mini Shai-Hulud - May 11, 2026
   TanStack/router GitHub Actions pwn-request + pnpm cache poisoning
-  → OIDC token extraction → npm publish with valid SLSA Build Level 3 attestations
-  → preinstall scripts deliver Bun runtime + 2.3 MB credential harvester (router_init.js)
-  → exfiltration via *.getsession.org and api.masscan.cloud
-  → persistence: .claude/settings.json, .vscode/tasks.json, system deadman's switch
+  -> OIDC token extraction -> npm publish with valid SLSA Build Level 3 attestations
+  -> preinstall scripts deliver Bun runtime + credential harvester (router_init.js,
+     tanstack_runner.js) via setup.mjs + optionalDependencies pointing to malicious
+     GitHub commits
+  -> PyPI variant: mistralai==2.4.6 and guardrails-ai==0.10.1 inject into __init__.py,
+     download transformers.pyz on import
+  -> exfiltration via filev2.getsession.org, git-tanstack.com
+  -> probes AWS metadata (169.254.169.254) and HashiCorp Vault (127.0.0.1:8200)
+  -> GitHub GraphQL C2: encodes instructions in commit messages, exfiltrates via
+     repo contents, worm-spreads via createCommitOnBranch to feature branches
+  -> persistence: .claude/settings.json, .claude/setup.mjs, .claude/router_runtime.js,
+     .vscode/tasks.json, .vscode/setup.mjs
+  -> attribution: TeamPCP - same actor as March 2026 Trivy supply chain compromise
 
 References:
   https://prismor.dev/blog/tanstack-mistral-mini-shai-hulud-supply-chain
   https://snyk.io/blog/tanstack-npm-packages-compromised/
+  https://safedep.io/mass-npm-supply-chain-attack-tanstack-mistral/
 """
 from __future__ import annotations
 
@@ -24,46 +34,102 @@ class IOCMatch:
     severity: str          # "CRITICAL" | "HIGH"
     description: str
     attack_name: str
-    force_block: bool = True   # bypass score threshold — always block
+    force_block: bool = True   # bypass score threshold - always block
 
 
 # ── Compromised package version ranges ───────────────────────────────────────
-# Maps exact package name → list of affected version ranges.
+# Maps exact package name (npm or pypi) -> list of affected version ranges.
 _COMPROMISED_VERSIONS: dict = {
+    # npm
     "@mistralai/mistralai": [
         {
             "min": "1.7.1", "max": "2.2.4",
             "attack": "mini-shai-hulud-2026-05-11",
-            "note": "84 compromised versions published May 11 2026 via CI cache poisoning",
+            "note": "compromised versions published May 11 2026 via CI cache poisoning",
+        }
+    ],
+    # PyPI - version-bumped fakes published alongside npm attack
+    "mistralai": [
+        {
+            "min": "2.4.6", "max": "2.4.6",
+            "attack": "mini-shai-hulud-2026-05-11",
+            "note": (
+                "PyPI mistralai==2.4.6 is malicious (legitimate latest is 2.4.5). "
+                "Payload injected into __init__.py, downloads /tmp/transformers.pyz on import."
+            ),
+        }
+    ],
+    "guardrails-ai": [
+        {
+            "min": "0.10.1", "max": "0.10.1",
+            "attack": "mini-shai-hulud-2026-05-11",
+            "note": (
+                "PyPI guardrails-ai==0.10.1 is malicious (legitimate latest is 0.10.0). "
+                "Payload injected into __init__.py, downloads /tmp/transformers.pyz on import."
+            ),
         }
     ],
 }
 
-# Namespaces where ALL versions published on the attack date are suspect.
-# Format: namespace_prefix → {attack, affected_date, note}
+# ── Compromised namespaces ────────────────────────────────────────────────────
+# All versions published under these prefixes on or after the attack date are suspect.
 _COMPROMISED_NAMESPACES: dict = {
     "@tanstack/": {
         "attack": "mini-shai-hulud-2026-05-11",
         "affected_date": "2026-05-11",
         "note": (
-            "42 @tanstack/* packages compromised May 11 2026 via CI/CD cache poisoning. "
-            "Verify SLSA attestations do NOT protect against this — attacker held valid "
-            "OIDC tokens at publish time."
+            "42 @tanstack/* packages compromised May 11 2026 via CI/CD cache poisoning "
+            "via malicious commit tanstack/router@79ac49ee. "
+            "SLSA attestations do NOT protect against this - attacker held valid OIDC tokens."
+        ),
+    },
+    "@opensearch-project/": {
+        "attack": "mini-shai-hulud-2026-05-11",
+        "affected_date": "2026-05-11",
+        "note": (
+            "@opensearch-project/* packages affected (1.3M+ weekly downloads). "
+            "Compromised May 11 2026 as part of the same campaign."
+        ),
+    },
+    "@uipath/": {
+        "attack": "mini-shai-hulud-2026-05-11",
+        "affected_date": "2026-05-11",
+        "note": (
+            "@uipath/* - 65 packages compromised May 11 2026 as part of the same campaign."
         ),
     },
 }
 
 # ── C2 infrastructure ─────────────────────────────────────────────────────────
-# Domain suffixes — matches the root domain and any subdomain.
+# Domain suffixes - matches the root domain and any subdomain.
 C2_DOMAINS: frozenset = frozenset({
-    "getsession.org",    # Session Protocol relay network — *.getsession.org
-    "masscan.cloud",     # api.masscan.cloud credential receiver
+    "getsession.org",      # filev2.getsession.org - Session Protocol exfiltration endpoint
+    "masscan.cloud",       # api.masscan.cloud - credential receiver (earlier reporting)
+    "git-tanstack.com",    # phishing/C2 domain (Cloudflare-flagged) - mini-shai-hulud
 })
+
+# ── Internal infrastructure probes ───────────────────────────────────────────
+# IPs/hosts the payload probes to harvest cloud credentials.
+# Used in script pattern detection below.
+_IMDS_PROBES = [
+    "169.254.169.254",   # AWS instance metadata service
+    "127.0.0.1:8200",    # HashiCorp Vault default local address
+]
 
 # ── Malicious file hashes (SHA-256) ──────────────────────────────────────────
 MALICIOUS_HASHES: dict = {
     "ab4fcadaec49c03278063dd269ea5eef82d24f2124a8e15d7b90f2fa8601266c": (
-        "router_init.js — 2.3 MB Bun credential harvester (mini-shai-hulud-2026-05-11)"
+        "router_init.js - 2.3 MB Bun credential harvester (mini-shai-hulud-2026-05-11)"
+    ),
+    "ce7e4199506959fd7a71b64209b2c07b9c82e53a946aa7d78298dc9249230d01": (
+        "tanstack_runner.js - Bun credential harvester variant (mini-shai-hulud-2026-05-11)"
+    ),
+}
+
+# ── Malicious commit SHAs ─────────────────────────────────────────────────────
+MALICIOUS_COMMITS: dict = {
+    "79ac49eedf774dd4b0cfa308722bc463cfe5885c": (
+        "tanstack/router - poisoned CI cache commit (mini-shai-hulud-2026-05-11)"
     ),
 }
 
@@ -71,35 +137,69 @@ MALICIOUS_HASHES: dict = {
 # (compiled_regex, human_description, severity)
 # Ordered: CRITICAL patterns first.
 _SCRIPT_PATTERNS: List[Tuple[re.Pattern, str, str]] = [
-    # Direct C2 references in scripts
+    # C2 domains
     (re.compile(r"getsession\.org", re.I),
      "C2 domain in install script: getsession.org", "CRITICAL"),
     (re.compile(r"masscan\.cloud", re.I),
-     "C2 domain in install script: api.masscan.cloud", "CRITICAL"),
+     "C2 domain in install script: masscan.cloud", "CRITICAL"),
+    (re.compile(r"git-tanstack\.com", re.I),
+     "C2 domain in install script: git-tanstack.com (phishing domain)", "CRITICAL"),
 
-    # Known malicious payload
+    # Known malicious payloads
     (re.compile(r"router_init\.js", re.I),
-     "known malicious payload referenced: router_init.js", "CRITICAL"),
+     "known malicious payload: router_init.js", "CRITICAL"),
+    (re.compile(r"tanstack_runner\.js", re.I),
+     "known malicious payload: tanstack_runner.js", "CRITICAL"),
+    (re.compile(r"transformers\.pyz", re.I),
+     "known malicious payload: transformers.pyz (PyPI variant)", "CRITICAL"),
+    (re.compile(r"setup\.mjs", re.I),
+     "known malicious dropper: setup.mjs", "CRITICAL"),
     (re.compile(r"ab4fcadaec49c03278063dd269ea5eef82d24f2124a8e15d7b90f2fa8601266c", re.I),
-     "known malicious SHA-256 in script", "CRITICAL"),
+     "known malicious SHA-256: router_init.js", "CRITICAL"),
+    (re.compile(r"ce7e4199506959fd7a71b64209b2c07b9c82e53a946aa7d78298dc9249230d01", re.I),
+     "known malicious SHA-256: tanstack_runner.js", "CRITICAL"),
 
-    # Bun runtime download/execution (hallmark of this attack class)
+    # Bun runtime (hallmark of this attack class)
     (re.compile(r"(curl|wget).{0,80}bun\.sh", re.I),
      "Bun runtime downloaded in install script", "CRITICAL"),
     (re.compile(r"\bbun\s+(run|x)\b", re.I),
      "Bun runtime execution in install script", "HIGH"),
 
-    # Credential env var harvesting
-    (re.compile(r"process\.env\.(AWS_SECRET|AWS_ACCESS_KEY|GITHUB_TOKEN|NPM_TOKEN|KUBECONFIG)", re.I),
+    # AWS metadata service probe
+    (re.compile(r"169\.254\.169\.254", re.I),
+     "AWS instance metadata probe (credential harvesting)", "CRITICAL"),
+
+    # HashiCorp Vault probe
+    (re.compile(r"127\.0\.0\.1:8200", re.I),
+     "HashiCorp Vault probe (credential harvesting)", "CRITICAL"),
+
+    # GitHub GraphQL C2 (commit message encoding / repo contents exfil)
+    (re.compile(r"api\.github\.com/graphql", re.I),
+     "GitHub GraphQL API called from install script (possible C2 channel)", "HIGH"),
+    (re.compile(r"createCommitOnBranch", re.I),
+     "GitHub GraphQL createCommitOnBranch mutation (worm propagation)", "CRITICAL"),
+
+    # Token pattern harvesting
+    (re.compile(r"ghp_[A-Za-z0-9]{36}", re.I),
+     "GitHub personal access token pattern in install script", "CRITICAL"),
+    (re.compile(r"npm_[A-Za-z0-9]{36}", re.I),
+     "npm publish token pattern in install script", "CRITICAL"),
+    (re.compile(r"process\.env\.(AWS_SECRET|AWS_ACCESS_KEY|GITHUB_TOKEN|NPM_TOKEN|KUBECONFIG|VAULT_TOKEN)", re.I),
      "credential env var accessed in install script", "HIGH"),
 
     # Persistence targets
-    (re.compile(r"\.claude[/\\\\]settings\.json", re.I),
+    (re.compile(r"\.claude[/\\]settings\.json", re.I),
      "writes to .claude/settings.json (persistence)", "HIGH"),
-    (re.compile(r"\.vscode[/\\\\]tasks\.json", re.I),
+    (re.compile(r"\.claude[/\\]setup\.mjs", re.I),
+     "writes to .claude/setup.mjs (persistence dropper)", "CRITICAL"),
+    (re.compile(r"\.claude[/\\]router_runtime\.js", re.I),
+     "writes to .claude/router_runtime.js (persistence payload)", "CRITICAL"),
+    (re.compile(r"\.vscode[/\\]tasks\.json", re.I),
      "writes to .vscode/tasks.json (persistence)", "HIGH"),
+    (re.compile(r"\.vscode[/\\]setup\.mjs", re.I),
+     "writes to .vscode/setup.mjs (persistence dropper)", "CRITICAL"),
 
-    # Generic exfiltration patterns (not attack-specific but elevated by context)
+    # Generic exfiltration
     (re.compile(r"curl\s.{0,60}\$\{?(HOME|USER|AWS|GITHUB|NPM)", re.I),
      "curl exfiltrating env/home in install script", "HIGH"),
 ]
@@ -120,22 +220,21 @@ def check_package(name: str, version: Optional[str]) -> Optional[IOCMatch]:
                         ioc_id=r["attack"],
                         severity="CRITICAL",
                         description=(
-                            f"{name}@{version} — known compromised version "
-                            f"({r['min']}–{r['max']}). {r['note']}"
+                            f"{name}@{version} - known compromised version "
+                            f"({r['min']}-{r['max']}). {r['note']}"
                         ),
                         attack_name=r["attack"],
                     )
                 elif not version:
-                    # Can't confirm version — flag as HIGH until we can check
                     return IOCMatch(
                         ioc_id=r["attack"],
                         severity="HIGH",
                         description=(
-                            f"{name} — versions {r['min']}–{r['max']} are compromised. "
+                            f"{name} - versions {r['min']}-{r['max']} are compromised. "
                             "Resolve to a specific safe version."
                         ),
                         attack_name=r["attack"],
-                        force_block=False,  # warn, not block, without confirmed version
+                        force_block=False,
                     )
 
     # Namespace match
@@ -144,7 +243,7 @@ def check_package(name: str, version: Optional[str]) -> Optional[IOCMatch]:
             return IOCMatch(
                 ioc_id=info["attack"],
                 severity="CRITICAL",
-                description=f"{name} — {info['note']}",
+                description=f"{name} - {info['note']}",
                 attack_name=info["attack"],
             )
 
