@@ -6,6 +6,7 @@ evaluates events. Replaces the hardcoded patterns in policies.py.
 """
 from __future__ import annotations
 
+import json
 import re
 import sys
 from pathlib import Path
@@ -53,6 +54,90 @@ _DEFAULT_FIELDS: Dict[str, List[str]] = {
     "tool_result": ["combined_text"],
     "skill_manifest": ["combined_text"],
 }
+
+
+class _TaintStore:
+    """Per-session taint state persisted across hook invocations.
+
+    Tracks whether a prompt injection was detected in the current session
+    so that subsequent network calls can be escalated to CRITICAL regardless
+    of their destination.  Stored as a JSON file under
+    ``{workspace}/.prismor-warden/taint/{session_id}.json``.
+    """
+
+    def __init__(self, workspace: Path, session_id: str) -> None:
+        safe = "".join(
+            c if c.isalnum() or c in "._-" else "_" for c in session_id
+        )
+        self._path = workspace / ".prismor-warden" / "taint" / f"{safe}.json"
+        self.injection_detected: bool = False
+        self.injection_event_index: Optional[int] = None
+        self.seen_domains: set = set()
+        self._load()
+
+    def _load(self) -> None:
+        if not self._path.exists():
+            return
+        try:
+            data = json.loads(self._path.read_text(encoding="utf-8"))
+            self.injection_detected = bool(data.get("injection_detected", False))
+            self.injection_event_index = data.get("injection_event_index")
+            self.seen_domains = set(data.get("seen_domains", []))
+        except Exception:
+            pass
+
+    def _save(self) -> None:
+        try:
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+            self._path.write_text(
+                json.dumps({
+                    "injection_detected": self.injection_detected,
+                    "injection_event_index": self.injection_event_index,
+                    "seen_domains": sorted(self.seen_domains),
+                }, indent=2),
+                encoding="utf-8",
+            )
+        except Exception:
+            pass
+
+    def mark_injection(self, event_index: int) -> None:
+        self.injection_detected = True
+        self.injection_event_index = event_index
+        self._save()
+
+    def add_domain(self, domain: str) -> None:
+        self.seen_domains.add(domain.lower())
+        self._save()
+
+    def is_new_domain(self, domain: str) -> bool:
+        return domain.lower() not in self.seen_domains
+
+
+def _check_cloaked_secrets_in_url(url: str) -> Optional[str]:
+    """Check whether any enrolled cloaking secret appears verbatim in the URL.
+
+    Returns the secret *name* (never the value) if a match is found,
+    or ``None`` if nothing matches or the secrets store is unavailable.
+    Secrets shorter than 8 characters are skipped to avoid false positives
+    on common short strings.
+    """
+    try:
+        from warden.cloaking.secrets_store import secrets_dir
+        sdir = secrets_dir()
+        if not sdir.exists():
+            return None
+        for secret_file in sorted(sdir.iterdir()):
+            if not secret_file.is_file():
+                continue
+            try:
+                value = secret_file.read_text(encoding="utf-8").strip()
+                if value and len(value) >= 8 and value in url:
+                    return secret_file.name
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return None
 
 
 class CompiledRule:
@@ -109,6 +194,7 @@ class PolicyEngine:
         workspace: Optional[Path] = None,
         policy_path: Optional[Path] = None,
     ) -> None:
+        self.workspace: Optional[Path] = workspace
         self.rules: List[CompiledRule] = []
         self.allowlists: List[AllowlistEntry] = []
         self.block_categories: set[str] = set()
@@ -362,6 +448,98 @@ class PolicyEngine:
                     })
                     break  # One finding per command is enough.
 
+        # ── Prompt injection: structural HTML analysis (sanitizer) ─────────
+        # The YAML rules match injection keywords in plaintext. This pass
+        # catches payloads that survive because they are wrapped in HTML
+        # comments, hidden via CSS, or fragmented by zero-width characters.
+        # We call the sanitizer on the raw response field (not combined_text)
+        # so the HTML structure is intact.
+        if event_type == "tool_result":
+            raw_response = str(event.get("response", ""))
+            if raw_response:
+                try:
+                    from warden.sanitizer import detect_injections as _detect_html
+                    _html_detections = _detect_html(raw_response)
+                    for _det in _html_detections:
+                        finding_id = f"html-injection-{index}"
+                        prefixed_id = f"{session_id}:{finding_id}" if session_id else finding_id
+                        findings.append({
+                            "id": prefixed_id,
+                            "severity": "CRITICAL",
+                            "category": "prompt_injection",
+                            "title": "Prompt injection hidden in HTML structure of fetched page",
+                            "evidence": _truncate(_det),
+                            "eventIndex": index,
+                            "ruleId": "html-injection",
+                            "action": "block",
+                        })
+                except Exception:
+                    pass
+
+        # ── Taint tracking: mark session if injection detected ─────────────
+        # If this event produced any prompt_injection findings, persist that
+        # fact so subsequent network events can be escalated regardless of
+        # their destination.
+        taint = self._get_taint(session_id)
+        if taint is not None and any(
+            f.get("category") == "prompt_injection" for f in findings
+        ):
+            taint.mark_injection(index)
+
+        # ── Network event: cloaking-secret check + taint escalation ───────
+        if event_type == "network":
+            url = field_values.get("url", "")
+            if url:
+                # Check if any enrolled cloaking secret appears in the URL.
+                # This catches exfiltration of any shape of key, not just the
+                # well-known patterns in the YAML rule above.
+                _secret_name = _check_cloaked_secrets_in_url(url)
+                if _secret_name:
+                    finding_id = f"cloaked-secret-in-url-{index}"
+                    prefixed_id = f"{session_id}:{finding_id}" if session_id else finding_id
+                    findings.append({
+                        "id": prefixed_id,
+                        "severity": "CRITICAL",
+                        "category": "secret_exfiltration",
+                        "title": (
+                            f"Enrolled secret '@@SECRET:{_secret_name}@@' "
+                            f"detected in outbound URL"
+                        ),
+                        "evidence": "[secret value redacted from evidence]",
+                        "eventIndex": index,
+                        "ruleId": "cloaked-secret-in-url",
+                        "action": "block",
+                    })
+
+                # If this session previously had a prompt injection finding,
+                # any subsequent outbound network call is suspicious — escalate
+                # to CRITICAL regardless of destination.
+                if taint is None:
+                    taint = self._get_taint(session_id)
+                if taint is not None and taint.injection_detected:
+                    finding_id = f"taint-escalation-{index}"
+                    prefixed_id = f"{session_id}:{finding_id}" if session_id else finding_id
+                    findings.append({
+                        "id": prefixed_id,
+                        "severity": "CRITICAL",
+                        "category": "secret_exfiltration",
+                        "title": (
+                            "Outbound network call after prompt injection detected "
+                            "— possible response-blind exfiltration"
+                        ),
+                        "evidence": _truncate(url),
+                        "eventIndex": index,
+                        "ruleId": "taint-escalation",
+                        "action": "block",
+                    })
+
+                # Track seen domains so the taint store has context on what
+                # domains this session has legitimately contacted.
+                if taint is not None:
+                    _domain = _extract_domain(url)
+                    if _domain:
+                        taint.add_domain(_domain)
+
         return findings
 
     def check_command(self, command: str) -> List[Dict[str, Any]]:
@@ -398,6 +576,15 @@ class PolicyEngine:
                 if domain_lower == pattern_lower:
                     return True
         return False
+
+    def _get_taint(self, session_id: str) -> Optional[_TaintStore]:
+        """Return the taint store for this session, or None if unavailable."""
+        if not session_id or self.workspace is None:
+            return None
+        try:
+            return _TaintStore(self.workspace, session_id)
+        except Exception:
+            return None
 
 
 # ── Shared helpers ──────────────────────────────────────────────────────────
