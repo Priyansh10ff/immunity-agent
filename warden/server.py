@@ -14,6 +14,7 @@ Endpoints:
     GET /api/sessions      → paginated sessions  (?page&limit&sort&dir)
     GET /api/findings      → paginated findings  (?page&limit&agent&severity&category&q)
     GET /api/events        → paginated events    (?page&limit&verdict&agent)
+    GET /api/supply-chain  → supply chain enforcement stats
     OPTIONS *              → 204 CORS preflight
 """
 from __future__ import annotations
@@ -30,6 +31,7 @@ from warden.store import (
     get_sessions_page,
     get_findings_page,
     get_events_page,
+    get_supply_chain_stats,
 )
 
 _DASHBOARD_HTML = Path(__file__).with_name("dashboard.html")
@@ -148,6 +150,15 @@ class WardenRequestHandler(BaseHTTPRequestHandler):
                     verdict=qstr("verdict"),
                     agent=qstr("agent"),
                 )
+            except Exception as exc:
+                self._send_json({"error": str(exc)}, status=500)
+                return
+            self._send_json(data)
+            return
+
+        if path == "/api/supply-chain":
+            try:
+                data = get_supply_chain_stats()
             except Exception as exc:
                 self._send_json({"error": str(exc)}, status=500)
                 return

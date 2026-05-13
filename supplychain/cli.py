@@ -121,6 +121,27 @@ def _exec(argv: List[str]) -> None:
     os.execv(binary, argv)
 
 
+# ── Store integration ─────────────────────────────────────────────────────────
+
+def _record_to_store(event, verdicts) -> None:
+    """Write scoring results to the warden store. Fail-open."""
+    try:
+        import uuid
+        from datetime import datetime, timezone
+        from warden.store import infer_default_workspace, write_supply_chain_event
+        workspace = infer_default_workspace(Path.cwd())
+        write_supply_chain_event(
+            workspace=workspace,
+            session_id=f"immunity-{uuid.uuid4().hex[:16]}",
+            ts=datetime.now(timezone.utc).isoformat(),
+            ecosystem=event.ecosystem,
+            install_cmd=" ".join(sys.argv[1:]),
+            verdicts=verdicts,
+        )
+    except Exception:
+        pass
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main() -> None:
@@ -162,6 +183,7 @@ def main() -> None:
     feed_hits = _check_feed(event.packages, feed)
 
     _print_report(event, verdicts, feed_hits)
+    _record_to_store(event, verdicts)
 
     # ── Decision ──────────────────────────────────────────────────────────────
     blocked = [v for v in verdicts if v.verdict == "block"]

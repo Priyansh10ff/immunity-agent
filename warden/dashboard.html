@@ -266,6 +266,41 @@
   <div class="card sev-card low">     <div class="sev-label">Low</div>     <div id="sevLow"      class="sev-count">-</div></div>
 </div>
 
+<!-- Supply Chain KPI Strip -->
+<div class="grid grid-3" style="margin-bottom:4px">
+  <div class="card">
+    <div class="card-title">Packages Checked (24h)</div>
+    <div id="scChecked" class="kpi-value">-</div>
+  </div>
+  <div class="card">
+    <div class="card-title">Packages Blocked (24h)</div>
+    <div id="scBlocked" class="kpi-value accent">-</div>
+  </div>
+  <div class="card">
+    <div class="card-title">Packages Warned (24h)</div>
+    <div id="scWarned" class="kpi-value" style="color:var(--orange,#d97706)">-</div>
+  </div>
+</div>
+
+<!-- Supply Chain: Ecosystem Breakdown + Recent Blocks -->
+<div class="grid grid-1-2" style="margin-bottom:16px">
+  <div class="card">
+    <div class="card-title">Ecosystem Breakdown</div>
+    <div class="chart-container" style="height:180px"><canvas id="scEcoBar"></canvas></div>
+  </div>
+  <div class="card">
+    <div class="card-title">Recent Blocks &amp; Warnings</div>
+    <div style="overflow-x:auto">
+      <table>
+        <thead><tr>
+          <th>Package</th><th>Ecosystem</th><th class="right">Score</th><th>Top Signal</th><th>When</th>
+        </tr></thead>
+        <tbody id="scBlocksBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
 <!-- Row 1: Threats Donut + Block Rate Line -->
 <div class="grid grid-1-2">
   <div class="card">
@@ -492,7 +527,7 @@ function buildPager(containerId, state, loadFn) {
 }
 
 // ── Chart instances ──────────────────────────────────────────────────────────
-let donutChart, lineChart, agentBarChart, toolBarChart, mcpBarChart;
+let donutChart, lineChart, agentBarChart, toolBarChart, mcpBarChart, scEcoBarChart;
 
 function initCharts() {
   Chart.defaults.font.family = 'ui-monospace, SFMono-Regular, Menlo, monospace';
@@ -546,6 +581,19 @@ function initCharts() {
     data: { labels: [], datasets: [
       { label: 'Total Calls', data: [], backgroundColor: '#A8D5F7', borderRadius: 4, barThickness: 18 },
       { label: 'Blocked',     data: [], backgroundColor: '#E8BAEE', borderRadius: 4, barThickness: 18 },
+    ]},
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      scales: { x: { grid: { display: false } }, y: { grid: { color: '#f3f4f6' } } },
+      plugins: { legend: { position: 'top', align: 'end', labels: { boxWidth: 10, padding: 8 } } },
+    },
+  });
+
+  scEcoBarChart = new Chart(document.getElementById('scEcoBar'), {
+    type: 'bar',
+    data: { labels: [], datasets: [
+      { label: 'Total',   data: [], backgroundColor: '#A8D5F7', borderRadius: 4, barThickness: 18 },
+      { label: 'Blocked', data: [], backgroundColor: '#FCA5A5', borderRadius: 4, barThickness: 18 },
     ]},
     options: {
       responsive: true, maintainAspectRatio: false,
@@ -865,13 +913,53 @@ async function loadStats() {
   } catch (e) { console.error('[warden] stats fetch failed:', e); }
 }
 
+// ── Supply Chain ─────────────────────────────────────────────────────────────
+async function loadSupplyChain() {
+  try {
+    const res = await fetch('/api/supply-chain');
+    if (!res.ok) return;
+    const data = await res.json();
+
+    const k = data.kpis || {};
+    document.getElementById('scChecked').textContent = fmtNum(k.checkedPackages24h || 0);
+    document.getElementById('scBlocked').textContent = fmtNum(k.blockedPackages24h || 0);
+    document.getElementById('scWarned').textContent  = fmtNum(k.warnedPackages24h  || 0);
+
+    const eco = data.ecosystemBreakdown || [];
+    scEcoBarChart.data.labels = eco.map(e => e.ecosystem);
+    scEcoBarChart.data.datasets[0].data = eco.map(e => e.total);
+    scEcoBarChart.data.datasets[1].data = eco.map(e => e.blocked);
+    scEcoBarChart.update();
+
+    const blocks = data.recentBlocks || [];
+    const tbody = document.getElementById('scBlocksBody');
+    if (!blocks.length) {
+      tbody.innerHTML = '<tr><td colspan="5" class="empty">No blocks yet — immunity CLI not run, or all packages clean</td></tr>';
+    } else {
+      tbody.innerHTML = blocks.map(b => {
+        const badge = b.verdict === 'block'
+          ? '<span class="sev-badge sev-critical">block</span>'
+          : '<span class="sev-badge sev-medium">warn</span>';
+        return '<tr>' +
+          '<td>' + badge + ' ' + safe(b.package) + '</td>' +
+          '<td style="color:var(--gray-500)">' + safe(b.ecosystem) + '</td>' +
+          '<td class="right" style="font-weight:600;color:var(--pink-600)">' + (b.score || 0) + '</td>' +
+          '<td style="color:var(--gray-500);max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + safe(b.reason) + '</td>' +
+          '<td style="color:var(--gray-400)">' + safe(b.ts) + '</td>' +
+        '</tr>';
+      }).join('');
+    }
+  } catch (e) { console.error('[warden] supply-chain fetch failed:', e); }
+}
+
 // ── Boot + poll ──────────────────────────────────────────────────────────────
 initCharts();
-Promise.all([loadStats(), loadSessions(), loadFindings(), loadEvents()]);
+Promise.all([loadStats(), loadSessions(), loadFindings(), loadEvents(), loadSupplyChain()]);
 
 setInterval(() => {
   loadStats();
   loadSessions();
+  loadSupplyChain();
   // Reload findings/events only if on page 1 with no active filters (avoid disrupting investigation)
   if (findState.page === 1 && !findState.agent && !findState.severity && !findState.category && !findState.q) {
     loadFindings();
