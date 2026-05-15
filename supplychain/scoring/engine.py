@@ -7,6 +7,8 @@ from typing import List, Literal
 from supplychain.ecosystems.detector import InstallEvent, PackageSpec
 from supplychain.ecosystems.metadata import PackageMetadata
 from supplychain import ioc as _ioc
+from supplychain.scoring.nvd_lookup import fetch_cves
+from supplychain.scoring.typosquat import check_typosquat
 
 
 @dataclass
@@ -66,6 +68,19 @@ class RiskScorer:
 
             if meta.has_install_script:
                 add("has_install_script", 20, "has postinstall/preinstall script")
+
+            # ── CVE scoring via NVD ──────────────────────────────────────────
+            cves = fetch_cves(spec.name, meta.ecosystem)
+            _CVE_POINTS = {"critical": 50, "high": 30, "medium": 15, "low": 5}
+            for cve in cves[:3]:  # cap at 3 to avoid output noise
+                pts = _CVE_POINTS.get(cve["severity"], 0)
+                if pts:
+                    add(f"nvd_{cve['severity']}", pts, cve["title"])
+
+            # ── Typosquatting detection ──────────────────────────────────────
+            mimic = check_typosquat(spec.name, meta.ecosystem)
+            if mimic:
+                add("typosquat_suspect", 40, f"name resembles trusted package '{mimic}'")
 
         # ── IOC: known compromised packages (mini-shai-hulud and future attacks) ──
         ioc_match = _ioc.check_package(spec.name, meta.version)
