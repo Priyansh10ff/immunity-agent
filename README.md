@@ -5,6 +5,8 @@
 
 **Runtime security for AI coding agents.** A local policy monitor, secret prevention, and secret cleanup in one package.
 
+![Immunity Agent Architecture](assets/immunity-highlevel.png)
+
 ---
 
 ## The Problem
@@ -20,6 +22,17 @@ This creates risks that traditional security tooling isn't designed for:
 - **Dependency manipulation** - an agent installs or rewrites a package at the direction of injected input
 
 Standard OS-level and endpoint security tools monitor the kernel and filesystem. By the time they see an action, the agent has already decided to take it. The gap is at the agent layer.
+
+---
+
+## Capabilities
+
+- 🛡️ [Warden](docs/warden.md) covers the policy engine, session logs, security audit, and CLI reference
+- 📦 [Supply Chain](docs/supply-chain.md) covers install-time enforcement, IOC matching, and risk scoring
+- 🛜 [Network Isolation](docs/network-isolation.md) covers egress allowlists, raw IP detection, and tunnel blocking
+- 🔍 [Skill Scanner](docs/skill-scanner.md) covers MCP server and skill risk scanning across supported agents
+- 🔐 [Sweep and Cloak](docs/sweep-and-cloak.md) covers secret prevention at tool boundaries and cleanup for leaked secrets
+- 🐳 [Docker and Containers](docs/docker.md) covers container hardening, prerequisites, and known limitations
 
 ---
 
@@ -175,17 +188,6 @@ alias pip="python3 /path/to/immunity-agent/immunity pip"
 | Works across npm, pnpm, pip, uv, cargo, go | ❌ | ✅ |
 
 Verdicts are additive: `< 30` allow · `30–59` warn · `≥ 60` block. IOC matches force a block regardless of score. See [docs/supply-chain.md](docs/supply-chain.md) for the full scoring table, ecosystem support, and how to add new IOCs.
-
----
-
-## Capabilities
-
-- 🛡️ [Warden](docs/warden.md) covers the policy engine, session logs, security audit, and CLI reference
-- 📦 [Supply Chain](docs/supply-chain.md) covers install-time enforcement, IOC matching, and risk scoring
-- 🛜 [Network Isolation](docs/network-isolation.md) covers egress allowlists, raw IP detection, and tunnel blocking
-- 🔍 [Skill Scanner](docs/skill-scanner.md) covers MCP server and skill risk scanning across supported agents
-- 🔐 [Sweep and Cloak](docs/sweep-and-cloak.md) covers secret prevention at tool boundaries and cleanup for leaked secrets
-- 🐳 [Docker and Containers](docs/docker.md) covers container hardening, prerequisites, and known limitations
 
 ---
 
