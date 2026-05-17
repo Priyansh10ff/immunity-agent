@@ -5,7 +5,7 @@
 
 **Runtime security for AI coding agents.** A local policy monitor, secret prevention, and secret cleanup in one package.
 
-![Immunity Agent Architecture](../Prismor\ GTM/Article\ images/immunity-highlevel.png)
+![Immunity Agent Architecture](assets/immunity-highlevel.png)
 
 ---
 
