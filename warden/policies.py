@@ -35,7 +35,7 @@ MANIFEST_LANGUAGE_MAP = [
 ]
 
 PROMPT_INJECTION_PATTERN = re.compile(
-    r"(ignore\s+(all\s+)?(any\s+)?(previous\s+)?instructions|reveal (your|the) system prompt|developer instructions|exfiltrat(e|ion)|print .*secret|show .*token|bypass guardrails|jailbreak)",
+    r"(ignore\s+(all\s+)?(any\s+)?(previous\s+)?instructions|reveal\s+(your|the)\s+system\s+prompt|developer\s+instructions|exfiltrat(e|ion)|print\s+.*(secret|token|key|credential|password)|show\s+.*(token|secret|key|credential|password)|bypass(es|ed|ing)?\s+guardrails|jailbreak)",
     re.IGNORECASE,
 )
 
