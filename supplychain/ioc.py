@@ -20,6 +20,20 @@ References:
   https://prismor.dev/blog/tanstack-mistral-mini-shai-hulud-supply-chain
   https://snyk.io/blog/tanstack-npm-packages-compromised/
   https://safedep.io/mass-npm-supply-chain-attack-tanstack-mistral/
+
+AntV Hijacked Maintainer - May 19, 2026
+  atool maintainer account hijacked -> coordinated malicious publish wave across @antv/*
+  -> 300+ versions published May 19 2026; highest-impact packages listed in COMPROMISED_VERSIONS
+  -> echarts-for-react, timeago.js, size-sensor, canvas-nest.js caught in same wave
+     (shared maintainer identity, outside @antv namespace)
+  -> preinstall hook fetches Bun from GitHub Releases, executes ~11.7 MB obfuscated JS payload
+  -> exfiltration via git-tanstack.com; credential receiver at api.masscan.cloud
+  -> persistence: gh-token-monitor service, new GitHub Actions workflows in repos with npm publish access
+  -> any @antv/* version published on or after May 19 2026 is suspect; see COMPROMISED_NAMESPACES
+  -> attribution: TeamPCP
+
+References:
+  https://prismor.dev/blog/antv-npm-packages-compromised-supply-chain
 """
 from __future__ import annotations
 
@@ -40,6 +54,109 @@ class IOCMatch:
 # ── Compromised package version ranges ───────────────────────────────────────
 # Maps exact package name (npm or pypi) -> list of affected version ranges.
 _COMPROMISED_VERSIONS: dict = {
+    # ── AntV hijacked-maintainer attack (May 19, 2026) ───────────────────────
+    # Highest-impact packages. Full wave touched 300+ versions across @antv/*;
+    # any @antv/* published May 19 2026 is also caught by _COMPROMISED_NAMESPACES.
+    "@antv/g2": [
+        {"min": "5.5.8", "max": "5.5.8", "attack": "antv-hijacked-maintainer-2026-05-19",
+         "note": "malicious publish May 19 2026 via hijacked atool account. Safe: ≤ 5.4.8"},
+        {"min": "5.6.8", "max": "5.6.8", "attack": "antv-hijacked-maintainer-2026-05-19",
+         "note": "malicious publish May 19 2026 via hijacked atool account. Safe: ≤ 5.4.8"},
+    ],
+    "@antv/g6": [
+        {"min": "5.2.1", "max": "5.2.1", "attack": "antv-hijacked-maintainer-2026-05-19",
+         "note": "malicious publish May 19 2026. Safe: < 5.2.1"},
+        {"min": "5.3.1", "max": "5.3.1", "attack": "antv-hijacked-maintainer-2026-05-19",
+         "note": "malicious publish May 19 2026. Safe: < 5.2.1"},
+    ],
+    "@antv/x6": [
+        {"min": "3.2.7", "max": "3.2.7", "attack": "antv-hijacked-maintainer-2026-05-19",
+         "note": "malicious publish May 19 2026. Safe: < 3.2.7"},
+        {"min": "3.3.7", "max": "3.3.7", "attack": "antv-hijacked-maintainer-2026-05-19",
+         "note": "malicious publish May 19 2026. Safe: < 3.2.7"},
+    ],
+    "@antv/g2plot": [
+        {"min": "2.5.35", "max": "2.5.35", "attack": "antv-hijacked-maintainer-2026-05-19",
+         "note": "malicious publish May 19 2026. Safe: < 2.5.35"},
+        {"min": "2.6.35", "max": "2.6.35", "attack": "antv-hijacked-maintainer-2026-05-19",
+         "note": "malicious publish May 19 2026. Safe: < 2.5.35"},
+    ],
+    "@antv/s2": [
+        {"min": "2.8.1", "max": "2.8.1", "attack": "antv-hijacked-maintainer-2026-05-19",
+         "note": "malicious publish May 19 2026. Safe: < 2.8.1"},
+        {"min": "2.9.1", "max": "2.9.1", "attack": "antv-hijacked-maintainer-2026-05-19",
+         "note": "malicious publish May 19 2026. Safe: < 2.8.1"},
+    ],
+    "@antv/f2": [
+        {"min": "5.15.0", "max": "5.15.0", "attack": "antv-hijacked-maintainer-2026-05-19",
+         "note": "malicious publish May 19 2026. Safe: < 5.15.0"},
+        {"min": "5.16.0", "max": "5.16.0", "attack": "antv-hijacked-maintainer-2026-05-19",
+         "note": "malicious publish May 19 2026. Safe: < 5.15.0"},
+    ],
+    "@antv/graphin": [
+        {"min": "3.1.5", "max": "3.1.5", "attack": "antv-hijacked-maintainer-2026-05-19",
+         "note": "malicious publish May 19 2026. Safe: < 3.1.5"},
+        {"min": "3.2.5", "max": "3.2.5", "attack": "antv-hijacked-maintainer-2026-05-19",
+         "note": "malicious publish May 19 2026. Safe: < 3.1.5"},
+    ],
+    "@antv/data-set": [
+        {"min": "0.12.8", "max": "0.12.8", "attack": "antv-hijacked-maintainer-2026-05-19",
+         "note": "malicious publish May 19 2026. Safe: < 0.12.8"},
+        {"min": "0.13.8", "max": "0.13.8", "attack": "antv-hijacked-maintainer-2026-05-19",
+         "note": "malicious publish May 19 2026. Safe: < 0.12.8"},
+    ],
+    "@antv/g": [
+        {"min": "6.4.1", "max": "6.4.1", "attack": "antv-hijacked-maintainer-2026-05-19",
+         "note": "malicious publish May 19 2026. Safe: < 6.4.1"},
+        {"min": "6.5.1", "max": "6.5.1", "attack": "antv-hijacked-maintainer-2026-05-19",
+         "note": "malicious publish May 19 2026. Safe: < 6.4.1"},
+    ],
+    "@antv/l7": [
+        {"min": "2.26.10", "max": "2.26.10", "attack": "antv-hijacked-maintainer-2026-05-19",
+         "note": "malicious publish May 19 2026. Safe: < 2.26.10"},
+        {"min": "2.27.10", "max": "2.27.10", "attack": "antv-hijacked-maintainer-2026-05-19",
+         "note": "malicious publish May 19 2026. Safe: < 2.26.10"},
+    ],
+    "@antv/graphlib": [
+        {"min": "2.1.4", "max": "2.1.4", "attack": "antv-hijacked-maintainer-2026-05-19",
+         "note": "malicious publish May 19 2026. Safe: < 2.1.4"},
+        {"min": "2.2.4", "max": "2.2.4", "attack": "antv-hijacked-maintainer-2026-05-19",
+         "note": "malicious publish May 19 2026. Safe: < 2.1.4"},
+    ],
+    # Outside @antv namespace — caught by shared maintainer identity (atool account)
+    "echarts-for-react": [
+        {"min": "3.0.7", "max": "3.0.7", "attack": "antv-hijacked-maintainer-2026-05-19",
+         "note": "malicious publish May 19 2026 (3 bumps same day). Safe: ≤ 3.0.6"},
+        {"min": "3.1.7", "max": "3.1.7", "attack": "antv-hijacked-maintainer-2026-05-19",
+         "note": "malicious publish May 19 2026. Safe: ≤ 3.0.6"},
+        {"min": "3.2.7", "max": "3.2.7", "attack": "antv-hijacked-maintainer-2026-05-19",
+         "note": "malicious publish May 19 2026. Safe: ≤ 3.0.6"},
+    ],
+    "timeago.js": [
+        {"min": "4.1.2", "max": "4.1.2", "attack": "antv-hijacked-maintainer-2026-05-19",
+         "note": "malicious publish May 19 2026. Safe: < 4.1.2"},
+        {"min": "4.2.2", "max": "4.2.2", "attack": "antv-hijacked-maintainer-2026-05-19",
+         "note": "malicious publish May 19 2026. Safe: < 4.1.2"},
+    ],
+    "timeago-react": [
+        {"min": "3.1.7", "max": "3.1.7", "attack": "antv-hijacked-maintainer-2026-05-19",
+         "note": "malicious publish May 19 2026. Safe: < 3.1.7"},
+        {"min": "3.2.7", "max": "3.2.7", "attack": "antv-hijacked-maintainer-2026-05-19",
+         "note": "malicious publish May 19 2026. Safe: < 3.1.7"},
+    ],
+    "size-sensor": [
+        {"min": "1.1.4", "max": "1.1.4", "attack": "antv-hijacked-maintainer-2026-05-19",
+         "note": "malicious publish May 19 2026. Safe: < 1.1.4"},
+        {"min": "1.2.4", "max": "1.2.4", "attack": "antv-hijacked-maintainer-2026-05-19",
+         "note": "malicious publish May 19 2026. Safe: < 1.1.4"},
+    ],
+    "canvas-nest.js": [
+        {"min": "2.1.4", "max": "2.1.4", "attack": "antv-hijacked-maintainer-2026-05-19",
+         "note": "malicious publish May 19 2026. Safe: < 2.1.4"},
+        {"min": "2.2.4", "max": "2.2.4", "attack": "antv-hijacked-maintainer-2026-05-19",
+         "note": "malicious publish May 19 2026. Safe: < 2.1.4"},
+    ],
+    # ── Mini Shai-Hulud (May 11, 2026) ───────────────────────────────────────
     # npm
     "@mistralai/mistralai": [
         {
@@ -74,6 +191,16 @@ _COMPROMISED_VERSIONS: dict = {
 # ── Compromised namespaces ────────────────────────────────────────────────────
 # All versions published under these prefixes on or after the attack date are suspect.
 _COMPROMISED_NAMESPACES: dict = {
+    "@antv/": {
+        "attack": "antv-hijacked-maintainer-2026-05-19",
+        "affected_date": "2026-05-19",
+        "note": (
+            "Full @antv/* namespace compromised May 19 2026 via hijacked atool maintainer account. "
+            "Over 300 versions published. Any @antv/* version published on or after May 19 2026 "
+            "is suspect. Highest-impact packages are also listed individually in COMPROMISED_VERSIONS. "
+            "Safe versions are those published before May 19 2026."
+        ),
+    },
     "@tanstack/": {
         "attack": "mini-shai-hulud-2026-05-11",
         "affected_date": "2026-05-11",
