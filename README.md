@@ -159,7 +159,7 @@ flowchart TD
 
 ## Supply Chain Enforcement
 
-The `immunity` CLI wraps your package manager and evaluates every install against live threat intelligence before it runs. Unlike pnpm or other package managers, `immunity` is a security enforcement layer that scores packages on age, maintainer count, install scripts, and known IOCs, then blocks dangerous ones before they hit your disk. Ships with IOC coverage for the **mini-shai-hulud** attack (May 11 2026).
+The `immunity` CLI wraps your package manager and evaluates every install against live threat intelligence before it runs. Unlike pnpm or other package managers, `immunity` is a security enforcement layer that scores packages on age, maintainer count, install scripts, and known IOCs, then blocks dangerous ones before they hit your disk. Ships with IOC coverage for the **mini-shai-hulud** attack (May 11 2026) and the **AntV hijacked-maintainer** attack (May 19 2026).
 
 ```bash
 immunity npm install express                    # resolves cleanly, execs npm
