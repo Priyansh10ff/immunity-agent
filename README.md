@@ -47,6 +47,8 @@ Standard OS-level and endpoint security tools monitor the kernel and filesystem.
 - 🔐 [Sweep and Cloak](docs/sweep-and-cloak.md) covers secret prevention at tool boundaries and cleanup for leaked secrets
 - 🐳 [Docker and Containers](docs/docker.md) covers container hardening, prerequisites, and known limitations
 
+![Prismor CLI Demo](assets/prismor-cli-demo.gif)
+
 ---
 
 ## Benchmarks
