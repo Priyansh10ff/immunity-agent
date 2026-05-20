@@ -5,7 +5,7 @@
 <p align="center">
   <a href="https://github.com/PrismorSec/prismor/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License" /></a>
   <a href="https://github.com/PrismorSec/prismor"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg" alt="PRs Welcome" /></a>
-  <a href="https://x.com/prismor_dev"><img src="https://img.shields.io/twitter/follow/prismor_dev" alt="Follow on X" /></a>
+  <a href="https://x.com/prismor_dev"><img src="https://img.shields.io/badge/@prismor__dev-black?logo=x&logoColor=white" alt="X" /></a>
   <a href="https://discord.gg/UtfVTWGY"><img src="https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white" alt="Discord" /></a>
 </p>
 
