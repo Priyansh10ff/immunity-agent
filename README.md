@@ -36,6 +36,8 @@ This creates risks that traditional security tooling isn't designed for:
 
 Standard OS-level and endpoint security tools monitor the kernel and filesystem. By the time they see an action, the agent has already decided to take it. The gap is at the agent layer.
 
+![Prismor CLI Demo](assets/prismor-cli-demo.gif)
+
 ---
 
 ## Capabilities
@@ -46,8 +48,6 @@ Standard OS-level and endpoint security tools monitor the kernel and filesystem.
 - 🔍 [Skill Scanner](docs/skill-scanner.md) covers MCP server and skill risk scanning across supported agents
 - 🔐 [Sweep and Cloak](docs/sweep-and-cloak.md) covers secret prevention at tool boundaries and cleanup for leaked secrets
 - 🐳 [Docker and Containers](docs/docker.md) covers container hardening, prerequisites, and known limitations
-
-![Prismor CLI Demo](assets/prismor-cli-demo.gif)
 
 ---
 
