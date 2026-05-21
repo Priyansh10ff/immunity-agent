@@ -18,9 +18,9 @@
 
 ---
 
-<p align="center">
+<!-- <p align="center">
   <img src="assets/prismor-cli-demo.gif" alt="Prismor CLI Demo" width="820" />
-</p>
+</p> -->
 
 ---
 
