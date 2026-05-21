@@ -1,11 +1,26 @@
-# Immunity Agent
+<h1 align="center">Immunity Agent</h1>
 
-![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)
-![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)
+<h3 align="center">Runtime security for AI coding agents. Policy enforcement, secret prevention,<br>supply chain blocking, and secret cleanup in one package.</h3>
 
-**Runtime security for AI coding agents.** A local policy monitor, secret prevention, and secret cleanup in one package.
+<p align="center">
+  <a href="https://github.com/PrismorSec/prismor/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License" /></a>
+  <a href="https://github.com/PrismorSec/prismor"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg" alt="PRs Welcome" /></a>
+  <a href="https://x.com/prismor_dev"><img src="https://img.shields.io/badge/@prismor__dev-black?logo=x&logoColor=white" alt="X" /></a>
+  <a href="https://discord.gg/UtfVTWGY"><img src="https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white" alt="Discord" /></a>
+</p>
 
-![Immunity Agent Architecture](assets/immunity-highlevel.png)
+<p align="center">
+  <a href="https://prismor.dev">Website</a> &middot;
+  <a href="docs/warden.md">Warden</a> &middot;
+  <a href="docs/supply-chain.md">Supply Chain</a> &middot;
+  <a href="docs/sweep-and-cloak.md">Sweep & Cloak</a>
+</p>
+
+---
+
+<p align="center">
+  <img src="assets/prismor-cli-demo.gif" alt="Prismor CLI Demo" width="820" />
+</p>
 
 ---
 
@@ -26,6 +41,8 @@ Standard OS-level and endpoint security tools monitor the kernel and filesystem.
 ---
 
 ## Capabilities
+
+![Immunity Agent Architecture](assets/immunity-highlevel.png)
 
 - 🛡️ [Warden](docs/warden.md) covers the policy engine, session logs, security audit, and CLI reference
 - 📦 [Supply Chain](docs/supply-chain.md) covers install-time enforcement, IOC matching, and risk scoring
