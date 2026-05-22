@@ -28,6 +28,11 @@ Commands:
   cloak list      List registered placeholder names (never values)
   cloak remove NAME  Delete a registered secret
   cloak status    Show whether cloaking hooks are installed
+  iam list        List all defined agent identities
+  iam init        Create a starter iam.yaml config (~/.prismor/iam.yaml)
+  iam init --scope project  Create per-project .prismor-warden/iam.yaml
+  iam show NAME   Show permission profile for an agent identity
+  iam check NAME --type command --value "rm -rf /"  Test an action against a profile
 """
 from __future__ import annotations
 
@@ -657,6 +662,15 @@ def main() -> None:
         except Exception as _sr_exc:
             sys.stderr.write(f"[warden] scoped enforcement error: {_sr_exc}\n")
 
+        # ── IAM: named agent identity enforcement ────────────────────
+        try:
+            from warden.iam import check_iam as _check_iam
+            _iam_finding = _check_iam(workspace=workspace, event=event, session_id=normalized["sessionId"])
+            if _iam_finding:
+                current_findings.append(_iam_finding)
+        except Exception as _iam_exc:
+            sys.stderr.write(f"[warden] IAM enforcement error: {_iam_exc}\n")
+
         # ── Learning: evasion detection on passing shell events ───────
         if not current_findings and event.get("type") == "shell":
             try:
@@ -713,6 +727,105 @@ def main() -> None:
                 )
             except Exception:
                 pass  # best-effort, don't break the hook
+        return
+
+    # ── iam ────────────────────────────────────────────────────────────
+    if args.command == "iam":
+        from warden.iam import (
+            load_iam_config as _load_iam,
+            get_active_agent_id as _get_agent_id,
+            list_agent_ids as _list_agent_ids,
+            resolve_agent_profile as _resolve_profile,
+            format_iam_profile_box as _fmt_iam,
+            check_iam as _check_iam_cmd,
+            init_global_iam as _init_global_iam,
+            init_project_iam as _init_project_iam,
+        )
+        subcmd = getattr(args, "iam_subcommand", None)
+
+        if subcmd == "init":
+            scope = getattr(args, "scope", "global")
+            if scope == "project":
+                path = _init_project_iam(workspace)
+            else:
+                path = _init_global_iam()
+            print(f"Created IAM config: {path}")
+            print("Edit it to define your agent identities, then set WARDEN_AGENT_ID=<name>.")
+            return
+
+        cfg = _load_iam(workspace)
+        agent_ids = _list_agent_ids(cfg)
+
+        if subcmd == "list" or subcmd is None:
+            active = _get_agent_id()
+            print(f"\n  {_color('Warden IAM', _BOLD)}  agent identities\n")
+            if not agent_ids:
+                print(f"  {_color('No agents defined.', _DIM)}")
+                print(f"  Run: warden iam init\n")
+                return
+            for aid in agent_ids:
+                marker = _color(" ← active", _GREEN) if aid == active else ""
+                print(f"  {_color(aid, _CYAN)}{marker}")
+            if not active:
+                print(f"\n  {_color('Tip:', _DIM)} set WARDEN_AGENT_ID=<name> to activate a profile.")
+            print()
+            return
+
+        if subcmd == "show":
+            agent_id = getattr(args, "agent_id", None)
+            if not agent_id:
+                sys.stderr.write("error: agent_id is required for 'iam show'\n")
+                raise SystemExit(1)
+            profile = _resolve_profile(agent_id, cfg)
+            if profile is None:
+                sys.stderr.write(f"error: agent '{agent_id}' not found in IAM config\n")
+                raise SystemExit(1)
+            print(_fmt_iam(agent_id, profile))
+            return
+
+        if subcmd == "check":
+            agent_id = getattr(args, "agent_id", None)
+            check_type = getattr(args, "type", "command")
+            check_value = getattr(args, "value", None)
+            if not agent_id or not check_value:
+                sys.stderr.write("error: agent_id and --value are required for 'iam check'\n")
+                raise SystemExit(1)
+
+            profile = _resolve_profile(agent_id, cfg)
+            if profile is None:
+                sys.stderr.write(f"error: agent '{agent_id}' not found in IAM config\n")
+                raise SystemExit(1)
+
+            if check_type == "command":
+                event_under_test = {"type": "shell", "command": check_value}
+            elif check_type == "read":
+                event_under_test = {"type": "file_read", "path": check_value}
+            elif check_type == "write":
+                event_under_test = {"type": "file_write", "path": check_value}
+            elif check_type == "network":
+                event_under_test = {"type": "network", "url": check_value}
+            else:
+                event_under_test = {"type": "shell", "command": check_value}
+
+            import os as _os
+            old_val = _os.environ.get("WARDEN_AGENT_ID")
+            _os.environ["WARDEN_AGENT_ID"] = agent_id
+            try:
+                finding = _check_iam_cmd(workspace=workspace, event=event_under_test)
+            finally:
+                if old_val is None:
+                    _os.environ.pop("WARDEN_AGENT_ID", None)
+                else:
+                    _os.environ["WARDEN_AGENT_ID"] = old_val
+
+            if finding:
+                print(_color("BLOCK", _RED) + f"  [{finding['severity']}] {finding['title']}")
+                print(f"  {finding.get('evidence', '')}")
+                raise SystemExit(2)
+            else:
+                print(_color("ALLOW", _GREEN) + f"  agent '{agent_id}' may perform: {check_type} {check_value}")
+            return
+
         return
 
     # ── sweep ──────────────────────────────────────────────────────────
@@ -1365,6 +1478,36 @@ def build_parser() -> argparse.ArgumentParser:
                               help="Reject a candidate rule")
     learn_parser.add_argument("--candidates", action="store_true",
                               help="List pending candidate rules")
+
+    # ── iam ──────────────────────────────────────────────────────────────
+    iam_parser = subparsers.add_parser(
+        "iam",
+        help="Manage agent IAM identities and permission profiles",
+    )
+    iam_subs = iam_parser.add_subparsers(dest="iam_subcommand")
+
+    iam_subs.add_parser("list", help="List all defined agent identities")
+
+    iam_init = iam_subs.add_parser("init", help="Create a starter iam.yaml config")
+    iam_init.add_argument(
+        "--scope",
+        choices=["global", "project"],
+        default="global",
+        help="Write to ~/.prismor/iam.yaml (global) or .prismor-warden/iam.yaml (project)",
+    )
+
+    iam_show = iam_subs.add_parser("show", help="Show permission profile for an agent identity")
+    iam_show.add_argument("agent_id", help="Agent identity name")
+
+    iam_check = iam_subs.add_parser("check", help="Test whether an agent identity can perform an action")
+    iam_check.add_argument("agent_id", help="Agent identity name")
+    iam_check.add_argument(
+        "--type",
+        choices=["command", "read", "write", "network"],
+        default="command",
+        help="Event type to test (default: command)",
+    )
+    iam_check.add_argument("--value", required=True, help="Value to test (command, path, or URL)")
 
     return parser
 
