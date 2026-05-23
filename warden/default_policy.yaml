@@ -23,6 +23,7 @@ settings:
     - persistence
     - security_bypass
     - dependency_risk
+    - iam
 
   # Egress allowlist — when set, any outbound network call to a domain NOT in
   # this list triggers a warning. Supports wildcards: "*.github.com" matches
