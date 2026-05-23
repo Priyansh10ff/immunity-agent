@@ -150,7 +150,13 @@ def should_block(
     categories = block_categories if block_categories is not None else _default_block_categories()
     for finding in findings:
         if finding.get("category") in categories:
-            if event.get("type") == "file_read" and finding.get("category") != "secret_access":
+            # Reads are generally safe, so they only block for secret access —
+            # except for IAM, where an operator has explicitly scoped which
+            # paths/tools an identity may read, and that intent must be honored.
+            if (
+                event.get("type") == "file_read"
+                and finding.get("category") not in ("secret_access", "iam")
+            ):
                 continue
             return finding
     return None

@@ -1,0 +1,189 @@
+"""Tests for the Warden IAM enforcement layer.
+
+Regression guard for the PR #41 review finding: ``check_iam()`` produced a
+finding with ``category="iam"``, but ``should_block()`` silently dropped it
+because ``iam`` was missing from the policy ``block_categories`` — making
+enforce-mode IAM a no-op. The ``iam check`` CLI masked this by exiting 2
+directly, so the manual test plan passed while live enforcement did nothing.
+
+These tests exercise the real blocking path (``should_block`` + a full
+``hook-dispatch`` subprocess), not ``iam check``.
+"""
+
+import json
+import os
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from warden import iam as iam_mod
+from warden.hooks import should_block
+from warden.policy_engine import PolicyEngine
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+_PROFILES = """\
+agents:
+  readonly-bot:
+    allowed_tools: [Read]
+    deny_tools: []
+    deny_network: true
+    allowed_paths: ["**"]
+  researcher:
+    allowed_tools: [Read, WebFetch, WebSearch]
+    deny_tools: [Bash, Write, Edit]
+    deny_network: false
+    allowed_paths: ["**"]
+  scoped-reader:
+    allowed_tools: [Read]
+    deny_tools: []
+    deny_network: true
+    allowed_paths: ["docs/**"]
+"""
+
+
+class _IamTestBase(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        # Isolate from any real ~/.prismor/iam.yaml on the test machine.
+        self._orig_global = iam_mod._GLOBAL_IAM_PATH
+        iam_mod._GLOBAL_IAM_PATH = self.tmp / "no-such-global-iam.yaml"
+        proj = self.tmp / ".prismor-warden"
+        proj.mkdir(parents=True, exist_ok=True)
+        (proj / "iam.yaml").write_text(_PROFILES, encoding="utf-8")
+        self._orig_env = os.environ.get("WARDEN_AGENT_ID")
+
+    def tearDown(self):
+        iam_mod._GLOBAL_IAM_PATH = self._orig_global
+        if self._orig_env is None:
+            os.environ.pop("WARDEN_AGENT_ID", None)
+        else:
+            os.environ["WARDEN_AGENT_ID"] = self._orig_env
+
+    def _block_categories(self):
+        # Mirror cli.py: block decision uses the policy's block_categories.
+        return set(PolicyEngine(workspace=self.tmp).block_categories)
+
+
+class TestCheckIamFinding(_IamTestBase):
+    def test_denied_write_produces_iam_finding(self):
+        os.environ["WARDEN_AGENT_ID"] = "readonly-bot"
+        ev = {"type": "file_write", "path": "main.py", "agent_event": "PreToolUse"}
+        f = iam_mod.check_iam(workspace=self.tmp, event=ev, session_id="s")
+        self.assertIsNotNone(f)
+        self.assertEqual(f["category"], "iam")
+
+    def test_allowed_read_passes(self):
+        os.environ["WARDEN_AGENT_ID"] = "readonly-bot"
+        ev = {"type": "file_read", "path": "main.py", "agent_event": "PreToolUse"}
+        self.assertIsNone(iam_mod.check_iam(workspace=self.tmp, event=ev, session_id="s"))
+
+    def test_no_agent_id_means_no_restriction(self):
+        os.environ.pop("WARDEN_AGENT_ID", None)
+        ev = {"type": "file_write", "path": "main.py", "agent_event": "PreToolUse"}
+        self.assertIsNone(iam_mod.check_iam(workspace=self.tmp, event=ev, session_id="s"))
+
+    def test_unknown_agent_falls_back_to_deny(self):
+        os.environ["WARDEN_AGENT_ID"] = "ghost"
+        ev = {"type": "shell", "command": "ls", "agent_event": "PreToolUse"}
+        f = iam_mod.check_iam(workspace=self.tmp, event=ev, session_id="s")
+        self.assertIsNotNone(f)
+        self.assertEqual(f["category"], "iam")
+
+    def test_project_config_overrides_global(self):
+        # Global defines readonly-bot as allowing writes; project locks it down.
+        iam_mod._GLOBAL_IAM_PATH = self.tmp / "global.yaml"
+        iam_mod._GLOBAL_IAM_PATH.write_text(
+            "agents:\n  readonly-bot:\n    allowed_tools: [Read, Write]\n"
+            "    deny_tools: []\n    deny_network: true\n    allowed_paths: ['**']\n",
+            encoding="utf-8",
+        )
+        os.environ["WARDEN_AGENT_ID"] = "readonly-bot"
+        ev = {"type": "file_write", "path": "main.py", "agent_event": "PreToolUse"}
+        # Project profile (Read only) must win → write is denied.
+        self.assertIsNotNone(iam_mod.check_iam(workspace=self.tmp, event=ev, session_id="s"))
+
+
+class TestIamBlockingDecision(_IamTestBase):
+    """The core regression: iam findings must reach a block verdict."""
+
+    def test_iam_in_default_block_categories(self):
+        self.assertIn("iam", self._block_categories())
+
+    def test_denied_write_blocks(self):
+        os.environ["WARDEN_AGENT_ID"] = "readonly-bot"
+        ev = {"type": "file_write", "path": "main.py", "agent_event": "PreToolUse"}
+        f = iam_mod.check_iam(workspace=self.tmp, event=ev, session_id="s")
+        verdict = should_block([f], ev, block_categories=self._block_categories())
+        self.assertIsNotNone(verdict)
+        self.assertEqual(verdict["category"], "iam")
+
+    def test_denied_shell_blocks(self):
+        os.environ["WARDEN_AGENT_ID"] = "readonly-bot"
+        ev = {"type": "shell", "command": "rm x", "agent_event": "PreToolUse"}
+        f = iam_mod.check_iam(workspace=self.tmp, event=ev, session_id="s")
+        self.assertIsNotNone(should_block([f], ev, block_categories=self._block_categories()))
+
+    def test_denied_network_blocks(self):
+        os.environ["WARDEN_AGENT_ID"] = "readonly-bot"
+        ev = {"type": "network", "url": "https://x", "agent_event": "PreToolUse"}
+        f = iam_mod.check_iam(workspace=self.tmp, event=ev, session_id="s")
+        self.assertIsNotNone(should_block([f], ev, block_categories=self._block_categories()))
+
+    def test_iam_read_denial_blocks_despite_file_read_carveout(self):
+        # scoped-reader may only read docs/**; a read elsewhere is an iam denial
+        # that must block (the file_read carve-out only spares non-iam reads).
+        os.environ["WARDEN_AGENT_ID"] = "scoped-reader"
+        ev = {"type": "file_read", "path": "secrets/key.pem", "agent_event": "PreToolUse"}
+        f = iam_mod.check_iam(workspace=self.tmp, event=ev, session_id="s")
+        self.assertIsNotNone(f)
+        self.assertIsNotNone(should_block([f], ev, block_categories=self._block_categories()))
+
+    def test_allowed_network_does_not_block(self):
+        os.environ["WARDEN_AGENT_ID"] = "researcher"
+        ev = {"type": "network", "url": "https://api.example.com", "agent_event": "PreToolUse"}
+        self.assertIsNone(iam_mod.check_iam(workspace=self.tmp, event=ev, session_id="s"))
+
+
+class TestIamHookDispatchEndToEnd(_IamTestBase):
+    """Drive the real hook-dispatch path in enforce mode (not ``iam check``)."""
+
+    def _dispatch(self, payload, agent_id):
+        env = dict(os.environ)
+        env["WARDEN_AGENT_ID"] = agent_id
+        env["HOME"] = str(self.tmp)  # isolate global ~/.prismor in the subprocess
+        return subprocess.run(
+            [sys.executable, str(REPO_ROOT / "warden" / "cli.py"),
+             "hook-dispatch", "--agent", "claude",
+             "--workspace", str(self.tmp), "--mode", "enforce"],
+            input=json.dumps(payload), capture_output=True, text=True, env=env,
+        )
+
+    def test_enforce_blocks_denied_write(self):
+        payload = {
+            "hook_event_name": "PreToolUse",
+            "tool_name": "Write",
+            "tool_input": {"file_path": "main.py", "content": "x"},
+            "session_id": "e2e-write",
+        }
+        proc = self._dispatch(payload, "readonly-bot")
+        self.assertEqual(proc.returncode, 2, f"stdout={proc.stdout}\nstderr={proc.stderr}")
+        self.assertIn("iam:readonly-bot", proc.stderr)
+
+    def test_enforce_allows_read(self):
+        payload = {
+            "hook_event_name": "PreToolUse",
+            "tool_name": "Read",
+            "tool_input": {"file_path": "main.py"},
+            "session_id": "e2e-read",
+        }
+        proc = self._dispatch(payload, "readonly-bot")
+        self.assertEqual(proc.returncode, 0, f"stdout={proc.stdout}\nstderr={proc.stderr}")
+
+
+if __name__ == "__main__":
+    unittest.main()
