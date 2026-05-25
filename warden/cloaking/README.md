@@ -51,16 +51,22 @@ This merges four hook entries into `.claude/settings.json` (preserving any Warde
 
 | Event | Matcher | Script | Purpose |
 |---|---|---|---|
+| `PreToolUse` | `Bash\|Write\|Edit\|MultiEdit\|mcp__.*` | `secret-guard.sh` | Detect raw secrets in tool input, vault + deny |
 | `PreToolUse` | `Bash` | `decloak.sh` | Substitute placeholders, wrap with `sed` |
 | `PostToolUse` | `mcp__.*` | `recloak-mcp.sh` | Scrub real values from MCP responses |
 | `UserPromptSubmit` | — | `userprompt-guard.sh` | Soft-block + auto-cloak pasted secrets |
 | `Stop` (opt) | — | `sweep-on-stop.sh` | Dry-run sweep for residue (off by default) |
+
+`secret-guard.sh` is registered *before* `decloak.sh` so it scans the model's
+original input; it is also order-independent because it skips any value already
+present in the vault (see below).
 
 Flags:
 
 ```bash
 warden cloak install --scope user           # install globally in ~/.claude
 warden cloak install --no-userprompt-guard  # skip the paste-detection hook
+warden cloak install --no-secret-guard      # skip the tool-call detect-and-block hook
 warden cloak install --sweep-on-stop        # add the Stop-hook sweep
 ```
 
@@ -108,12 +114,75 @@ The UX cost is one re-paste per leaked prompt. The original prompt was *not* tra
 
 ---
 
+## The tool-call boundary (detect-and-block)
+
+`userprompt-guard.sh` only covers what *you* paste. But the model can introduce
+a raw secret on its own — by generating one, reading it out of a file, or
+copying a value from earlier output into a command, a file write, or an MCP
+argument. `secret-guard.sh` (a `PreToolUse` hook) closes that gap.
+
+When the model emits a tool call whose input matches a secret pattern, the hook:
+
+1. **Vaults** the raw value under a deterministic `auto_<hash>` name — *unless
+   that exact value is already in the vault* (so a value `decloak.sh` just
+   substituted, or any manually-registered secret, is recognized as legitimate
+   and passes through untouched).
+2. **Denies** the call with a reason that names the `@@SECRET:auto_xxxx@@`
+   placeholder to use instead — and never echoes the raw value.
+
+The raw secret therefore never executes, is never written to a file, and never
+reaches the transcript or the upstream API. The model sees the deny reason and
+retries with the placeholder, which `decloak.sh` resolves for `Bash`. For
+`Write`/`Edit`/MCP the placeholder (or an env-var reference) is what gets
+stored — you should not be hardcoding live secrets into files anyway.
+
+```
+model emits raw  sk_live_…  in a Bash command
+        │
+        ▼
+  secret-guard.sh  ── value already in vault?  ── yes ─► allow (no-op)
+        │ no
+        ▼
+  vault as auto_<hash>  +  DENY("use @@SECRET:auto_<hash>@@ instead")
+        │
+        ▼
+  model retries with the placeholder ──► decloak.sh substitutes & runs
+```
+
+Because of the vault check, install order between `secret-guard.sh` and
+`decloak.sh` does not matter and retries are idempotent.
+
+---
+
+## Configurable detection patterns
+
+Both guards detect secrets from a shared, file-based pattern set:
+
+* **Built-in** — `builtin_patterns.txt` (shipped in this module): conservative,
+  known-prefix credential formats (Stripe, GitHub, AWS, Google, Slack, GitLab,
+  JWT). This is the single source of truth shared by the bash hooks and the
+  Python CLI — no duplicated regex.
+* **Custom** — `$PRISMOR_HOME/cloak_patterns.txt` (override with
+  `$PRISMOR_CLOAK_PATTERNS`): your org-specific token formats.
+
+Manage custom patterns — one POSIX ERE per line — with:
+
+```bash
+warden cloak pattern list                       # show built-in + custom patterns
+warden cloak pattern add 'mycorp_[0-9a-f]{32}'  # validated, appended to custom file
+warden cloak pattern remove 'mycorp_[0-9a-f]{32}'
+```
+
+`add` rejects an uncompilable regex; built-in patterns cannot be removed.
+
+---
+
 ## What this does *not* protect
 
 Enumerated honestly so you know what to layer on top:
 
 1. **Hand-typed secrets shorter than ~16 chars.** No prefix, too short for entropy heuristics, indistinguishable from benign text.
-2. **Secrets generated mid-turn** (`openssl rand`, `aws iam create-access-key`, `ssh-keygen`). The sed-wrap scrubber only knows about values already in `$PRISMOR_SECRETS_DIR`; a freshly minted value flows through unscrubbed.
+2. **Secrets generated mid-turn** (`openssl rand`, `aws iam create-access-key`, `ssh-keygen`). The `sed`-wrap scrubber only knows about values already in `$PRISMOR_SECRETS_DIR`, so a freshly minted value flows through the *generating* command's output unscrubbed. `secret-guard.sh` does catch it on the *next* tool call if the value matches a known pattern (e.g. a generated `AKIA…` reused in a later command) — but a value with no recognizable shape still slips through.
 3. **The secrets directory itself**, if committed, synced, or backed up without exclusion. Treat it as a single point of failure.
 4. **Built-in `Read` of secret-bearing files.** `PostToolUse` can only rewrite MCP tool output, not built-in Read. Add a `permissions.deny` rule under `Read(./secrets/**)` in your Claude settings to close this gap, and route secret access through the placeholder syntax instead.
 5. **Assistant-side narration.** If the model already saw a real value (through paste, Read, or a command that bypassed the wrapper), it can echo the value in prose. Hooks cannot filter assistant text. Use `/clear` immediately after any suspected leak.
@@ -151,8 +220,12 @@ warden/cloaking/
 ├── __init__.py             # public API re-exports
 ├── installer.py            # install/uninstall settings.json merger
 ├── secrets_store.py        # add/list/remove operations on $PRISMOR_SECRETS_DIR
+├── patterns.py             # built-in + custom detection-pattern management
+├── builtin_patterns.txt    # single source of truth for detection regexes
 ├── hooks/
-│   ├── decloak.sh          # PreToolUse:Bash
+│   ├── _patterns.sh        # shared bash loader (sourced by the guards)
+│   ├── decloak.sh          # PreToolUse:Bash — placeholder substitution
+│   ├── secret-guard.sh     # PreToolUse — detect raw secrets, vault + deny
 │   ├── recloak-mcp.sh      # PostToolUse:mcp__.*
 │   ├── userprompt-guard.sh # UserPromptSubmit soft-block
 │   └── sweep-on-stop.sh    # Stop (opt-in)
