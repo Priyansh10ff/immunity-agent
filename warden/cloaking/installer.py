@@ -23,9 +23,15 @@ from warden.cloaking.secrets_store import secrets_dir
 _HOOKS_SUBDIR = Path(__file__).resolve().parent / "hooks"
 
 _DECLOAK = _HOOKS_SUBDIR / "decloak.sh"
+_SECRET_GUARD = _HOOKS_SUBDIR / "secret-guard.sh"
 _RECLOAK_MCP = _HOOKS_SUBDIR / "recloak-mcp.sh"
 _USERPROMPT_GUARD = _HOOKS_SUBDIR / "userprompt-guard.sh"
 _SWEEP_ON_STOP = _HOOKS_SUBDIR / "sweep-on-stop.sh"
+
+# Tools the detect-and-block guard scans for raw secrets. Bash is covered so
+# raw secrets in shell commands are caught; the guard is order-independent vs
+# decloak because it skips any value already present in the vault.
+_SECRET_GUARD_MATCHER = "Bash|Write|Edit|MultiEdit|mcp__.*"
 
 # All cloaking hook commands share this marker so uninstall can find them.
 _MARKER = "warden/cloaking/hooks/"
@@ -102,6 +108,7 @@ def install(
     workspace: Path,
     scope: str = "project",
     enable_userprompt_guard: bool = True,
+    enable_secret_guard: bool = True,
     enable_sweep_on_stop: bool = False,
 ) -> Dict[str, Any]:
     """Install the cloaking hooks into ``settings.json``.
@@ -112,6 +119,9 @@ def install(
             ``'user'`` writes to ``~/.claude/settings.json``.
         enable_userprompt_guard: Wire the soft-block UserPromptSubmit hook.
             Disable if you plan to use a clipboard-level filter instead.
+        enable_secret_guard: Wire the PreToolUse detect-and-block hook that
+            catches raw secrets the model emits directly (not via a
+            placeholder) and denies the call after vaulting the value.
         enable_sweep_on_stop: Wire the Stop-hook dry-run sweep. Off by
             default because it runs ``warden sweep`` against ``~/.claude``
             on every session end, which is noisy for quick sessions.
@@ -134,6 +144,16 @@ def install(
     hooks = dict(config.get("hooks", {}))
 
     installed: List[str] = []
+
+    # PreToolUse: detect-and-block raw secrets. Registered BEFORE decloak so
+    # it scans the model's original input; it is also order-independent because
+    # it skips any value already present in the vault.
+    if enable_secret_guard:
+        hooks["PreToolUse"] = _merge_claude_entries(
+            hooks.get("PreToolUse", []),
+            {"matcher": _SECRET_GUARD_MATCHER, "hooks": [_hook_entry(_SECRET_GUARD)]},
+        )
+        installed.append(f"PreToolUse:{_SECRET_GUARD_MATCHER} (secret-guard)")
 
     # PreToolUse: decloak on Bash matcher.
     hooks["PreToolUse"] = _merge_claude_entries(

@@ -28,6 +28,7 @@ Commands:
   cloak list      List registered placeholder names (never values)
   cloak remove NAME  Delete a registered secret
   cloak status    Show whether cloaking hooks are installed
+  cloak pattern   Manage secret-detection regexes (list/add/remove)
 """
 from __future__ import annotations
 
@@ -819,6 +820,7 @@ def main() -> None:
                 workspace=workspace,
                 scope=args.scope,
                 enable_userprompt_guard=not args.no_userprompt_guard,
+                enable_secret_guard=not args.no_secret_guard,
                 enable_sweep_on_stop=args.sweep_on_stop,
             )
             print(f"Installed cloaking hooks at {result['configPath']}")
@@ -902,7 +904,62 @@ def main() -> None:
                 print(f"No secret named {args.name!r}")
             return
 
-        raise SystemExit("Usage: warden cloak {install|uninstall|add|list|remove|status}")
+        if sub == "pattern":
+            from warden.cloaking import (
+                add_pattern,
+                builtin_patterns,
+                custom_patterns_file,
+                list_custom_patterns,
+                remove_pattern,
+            )
+
+            psub = getattr(args, "pattern_command", None)
+
+            if psub == "add":
+                try:
+                    added = add_pattern(args.regex)
+                except ValueError as exc:
+                    sys.stderr.write(f"error: {exc}\n")
+                    raise SystemExit(1)
+                if added:
+                    print(f"Added custom pattern: {args.regex}")
+                    print(f"  stored in {custom_patterns_file()}")
+                else:
+                    print(f"Pattern already present (built-in or custom): {args.regex}")
+                return
+
+            if psub == "remove":
+                try:
+                    removed = remove_pattern(args.regex)
+                except ValueError as exc:
+                    sys.stderr.write(f"error: {exc}\n")
+                    raise SystemExit(1)
+                print(
+                    f"Removed custom pattern: {args.regex}" if removed
+                    else f"No custom pattern matching: {args.regex}"
+                )
+                return
+
+            # Default / "list": show built-ins and custom patterns.
+            builtins = builtin_patterns()
+            custom = list_custom_patterns()
+            print(f"  {_color('BUILT-IN PATTERNS', _BOLD)} ({len(builtins)})")
+            print(f"  {_color('─' * 50, _DIM)}")
+            for p in builtins:
+                print(f"  {_color('•', _DIM)} {p}")
+            print()
+            label = _color("CUSTOM PATTERNS", _BOLD)
+            print(f"  {label} ({len(custom)})  {_color(str(custom_patterns_file()), _DIM)}")
+            print(f"  {_color('─' * 50, _DIM)}")
+            if custom:
+                for p in custom:
+                    print(f"  {_color('•', _CYAN)} {p}")
+            else:
+                print(f"  {_color('none — add with: warden cloak pattern add <regex>', _DIM)}")
+            print()
+            return
+
+        raise SystemExit("Usage: warden cloak {install|uninstall|add|list|remove|status|pattern}")
 
     # ── canary subcommands ─────────────────────────────────────────────
     if args.command == "canary":
@@ -1286,6 +1343,8 @@ def build_parser() -> argparse.ArgumentParser:
                            help="Hook scope (default: project)")
     t_install.add_argument("--no-userprompt-guard", action="store_true",
                            help="Skip the UserPromptSubmit soft-block hook (use a clipboard filter instead)")
+    t_install.add_argument("--no-secret-guard", action="store_true",
+                           help="Skip the PreToolUse detect-and-block hook for raw secrets in tool calls")
     t_install.add_argument("--sweep-on-stop", action="store_true",
                            help="Also wire a Stop-hook dry-run sweep for residue detection")
 
@@ -1308,6 +1367,15 @@ def build_parser() -> argparse.ArgumentParser:
     t_status.add_argument("--workspace", help="Workspace path")
     t_status.add_argument("--scope", choices=["project", "user"], default="project",
                           help="Hook scope (default: project)")
+
+    t_pattern = cloak_sub.add_parser(
+        "pattern", help="Manage secret-detection regexes (built-in + custom)")
+    pattern_sub = t_pattern.add_subparsers(dest="pattern_command")
+    pattern_sub.add_parser("list", help="List built-in and custom patterns (default)")
+    p_add = pattern_sub.add_parser("add", help="Add a custom detection regex (POSIX ERE)")
+    p_add.add_argument("regex", help="Regex to detect, e.g. 'mycorp_[0-9a-f]{32}'")
+    p_remove = pattern_sub.add_parser("remove", help="Remove a custom detection regex")
+    p_remove.add_argument("regex", help="Exact custom regex to remove")
 
     # ── canary ─────────────────────────────────────────────────────────
     canary_parser = subparsers.add_parser(
