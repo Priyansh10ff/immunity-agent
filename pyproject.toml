@@ -57,6 +57,7 @@ packages = ["warden", "supplychain"]
 # layout. warden/paths.py resolves both layouts. The private key (*.pem) is
 # never mapped here and is git-ignored, so it cannot leak into the wheel.
 [tool.hatch.build.targets.wheel.force-include]
+"immunity-agent.pth" = "immunity-agent.pth"
 "advisories/immunity-feed.json" = "warden/data/advisories/immunity-feed.json"
 "advisories/immunity-feed.json.sig" = "warden/data/advisories/immunity-feed.json.sig"
 "keys/public.pub" = "warden/data/keys/public.pub"
