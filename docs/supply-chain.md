@@ -167,6 +167,54 @@ _SCRIPT_PATTERNS.append((
 
 ---
 
+## Config Hardening
+
+Install-time scoring only fires when the install command actually goes through `immunity`. If something invokes `npm install` directly (a CI step, an IDE plugin, an agent that doesn't honour the alias), the runtime gate is bypassed.
+
+`immunity harden` closes that gap by hardening the package manager's own config files. It runs before any install happens and applies settings the package manager itself enforces.
+
+```bash
+immunity harden              # apply hardening to the current directory
+immunity harden --dry-run    # preview without writing
+immunity harden <path>       # harden a specific project root
+```
+
+What it does for each ecosystem detected in the project root:
+
+| File | Trigger | Settings applied |
+|---|---|---|
+| `.npmrc` | `package.json` present | `ignore-scripts=true`, `save-exact=true`, `audit=true` |
+| `.yarnrc` | file present | `--ignore-scripts true` |
+| `.yarnrc.yml` | file present | `enableScripts: false` |
+| `pip.conf` | `requirements.txt` / `pyproject.toml` / `setup.py` / `setup.cfg` | `no-input=true`, `disable-pip-version-check=true` |
+| `.cargo/config.toml` | `Cargo.toml` present | `[net] retry=2`, `git-fetch-with-cli=true` |
+
+Existing keys are never overwritten — if you've already set `save-exact=false` for a reason, the hardener leaves it and reports it. New settings are appended under a `# immunity harden` comment so they're easy to identify and remove later.
+
+### Why these settings
+
+**`ignore-scripts` / `enableScripts: false`** is the single highest-impact rule. Every npm supply chain attack in [`supplychain/ioc.py`](../supplychain/ioc.py) — mini-shai-hulud, the AntV hijacked-maintainer wave, the PyPI mistralai/guardrails-ai variant — delivered its payload via a `preinstall` or `postinstall` hook. Disabling lifecycle scripts at the config layer neutralises that vector regardless of whether `immunity` is in the call path.
+
+**`save-exact=true`** is the closest thing to age-gating that npm offers natively. With the default SemVer caret ranges, `npm install express` writes `"express": "^4.18.2"` and a fresh `npm install` on a teammate's machine can resolve to any 4.x version published since — including a hijacked one published an hour ago. Pinning exact versions means the lockfile is the source of truth and new versions only enter the project when someone explicitly bumps them.
+
+**`git-fetch-with-cli=true`** for Cargo routes git dependencies through your system `git` binary instead of cargo's built-in libgit2 fetcher. This respects your existing `.gitconfig`, SSH agent, and credential helpers — and makes git-based supply chain probes (private repo enumeration, malformed URL handling) the responsibility of a more battle-tested tool.
+
+### Hardening + runtime scoring
+
+The config hardening and the runtime scorer are complementary, not redundant:
+
+- **Hardening** narrows the attack surface for *any* install (`npm install` direct, CI, agent without alias).
+- **Runtime scoring** still catches the things hardening can't: a published-2-days-ago malicious package that has no install scripts but is named to typosquat a popular library, or a package whose name matches the IOC database.
+
+Run `immunity harden` once when bootstrapping a project, and use the `immunity` wrapper for installs. The two together give you both a static gate (what the package manager itself enforces) and a dynamic gate (what the immunity scorer rejects).
+
+### Caveats
+
+- `pip.conf` is not auto-read from the project root. Activate with `export PIP_CONFIG_FILE=pip.conf` or place it at `$VIRTUAL_ENV/pip.conf` after creating the venv. The hardener prints this reminder.
+- `ignore-scripts` will break packages that legitimately need install scripts (e.g. `node-gyp` native modules). Allow them per-package via `npm rebuild <pkg> --foreground-scripts` or pnpm's `onlyBuiltDependencies` allowlist in `package.json`.
+
+---
+
 ## Architecture
 
 ```

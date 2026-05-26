@@ -155,6 +155,10 @@ def main() -> None:
     if str(_REPO_ROOT) not in sys.path:
         sys.path.insert(0, str(_REPO_ROOT))
 
+    if argv[0] == "harden":
+        _cmd_harden(argv[1:])
+        return
+
     from supplychain.ecosystems.detector import detect_install
     event = detect_install(argv)
 
@@ -204,18 +208,39 @@ def main() -> None:
     _exec(argv)
 
 
+def _cmd_harden(args: List[str]) -> None:
+    """Scan the project for package manager configs and apply hardening."""
+    from supplychain.hardener import harden_project, print_harden_report
+
+    dry_run = "--dry-run" in args or "-n" in args
+    path_args = [a for a in args if not a.startswith("-")]
+    root = Path(path_args[0]).resolve() if path_args else Path.cwd()
+
+    if not root.is_dir():
+        sys.stderr.write(f"immunity harden: not a directory: {root}\n")
+        sys.exit(2)
+
+    results = harden_project(root, dry_run=dry_run)
+    print_harden_report(results, root, dry_run=dry_run)
+
+
 def _usage() -> None:
     print(f"  {_c('immunity', _BOLD)} — AI-native supply chain enforcement")
     print()
     print("  Usage: immunity <command> [args...]")
     print()
-    print("  Examples:")
+    print("  Install interception:")
     print("    immunity npm install express")
     print("    immunity pip install requests numpy")
     print("    immunity pnpm add lodash")
     print("    immunity uv add fastapi")
     print("    immunity cargo add serde")
     print("    immunity go get github.com/some/pkg")
+    print()
+    print("  Config hardening:")
+    print("    immunity harden              Apply hardening to project configs")
+    print("    immunity harden --dry-run    Preview without writing")
+    print("    immunity harden <path>       Harden a specific project root")
     print()
     print("  Non-install commands pass through transparently.")
     print()

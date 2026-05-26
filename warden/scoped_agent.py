@@ -25,6 +25,23 @@ _EVENT_TYPE_TO_TOOL = {
     "network": "WebFetch",
 }
 
+_KNOWN_TOOLS = {"Read", "Write", "Edit", "MultiEdit", "Bash", "WebFetch", "WebSearch"}
+
+
+def _resolve_tool_name(event: Dict[str, Any]) -> Optional[str]:
+    """Resolve the concrete tool name for an event.
+
+    Prefers the original tool name carried in ``metadata.tool_name`` (set by the
+    hook normalizer) so deny_tools can target the specific tool that ran — e.g.
+    distinguishing Edit from Write within a single file_write event. Falls back
+    to the event-type mapping for synthetic events that carry no metadata (the
+    CLI ``iam check`` path and unit tests).
+    """
+    meta_tool = (event.get("metadata") or {}).get("tool_name") or ""
+    if meta_tool in _KNOWN_TOOLS:
+        return meta_tool
+    return _EVENT_TYPE_TO_TOOL.get(event.get("type", ""))
+
 
 # ── Rule synthesis ─────────────────────────────────────────────────────────
 
@@ -223,22 +240,36 @@ def check_scoped_rules(
     Returns a finding dict if the event is blocked, None if allowed.
     """
     event_type = event.get("type", "")
-    tool_name = _EVENT_TYPE_TO_TOOL.get(event_type)
+    tool_name = _resolve_tool_name(event)
 
     # Tool check
     if tool_name:
         allowed = rules.get("allowed_tools", [])
         denied = rules.get("deny_tools", [])
 
-        # Handle Write/Edit distinction: if event is file_write, check both Write and Edit
+        # deny_tools takes precedence over allowed_tools: an explicitly denied
+        # tool is blocked even when a broader allow-rule would otherwise permit
+        # it (e.g. allowed_tools:[Read,Edit] + deny_tools:[Write] blocks Write).
+        if tool_name in denied:
+            return _scoped_finding(
+                session_id,
+                f"Tool '{tool_name}' is explicitly denied for this session",
+                event_type,
+            )
+
         if event_type == "file_write":
-            if "Write" not in allowed and "Edit" not in allowed and "MultiEdit" not in allowed:
+            # A write may arrive as Write, Edit, or MultiEdit. Permit it only if
+            # the concrete tool is allowed, or — when the event carries no
+            # tool name — any write-family tool is allowed and not denied.
+            write_family = ("Write", "Edit", "MultiEdit")
+            permitted = [t for t in write_family if t in allowed and t not in denied]
+            if tool_name not in allowed and not permitted:
                 return _scoped_finding(
                     session_id,
                     f"Tool '{tool_name}' is not in scope for this session",
                     event_type,
                 )
-        elif tool_name not in allowed or tool_name in denied:
+        elif tool_name not in allowed:
             return _scoped_finding(
                 session_id,
                 f"Tool '{tool_name}' is not in scope for this session",
