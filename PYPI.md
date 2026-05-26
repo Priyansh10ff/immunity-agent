@@ -1,0 +1,147 @@
+# Immunity Agent
+
+Runtime security for AI coding agents. Policy enforcement, secret prevention, supply-chain blocking, and session auditing — all running locally on your machine.
+
+---
+
+## What it does
+
+AI coding agents execute shell commands, read files, call APIs, and install packages autonomously. Immunity Agent sits between the agent and the operating system to:
+
+- **Block dangerous actions** before they run — destructive commands, privilege escalation, reverse shells, secret exfiltration
+- **Intercept package installs** and score them for supply-chain risk before they touch your disk
+- **Prevent secrets from reaching the model** — register a secret under a placeholder name; the hook substitutes the real value at execution time
+- **Log every tool call** to a local SQLite store for session review and auditing
+
+Supports Claude Code, Cursor, Windsurf, and more.
+
+---
+
+## Install
+
+```bash
+pip install immunity-agent
+```
+
+Requires Python ≥ 3.8 and PyYAML (installed automatically).
+
+---
+
+## Quick start
+
+**Install Warden hooks into your project** (enforces policy on every agent tool call):
+
+```bash
+warden install-hooks --agent claude --workspace . --mode observe
+```
+
+Start in `observe` mode to log would-be blocks without interrupting the agent. Switch to `enforce` when ready:
+
+```bash
+warden install-hooks --agent claude --workspace . --mode enforce
+```
+
+**Wrap your package manager** to score installs before they run:
+
+```bash
+immunity npm install express
+immunity pip install requests
+immunity cargo add serde
+```
+
+**Check a command against policy** before running it:
+
+```bash
+warden check "rm -rf /"
+# BLOCK  destructive_command  CRITICAL
+```
+
+**Audit your workspace** security posture:
+
+```bash
+warden audit
+```
+
+**Scan AI tool configs** for leaked secrets:
+
+```bash
+warden sweep
+```
+
+**Launch the self-hosted dashboard** (reads from local SQLite, no cloud):
+
+```bash
+warden serve   # http://127.0.0.1:7070
+```
+
+---
+
+## Detection coverage
+
+Warden ships with 56 rules covering the [OWASP Top 10 for LLM Applications](https://genai.owasp.org/llm-top-10/):
+
+| Category | Severity | What it catches |
+|---|---|---|
+| Destructive command | CRITICAL | `rm -rf /`, `mkfs`, `dd` to disk |
+| Secret exfiltration | CRITICAL | `cat .env \| curl`, piping credentials outbound |
+| RCE canary | CRITICAL | Reverse shells, `bash -i /dev/tcp` |
+| Privilege escalation | CRITICAL | `chmod +s`, sudoers edits, `useradd` |
+| Remote execution | HIGH | `curl \| bash`, `wget \| sh` |
+| Secret access | HIGH | Reads of `.env`, `.aws/credentials`, `.ssh/id_rsa` |
+| Path traversal | HIGH | `../../etc/passwd`, `/proc/self/environ` |
+| DB modification | HIGH | `DROP TABLE`, `DELETE FROM` in shell commands |
+| Prompt injection | HIGH | `ignore instructions`, `reveal system prompt` |
+| Risky write | MEDIUM | Edits to Dockerfile, CI workflows, `package.json` |
+
+Rules are defined in YAML and fully customizable per-project.
+
+---
+
+## Supply chain enforcement
+
+The `immunity` CLI wraps your package manager and evaluates every install against live threat intelligence before it runs. Packages are scored on age, maintainer count, install scripts, and known IOCs. Ships with IOC coverage for recent attacks including the **AntV hijacked-maintainer attack** (May 2026) and the **mini-shai-hulud** campaign (May 2026).
+
+```
+immunity npm install @tanstack/react-router
+  BLOCK  score 100  @tanstack/react-router
+         42 @tanstack/* packages compromised via CI/CD cache poisoning
+```
+
+Verdicts: `< 30` allow · `30–59` warn · `≥ 60` block. IOC matches always block.
+
+---
+
+## Secret cloaking
+
+Register a secret under a placeholder name:
+
+```bash
+warden cloak add stripe_key
+# prompts for the value — never stored in shell history
+```
+
+Reference it in agent instructions:
+
+```
+Run: curl https://api.stripe.com -H "Authorization: Bearer @@SECRET:stripe_key@@"
+```
+
+The pre-tool-use hook substitutes the real value at execution time. The post-tool-use hook scrubs any echoed value from output before it returns to the model.
+
+---
+
+## Modes
+
+| Mode | Behaviour |
+|---|---|
+| `observe` | Logs all findings, never blocks. Good for the first 24–48 h on a new workspace. |
+| `enforce` | Blocks dangerous actions in real time before the agent executes them. |
+
+---
+
+## Links
+
+- **Repository**: https://github.com/PrismorSec/immunity-agent
+- **Docs**: https://docs.prismor.dev
+- **Security playbook** (loaded by the agent at session start): https://github.com/PrismorSec/security-playbook
+- **Dashboard**: https://prismor.dev

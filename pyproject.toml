@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "immunity-agent"
 dynamic = ["version"]
 description = "Runtime security for AI coding agents: policy enforcement, secret prevention, and supply-chain blocking."
-readme = "README.md"
+readme = "PYPI.md"
 requires-python = ">=3.8"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
@@ -71,6 +71,6 @@ include = [
     "advisories/immunity-feed.json.sig",
     "keys/public.pub",
     "templates/",
-    "README.md",
+    "PYPI.md",
     "LICENSE",
 ]
