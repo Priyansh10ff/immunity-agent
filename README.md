@@ -69,11 +69,20 @@ See [benchmark.md](benchmark.md) for the full methodology, per-category breakdow
 
 ## Quick Start
 
-Ensure PyYAML is installed (required for the policy engine), then clone and install:
+**Option A — pip (recommended):**
+
+```bash
+pip install immunity-agent
+warden setup          # interactive 5-step onboarding wizard
+```
+
+`warden setup` lets you pick enforcement mode, toggle detection rules, select agents, and optionally enable secret cloaking. Pass `--non-interactive` to skip the TUI.
+
+**Option B — git clone + wizard:**
 
 ```bash
 pip3 install pyyaml                          # required dependency
-git clone https://github.com/PrismorSec/prismor.git ~/.prismor
+git clone https://github.com/PrismorSec/immunity-agent.git ~/.prismor
 PRISMOR_MODE=enforce PRISMOR_CLOAK=1 bash ~/.prismor/scripts/init.sh .
 ```
 
