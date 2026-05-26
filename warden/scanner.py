@@ -16,6 +16,7 @@ import re
 import shlex
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
 
 from warden.policy_engine import PolicyEngine
 
@@ -291,8 +292,179 @@ _NET_TOOL_NAME_HINTS = (
     "post", "get_url",
 )
 
+# Transport/type values that indicate a remote (non-stdio) MCP server.
+_REMOTE_TRANSPORTS = {
+    "http", "https", "sse", "streamable-http", "streamable_http",
+    "streamablehttp", "ws", "wss", "websocket",
+}
 
-def audit_mcp_schema(entry: Dict[str, Any]) -> List[Dict[str, Any]]:
+# Config keys whose value may carry a remote MCP endpoint.
+_URL_KEYS = ("url", "endpoint", "serverUrl", "server_url", "uri", "href")
+
+# Header/env key names that strongly imply a credential.
+_SECRET_KEY_RE = re.compile(
+    r"(authorization|bearer|api[_-]?key|access[_-]?key|secret|token|"
+    r"password|passwd|client[_-]?secret|x-api-key)",
+    re.IGNORECASE,
+)
+
+# Literal token shapes that look like real secrets regardless of key name.
+_SECRET_VALUE_RE = re.compile(
+    r"(sk-(?:ant-api03-|proj-)?[A-Za-z0-9_-]{20,}|"
+    r"(?:ghp|gho|ghs|ghr|github_pat)_[A-Za-z0-9_]{20,}|"
+    r"AKIA[A-Z0-9]{16}|"
+    r"xox[bpas]-[0-9A-Za-z-]{10,}|"
+    r"AIza[0-9A-Za-z_-]{35}|"
+    r"sk_(?:live|test)_[A-Za-z0-9]{20,}|"
+    r"eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})"
+)
+
+# Value forms that are NOT hardcoded secrets (env-var refs, cloaking
+# placeholders, obvious example/empty values).
+_PLACEHOLDER_RE = re.compile(
+    r"^\s*$|\$\{[^}]+\}|\$[A-Za-z_][A-Za-z0-9_]*|@@SECRET:[^@]+@@|"
+    r"<[^>]+>|^(your[_-]|example|changeme|placeholder|xxx+|\*+|redacted)",
+    re.IGNORECASE,
+)
+
+
+def _is_raw_ip(host: str) -> bool:
+    """True if host is a bare IPv4 literal (not a domain)."""
+    return bool(re.match(r"^\d{1,3}(\.\d{1,3}){3}$", host or ""))
+
+
+def _domain_in_allowlist(domain: str, allowlist: List[str]) -> bool:
+    """Mirror PolicyEngine._is_domain_allowed: exact + wildcard subdomain."""
+    d = (domain or "").lower()
+    for pattern in allowlist:
+        p = str(pattern).lower()
+        if p.startswith("*."):
+            suffix = p[2:]
+            if d == suffix or d.endswith("." + suffix):
+                return True
+        elif d == p:
+            return True
+    return False
+
+
+def _looks_like_hardcoded_secret(key: str, value: str) -> bool:
+    """Decide whether a header/env entry embeds a literal credential.
+
+    Skips env-var references (``${VAR}``), cloaking placeholders
+    (``@@SECRET:...@@``), and obvious example values.
+    """
+    if not value or _PLACEHOLDER_RE.search(value):
+        return False
+    if _SECRET_VALUE_RE.search(value):
+        return True
+    # Credential-shaped key name with a non-trivial literal value.
+    if _SECRET_KEY_RE.search(key) and len(value.strip()) >= 8:
+        return True
+    return False
+
+
+def _audit_remote_transport(
+    name: str,
+    cfg: Dict[str, Any],
+    egress_allowlist: Optional[List[str]],
+    action: str = "warn",
+) -> List[Dict[str, Any]]:
+    """Transport-hygiene checks for remote (HTTP/SSE/streamable-HTTP) MCP servers.
+
+    Flags cleartext transport, raw-IP endpoints, endpoints outside the egress
+    allowlist, and hardcoded secrets in headers/env. stdio servers (no url /
+    command-based) produce no findings here. ``action`` ("warn" or "block")
+    is configured via the ``mcp_transport_action`` policy setting.
+    """
+    findings: List[Dict[str, Any]] = []
+
+    url = ""
+    for k in _URL_KEYS:
+        v = cfg.get(k)
+        if isinstance(v, str) and v.strip():
+            url = v.strip()
+            break
+    transport = str(cfg.get("type") or cfg.get("transport") or "").lower()
+    is_remote = bool(url) or transport in _REMOTE_TRANSPORTS
+
+    if url:
+        parsed = urlparse(url)
+        scheme = (parsed.scheme or "").lower()
+        host = parsed.hostname or ""
+
+        if scheme in ("http", "ws"):
+            findings.append({
+                "id": f"mcp-cleartext-{name}",
+                "severity": "HIGH",
+                "category": "skill_risk",
+                "title": f"MCP server '{name}' uses cleartext transport ({scheme}://) — traffic and tokens are unencrypted",
+                "evidence": _truncate_url(url),
+                "eventIndex": 0,
+                "ruleId": "mcp-cleartext-transport",
+                "action": action,
+                "skillName": name,
+            })
+
+        if _is_raw_ip(host):
+            findings.append({
+                "id": f"mcp-raw-ip-{name}",
+                "severity": "HIGH",
+                "category": "skill_risk",
+                "title": f"MCP server '{name}' points at a raw IP address ({host}) — no TLS hostname trust, common C2 shape",
+                "evidence": _truncate_url(url),
+                "eventIndex": 0,
+                "ruleId": "mcp-remote-raw-ip",
+                "action": action,
+                "skillName": name,
+            })
+
+        if egress_allowlist and host and not _is_raw_ip(host) \
+                and not _domain_in_allowlist(host, egress_allowlist):
+            findings.append({
+                "id": f"mcp-egress-{name}",
+                "severity": "MEDIUM",
+                "category": "skill_risk",
+                "title": f"MCP server '{name}' endpoint '{host}' is not on the egress allowlist",
+                "evidence": _truncate_url(url),
+                "eventIndex": 0,
+                "ruleId": "mcp-remote-not-allowlisted",
+                "action": action,
+                "skillName": name,
+            })
+
+    if is_remote:
+        for block_key in ("headers", "env"):
+            block = cfg.get(block_key)
+            if not isinstance(block, dict):
+                continue
+            for k, v in block.items():
+                if _looks_like_hardcoded_secret(str(k), str(v)):
+                    findings.append({
+                        "id": f"mcp-secret-{name}-{block_key}-{k}",
+                        "severity": "MEDIUM",
+                        "category": "skill_risk",
+                        "title": f"MCP server '{name}' has a hardcoded secret in {block_key} ('{k}') — use ${{ENV}} or cloaking instead",
+                        "evidence": f"{block_key}.{k}: [redacted literal value]",
+                        "eventIndex": 0,
+                        "ruleId": "mcp-hardcoded-secret",
+                        "action": action,
+                        "skillName": name,
+                    })
+
+    return findings
+
+
+def _truncate_url(url: str, limit: int = 120) -> str:
+    """Truncate a URL for evidence, stripping any query string (may carry tokens)."""
+    base = url.split("?", 1)[0]
+    return base if len(base) <= limit else base[: limit - 3] + "..."
+
+
+def audit_mcp_schema(
+    entry: Dict[str, Any],
+    egress_allowlist: Optional[List[str]] = None,
+    mcp_action: str = "warn",
+) -> List[Dict[str, Any]]:
     """Static analysis of an MCP server / skill config.
 
     Returns structured findings that complement the regex-based skill_manifest
@@ -305,12 +477,18 @@ def audit_mcp_schema(entry: Dict[str, Any]) -> List[Dict[str, Any]]:
       - Single server offering filesystem AND network AND execution tools
       - ``allowedPaths`` / ``allowedDomains`` using unrestricted wildcards
       - Tool schemas missing ``inputSchema`` entirely
+      - Remote-transport hygiene for HTTP/SSE/streamable-HTTP servers:
+        cleartext transport, raw-IP endpoints, endpoints outside the egress
+        allowlist, and hardcoded secrets in headers/env.
     """
     findings: List[Dict[str, Any]] = []
     cfg = entry.get("config") or {}
     if not isinstance(cfg, dict):
         return findings
     name = entry.get("name", "unnamed")
+
+    # Remote-transport hygiene (HTTP/SSE/streamable-HTTP MCP servers).
+    findings.extend(_audit_remote_transport(name, cfg, egress_allowlist, mcp_action))
 
     # Over-broad allow-lists
     for list_key in ("allowedPaths", "allowedDomains", "permissions"):
@@ -491,7 +669,11 @@ def scan_skills(
         findings.extend(entry_findings)
 
         # Structural schema audit (complements the regex rules above).
-        for sf in audit_mcp_schema(entry):
+        for sf in audit_mcp_schema(
+            entry,
+            egress_allowlist=engine.egress_allowlist,
+            mcp_action=engine.mcp_transport_action,
+        ):
             sf["skillSource"] = entry.get("source", "")
             sf["agent"] = entry.get("agent", "unknown")
             findings.append(sf)

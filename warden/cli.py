@@ -1915,8 +1915,9 @@ def _policy_test(workspace: Path, test_file: Optional[str] = None) -> None:
 
     if not path.exists():
         # If the user hasn't written their own, fall back to the bundled
-        # OWASP LLM Top 10 starter pack shipped with the repo.
-        bundled = Path(__file__).parent.parent / "templates" / "policy-tests-owasp.yaml"
+        # OWASP LLM Top 10 starter pack shipped with the package.
+        from warden.paths import template_path
+        bundled = template_path("policy-tests-owasp.yaml")
         if bundled.exists():
             path = bundled
             print(_color("[policy test]", _CYAN)

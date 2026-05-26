@@ -46,6 +46,9 @@ def _ce(text: str, colour: str) -> str:
 def _load_feed() -> dict:
     try:
         from warden.feed import load_feed
+        # load_feed resolves the bundled feed itself; _REPO_ROOT is only a
+        # hint that works in a git checkout (it points at site-packages once
+        # installed, where the resolver takes over).
         return load_feed(_REPO_ROOT)
     except Exception:
         return {"advisories": []}

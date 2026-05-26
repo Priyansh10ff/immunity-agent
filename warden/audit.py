@@ -327,9 +327,11 @@ def _check_feed_signature(repo_root: Path) -> List[AuditFinding]:
     """Verify the advisory feed Ed25519 signature."""
     findings: List[AuditFinding] = []
 
-    feed_path = repo_root / "advisories" / "immunity-feed.json"
-    sig_path = repo_root / "advisories" / "immunity-feed.json.sig"
-    pub_key = repo_root / "keys" / "public.pub"
+    from warden.paths import feed_path as _feed_path, feed_sig_path, public_key_path
+
+    feed_path = _feed_path()
+    sig_path = feed_sig_path()
+    pub_key = public_key_path()
 
     if not feed_path.exists():
         findings.append(AuditFinding(

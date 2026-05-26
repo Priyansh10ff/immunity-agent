@@ -8,6 +8,12 @@ venv/
 env/
 .venv/
 
+# Python build artifacts (sdist/wheel from `python -m build`)
+build/
+dist/
+*.egg-info/
+.eggs/
+
 # Environment variables
 .env
 .env.local
@@ -39,3 +45,4 @@ warden/hermes-plugin/
 *.swp
 *.swo
 .DS_Store
+assets/*

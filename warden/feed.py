@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 CATEGORY_TO_FEED_TYPES = {
     "prompt_injection": {"prompt_injection", "jailbreak", "policy_bypass"},
@@ -23,9 +23,25 @@ CATEGORY_TO_FEED_TYPES = {
 }
 
 
-def load_feed(repo_root: Path) -> Dict[str, Any]:
-    feed_path = repo_root / "advisories" / "immunity-feed.json"
-    with feed_path.open("r", encoding="utf-8") as handle:
+def load_feed(repo_root: Optional[Path] = None) -> Dict[str, Any]:
+    """Load the advisory feed.
+
+    ``repo_root`` is honoured for backward compatibility, but only when it
+    actually contains the feed. Otherwise (e.g. an installed wheel, where the
+    legacy ``repo_root`` would point at ``site-packages``) the bundled-data
+    resolver in :mod:`warden.paths` locates it instead.
+    """
+    resolved = None
+    if repo_root is not None:
+        candidate = Path(repo_root) / "advisories" / "immunity-feed.json"
+        if candidate.exists():
+            resolved = candidate
+
+    if resolved is None:
+        from warden.paths import feed_path
+        resolved = feed_path()
+
+    with resolved.open("r", encoding="utf-8") as handle:
         return json.load(handle)
 
 

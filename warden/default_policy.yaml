@@ -39,6 +39,14 @@ settings:
   #     - "api.anthropic.com"
   #     - "api.openai.com"
 
+  # Action for MCP remote-transport static findings raised by `warden scan`:
+  # cleartext transport (http://), raw-IP endpoints, endpoints not on the
+  # egress allowlist, and hardcoded secrets in a server's headers/env.
+  # Either "warn" (default) or "block". Set to "block" to fail CI / enforce
+  # mode on insecure remote MCP servers. Override per-project in
+  # .prismor-warden/policy.yaml.
+  mcp_transport_action: warn
+
   # Regex patterns used to identify dependency manifest files.
   # Matched paths cause risky_write findings to be upgraded to HIGH severity.
   manifest_patterns:

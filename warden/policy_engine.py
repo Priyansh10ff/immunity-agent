@@ -113,14 +113,16 @@ class _TaintStore:
         return domain.lower() not in self.seen_domains
 
 
-def _check_cloaked_secrets_in_url(url: str) -> Optional[str]:
-    """Check whether any enrolled cloaking secret appears verbatim in the URL.
+def _check_cloaked_secrets_in_text(text: str) -> Optional[str]:
+    """Check whether any enrolled cloaking secret appears verbatim in ``text``.
 
     Returns the secret *name* (never the value) if a match is found,
     or ``None`` if nothing matches or the secrets store is unavailable.
     Secrets shorter than 8 characters are skipped to avoid false positives
     on common short strings.
     """
+    if not text:
+        return None
     try:
         from warden.cloaking.secrets_store import secrets_dir
         sdir = secrets_dir()
@@ -131,13 +133,18 @@ def _check_cloaked_secrets_in_url(url: str) -> Optional[str]:
                 continue
             try:
                 value = secret_file.read_text(encoding="utf-8").strip()
-                if value and len(value) >= 8 and value in url:
+                if value and len(value) >= 8 and value in text:
                     return secret_file.name
             except Exception:
                 continue
     except Exception:
         pass
     return None
+
+
+# Backwards-compatible alias — the URL is just one kind of outbound text.
+def _check_cloaked_secrets_in_url(url: str) -> Optional[str]:
+    return _check_cloaked_secrets_in_text(url)
 
 
 class CompiledRule:
@@ -264,6 +271,12 @@ class PolicyEngine:
             self._manifest_re = re.compile(joined, re.IGNORECASE)
 
         self.egress_allowlist = list(settings.get("egress_allowlist", []) or [])
+
+        # Action for MCP remote-transport static findings (cleartext transport,
+        # raw-IP endpoints, off-allowlist endpoints, hardcoded secrets in
+        # headers/env). Either "warn" (default) or "block".
+        _mcp_action = str(settings.get("mcp_transport_action", "warn")).lower()
+        self.mcp_transport_action = _mcp_action if _mcp_action in ("warn", "block", "log") else "warn"
 
         # Compile rules.
         for rule_data in rules_by_id.values():
@@ -511,6 +524,31 @@ class PolicyEngine:
                         "action": "block",
                     })
 
+            # MCP / request-body exfiltration: a remote MCP tool call carries
+            # its arguments in the request body, not the URL. Scan the serialized
+            # arguments for any enrolled cloaking secret so secrets shipped as
+            # tool parameters are caught the same way as secrets in a URL.
+            outbound_payload = str(event.get("outbound_payload", ""))
+            if outbound_payload:
+                _secret_in_args = _check_cloaked_secrets_in_text(outbound_payload)
+                if _secret_in_args:
+                    finding_id = f"cloaked-secret-in-mcp-args-{index}"
+                    prefixed_id = f"{session_id}:{finding_id}" if session_id else finding_id
+                    findings.append({
+                        "id": prefixed_id,
+                        "severity": "CRITICAL",
+                        "category": "secret_exfiltration",
+                        "title": (
+                            f"Enrolled secret '@@SECRET:{_secret_in_args}@@' "
+                            f"detected in outbound MCP tool arguments"
+                        ),
+                        "evidence": "[secret value redacted from evidence]",
+                        "eventIndex": index,
+                        "ruleId": "cloaked-secret-in-mcp-args",
+                        "action": "block",
+                    })
+
+            if url:
                 # If this session previously had a prompt injection finding,
                 # any subsequent outbound network call is suspicious — escalate
                 # to CRITICAL regardless of destination.

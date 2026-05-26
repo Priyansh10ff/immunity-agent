@@ -22,6 +22,28 @@ The scanner automatically discovers configs from:
 
 Each MCP server and skill entry is evaluated against Warden's policy rules. Findings are sorted by severity (critical first) so the most dangerous issues are always at the top.
 
+## Remote MCP transport checks
+
+MCP servers increasingly run over the network (`http`, `sse`, `streamable-http`) instead of a local stdio process. `warden scan` audits the transport of every remote MCP server it discovers and raises a finding for each insecure pattern:
+
+| Rule ID                      | Severity | What it flags                                                                 |
+| ---------------------------- | -------- | ----------------------------------------------------------------------------- |
+| `mcp-cleartext-transport`    | HIGH     | Endpoint uses `http://` or `ws://` — traffic and tokens travel unencrypted    |
+| `mcp-remote-raw-ip`          | HIGH     | Endpoint is a bare IP address — no TLS hostname trust, a common C2 shape       |
+| `mcp-remote-not-allowlisted` | MEDIUM   | Endpoint domain is not on your `egress_allowlist` (raw IPs use the rule above) |
+| `mcp-hardcoded-secret`       | MEDIUM   | A literal token sits in the server's `headers`/`env` instead of `${ENV}` or cloaking |
+
+`mcp-hardcoded-secret` only fires on literal values — `${VAR}` references and `@@SECRET:<name>@@` cloaking placeholders are treated as safe — and the secret value is never printed in the finding's evidence.
+
+### Configuring the action
+
+By default these findings are warnings. Set them to block (to fail CI via `warden scan --sarif`, or to block in enforce mode) in your project's `.prismor-warden/policy.yaml`:
+
+```yaml
+settings:
+  mcp_transport_action: block   # "warn" (default) or "block"
+```
+
 ## Hermes gateway
 
 Hermes stores per-session JSONL transcripts at `~/.hermes/sessions/` and a queryable SQLite index with FTS5 at `~/.hermes/state.db`. Warden hooks intercept tool calls at the gateway layer before the transcript is written. The session store can also be ingested offline for retrospective analysis:

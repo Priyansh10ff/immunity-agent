@@ -1,0 +1,76 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "immunity-agent"
+dynamic = ["version"]
+description = "Runtime security for AI coding agents: policy enforcement, secret prevention, and supply-chain blocking."
+readme = "README.md"
+requires-python = ">=3.8"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "Prismor Security", email = "hello@prismor.dev" }]
+keywords = [
+    "security",
+    "ai-agents",
+    "llm",
+    "prompt-injection",
+    "supply-chain",
+    "claude-code",
+    "policy-enforcement",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Topic :: Security",
+    "Topic :: Software Development :: Quality Assurance",
+    "Operating System :: POSIX",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+]
+dependencies = [
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = ["build", "pytest"]
+
+[project.urls]
+Homepage = "https://prismor.dev"
+Repository = "https://github.com/PrismorSec/immunity-agent"
+Documentation = "https://docs.prismor.dev"
+
+[project.scripts]
+warden = "warden.cli:main"
+immunity = "supplychain.cli:main"
+
+[tool.hatch.version]
+path = "warden/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["warden", "supplychain"]
+
+# Bundle the runtime data (advisory feed, public signing key, starter
+# templates) into the wheel under warden/data/ without moving the source
+# files, so the signing pipeline and verify_feed.sh keep their repo-root
+# layout. warden/paths.py resolves both layouts. The private key (*.pem) is
+# never mapped here and is git-ignored, so it cannot leak into the wheel.
+[tool.hatch.build.targets.wheel.force-include]
+"advisories/immunity-feed.json" = "warden/data/advisories/immunity-feed.json"
+"advisories/immunity-feed.json.sig" = "warden/data/advisories/immunity-feed.json.sig"
+"keys/public.pub" = "warden/data/keys/public.pub"
+"templates/policy-tests-owasp.yaml" = "warden/data/templates/policy-tests-owasp.yaml"
+"templates/CLAUDE.md.template" = "warden/data/templates/CLAUDE.md.template"
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "warden/",
+    "supplychain/",
+    "advisories/immunity-feed.json",
+    "advisories/immunity-feed.json.sig",
+    "keys/public.pub",
+    "templates/",
+    "README.md",
+    "LICENSE",
+]

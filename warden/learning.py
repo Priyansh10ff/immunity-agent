@@ -203,26 +203,47 @@ def detect_evasion(
     try:
         initialize_learning_tables(conn)
 
-        # Get recently blocked commands from this session
-        rows = conn.execute(
+        # Findings record the ordinal index of the event that triggered them
+        # (event_index = position in the session's event list). Map each
+        # finding back to its specific command rather than cross-joining the
+        # whole session — otherwise every command in a session that has *any*
+        # finding (including the current, passing one, which is snapshotted
+        # into `events` before this runs) self-matches at 100%.
+        finding_rows = conn.execute(
             """
-            SELECT e.command_text, f.finding_id, f.title, f.category
-            FROM events e
-            JOIN findings f ON e.session_id = f.session_id
-            WHERE e.session_id = ?
-              AND e.type = 'shell'
-              AND e.command_text IS NOT NULL
-              AND e.command_text != ''
-            ORDER BY e.id DESC
-            LIMIT 50
+            SELECT event_index, finding_id, title, category
+            FROM findings
+            WHERE session_id = ? AND event_index IS NOT NULL
             """,
             (session_id,),
         ).fetchall()
+        if not finding_rows:
+            return []
+
+        # Ordered command texts for this session; list index == event_index.
+        ordered_cmds = [
+            row[0]
+            for row in conn.execute(
+                "SELECT command_text FROM events WHERE session_id = ? ORDER BY id ASC",
+                (session_id,),
+            ).fetchall()
+        ]
 
         evasion_findings = []
-        for blocked_cmd, finding_id, title, category in rows:
+        seen_blocked: set = set()
+        for event_index, finding_id, title, category in finding_rows:
+            if event_index is None or event_index < 0 or event_index >= len(ordered_cmds):
+                continue
+            blocked_cmd = ordered_cmds[event_index]
             if not blocked_cmd:
                 continue
+            # The current command passed policy (no findings); never compare it
+            # against itself.
+            if blocked_cmd == command:
+                continue
+            if blocked_cmd in seen_blocked:
+                continue
+            seen_blocked.add(blocked_cmd)
 
             # Must share the same base command
             if _base_command(blocked_cmd) != base:

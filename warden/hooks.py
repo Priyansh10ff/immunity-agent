@@ -5,7 +5,7 @@ import json
 import os
 import shutil
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Tuple
 
 from warden.store import append_session_event
 
@@ -102,9 +102,9 @@ def normalize_payload(*, agent: str, payload: Dict[str, Any], workspace: Path) -
     )
 
     if agent == "claude":
-        event = _normalize_claude(payload, session_id)
+        event = _normalize_claude(payload, session_id, workspace)
     elif agent == "windsurf":
-        event = _normalize_windsurf(payload, session_id)
+        event = _normalize_windsurf(payload, session_id, workspace)
     elif agent == "openclaw":
         event = _normalize_openclaw(payload, session_id)
     elif agent == "hermes":
@@ -665,7 +665,156 @@ def _read_json(path: Path) -> Dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _normalize_claude(payload: Dict[str, Any], session_id: str) -> Dict[str, Any]:
+# ── MCP tool-call classification ─────────────────────────────────────────────
+# MCP tool calls arrive as opaque tool names (``mcp__<server>__<tool>``) and
+# would otherwise fall through to a generic ``tool_result`` event — bypassing
+# the egress allowlist, taint tracking, and clean injection scanning. The
+# helpers below resolve the backing server's transport from the agent's MCP
+# config and re-shape the event so the existing policy rules apply:
+#   • remote (HTTP/SSE) tool *calls*  -> ``network`` event (egress + taint +
+#     secret-in-URL/args rules)
+#   • tool *responses*                -> clean ``tool_result`` (injection scan)
+
+_MCP_REMOTE_TRANSPORTS = {
+    "http", "https", "sse", "streamable-http", "streamable_http",
+    "streamablehttp", "ws", "wss", "websocket",
+}
+_MCP_URL_KEYS = ("url", "endpoint", "serverUrl", "server_url", "uri", "href")
+
+# Per-workspace cache of {server_name_lower: {"url", "transport", "remote"}}.
+_mcp_index_cache: Dict[str, Dict[str, Dict[str, Any]]] = {}
+
+
+def _mcp_endpoint_meta(cfg: Dict[str, Any]) -> Dict[str, Any]:
+    """Extract endpoint metadata from a single MCP server config."""
+    url = ""
+    if isinstance(cfg, dict):
+        for k in _MCP_URL_KEYS:
+            v = cfg.get(k)
+            if isinstance(v, str) and v.strip():
+                url = v.strip()
+                break
+        transport = str(cfg.get("type") or cfg.get("transport") or "").lower()
+    else:
+        transport = ""
+    return {"url": url, "transport": transport,
+            "remote": bool(url) or transport in _MCP_REMOTE_TRANSPORTS}
+
+
+def _mcp_server_index(workspace: Path) -> Dict[str, Dict[str, Any]]:
+    """Build (and cache) a name->endpoint map from all discovered MCP configs."""
+    key = str(workspace)
+    cached = _mcp_index_cache.get(key)
+    if cached is not None:
+        return cached
+    index: Dict[str, Dict[str, Any]] = {}
+    try:
+        from warden.scanner import discover_configs, parse_config
+        for cfg in discover_configs(workspace=workspace):
+            for entry in parse_config(cfg["path"]):
+                nm = str(entry.get("name", "")).lower()
+                if nm:
+                    index[nm] = _mcp_endpoint_meta(entry.get("config") or {})
+    except Exception:
+        pass
+    _mcp_index_cache[key] = index
+    return index
+
+
+def _parse_mcp_tool(tool_name: str) -> Optional[Tuple[str, str]]:
+    """Parse ``mcp__<server>__<tool>`` into (server, tool); None if not MCP."""
+    if not tool_name or not tool_name.startswith("mcp__"):
+        return None
+    server, _, tool = tool_name[len("mcp__"):].partition("__")
+    return server, tool
+
+
+def _extract_mcp_response_text(response: Any) -> str:
+    """Flatten an MCP tool response into plain text for injection scanning.
+
+    Handles the common content-block shapes (``[{"type":"text","text":...}]``,
+    ``{"content":[...]}``) and falls back to a JSON dump.
+    """
+    if response is None:
+        return ""
+    if isinstance(response, str):
+        return response
+    parts: List[str] = []
+
+    def _walk(node: Any) -> None:
+        if isinstance(node, str):
+            parts.append(node)
+        elif isinstance(node, dict):
+            text = node.get("text")
+            if isinstance(text, str):
+                parts.append(text)
+            else:
+                for v in node.values():
+                    _walk(v)
+        elif isinstance(node, list):
+            for item in node:
+                _walk(item)
+
+    _walk(response)
+    joined = "\n".join(p for p in parts if p)
+    if joined:
+        return joined
+    try:
+        return json.dumps(response, default=str)
+    except Exception:
+        return str(response)
+
+
+def _classify_mcp_event(
+    *,
+    base: Dict[str, Any],
+    tool_name: str,
+    tool_input: Any,
+    response: Any,
+    is_post: bool,
+    workspace: Path,
+) -> Optional[Dict[str, Any]]:
+    """Re-shape an MCP tool call/response into a policy-aware event.
+
+    Returns ``None`` when ``tool_name`` is not an MCP tool, so callers fall
+    through to their default classification.
+    """
+    parsed = _parse_mcp_tool(tool_name)
+    if parsed is None:
+        return None
+    server, mcp_tool = parsed
+    meta = _mcp_server_index(workspace).get(server.lower(), {})
+    url = meta.get("url", "")
+    remote = bool(meta.get("remote"))
+    mcp_meta = {"mcp_server": server, "mcp_tool": mcp_tool}
+
+    if is_post:
+        # Tool output is untrusted remote content — scan it as a tool_result
+        # so the prompt-injection rules and HTML sanitizer apply cleanly.
+        event = {**base, "type": "tool_result",
+                 "response": _extract_mcp_response_text(response), **mcp_meta}
+        if url:
+            event["url"] = url
+        return event
+
+    # Pre-call. Serialize arguments so secret-in-args detection can see them.
+    try:
+        args_text = json.dumps(tool_input, default=str)
+    except Exception:
+        args_text = str(tool_input)
+
+    if remote and url:
+        # Route through the network path: egress allowlist, raw-IP, suspicious
+        # destination, secret-in-URL, taint escalation, and (via outbound_payload)
+        # enrolled-secret-in-arguments checks all apply.
+        return {**base, "type": "network", "url": url,
+                "outbound_payload": args_text, **mcp_meta}
+
+    # Local stdio MCP server: keep arguments visible to injection rules.
+    return {**base, "type": "tool_result", "response": args_text, **mcp_meta}
+
+
+def _normalize_claude(payload: Dict[str, Any], session_id: str, workspace: Path) -> Dict[str, Any]:
     hook_event = payload.get("hook_event_name", "unknown")
     tool_name = payload.get("tool_name", "")
     tool_input = payload.get("tool_input", {})
@@ -691,10 +840,20 @@ def _normalize_claude(payload: Dict[str, Any], session_id: str) -> Dict[str, Any
         }
     if tool_name in {"WebFetch", "WebSearch"}:
         return {**base, "type": "network", "url": tool_input.get("url", ""), "response": payload.get("response", "")}
+    mcp_event = _classify_mcp_event(
+        base=base,
+        tool_name=tool_name,
+        tool_input=tool_input,
+        response=payload.get("tool_response", payload.get("response")),
+        is_post=(hook_event == "PostToolUse"),
+        workspace=workspace,
+    )
+    if mcp_event is not None:
+        return mcp_event
     return {**base, "type": "tool_result", "response": json.dumps(payload)}
 
 
-def _normalize_windsurf(payload: Dict[str, Any], session_id: str) -> Dict[str, Any]:
+def _normalize_windsurf(payload: Dict[str, Any], session_id: str, workspace: Path) -> Dict[str, Any]:
     hook_event = payload.get("agent_action_name", "unknown")
     tool_info = payload.get("tool_info", {})
     base = {
@@ -712,6 +871,25 @@ def _normalize_windsurf(payload: Dict[str, Any], session_id: str) -> Dict[str, A
         return {**base, "type": "file_read", "path": tool_info.get("file_path", "")}
     if "write_code" in hook_event:
         return {**base, "type": "file_write", "path": tool_info.get("file_path", ""), "content": _join_edits(tool_info.get("edits", []))}
+    if "mcp_tool_use" in hook_event:
+        server = str(tool_info.get("server") or tool_info.get("server_name") or "")
+        tool = str(tool_info.get("tool") or tool_info.get("tool_name") or tool_info.get("name") or "")
+        synthetic = f"mcp__{server}__{tool}" if server else f"mcp__{tool}__{tool}"
+        mcp_event = _classify_mcp_event(
+            base=base,
+            tool_name=synthetic,
+            tool_input=tool_info.get("arguments") or tool_info.get("args") or tool_info.get("input") or {},
+            response=tool_info.get("result") or tool_info.get("response") or tool_info.get("output"),
+            is_post=hook_event.startswith("post"),
+            workspace=workspace,
+        )
+        if mcp_event is not None:
+            # Windsurf configs may carry the endpoint inline on the call.
+            if mcp_event.get("type") == "network" and not mcp_event.get("url"):
+                inline = str(tool_info.get("url") or tool_info.get("endpoint") or "")
+                if inline:
+                    mcp_event["url"] = inline
+            return mcp_event
     return {**base, "type": "tool_result", "response": json.dumps(payload)}
 
 
