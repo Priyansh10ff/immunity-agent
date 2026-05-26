@@ -3,6 +3,7 @@
 <h3 align="center">Runtime security for AI coding agents. Policy enforcement, secret prevention,<br>supply chain blocking, and secret cleanup in one package.</h3>
 
 <p align="center">
+  <a href="https://pypi.org/project/immunity-agent/"><img src="https://img.shields.io/pypi/v/immunity-agent" alt="PyPI"/></a>
   <a href="https://github.com/PrismorSec/prismor/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License" /></a>
   <a href="https://github.com/PrismorSec/prismor"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg" alt="PRs Welcome" /></a>
   <a href="https://x.com/prismor_dev"><img src="https://img.shields.io/badge/@prismor__dev-black?logo=x&logoColor=white" alt="X" /></a>
