@@ -29,6 +29,8 @@ Commands:
   cloak remove NAME  Delete a registered secret
   cloak status    Show whether cloaking hooks are installed
   cloak pattern   Manage secret-detection regexes (list/add/remove)
+  setup           Interactive onboarding wizard (5-step TUI) — pick mode, toggle rules, select agents, enable cloaking
+  setup --non-interactive  Scripted install via flags or env vars (PRISMOR_MODE, PRISMOR_CLOAK)
   iam list        List all defined agent identities
   iam init        Create a starter iam.yaml config (~/.prismor/iam.yaml)
   iam init --scope project  Create per-project .prismor-warden/iam.yaml
@@ -728,6 +730,26 @@ def main() -> None:
                 )
             except Exception:
                 pass  # best-effort, don't break the hook
+        return
+
+    # ── setup ──────────────────────────────────────────────────────────
+    if args.command == "setup":
+        from warden.setup_wizard import run_wizard, run_non_interactive
+        target = Path(getattr(args, "target", None) or ".").resolve()
+        non_interactive = getattr(args, "non_interactive", False) or not sys.stdin.isatty()
+        if non_interactive:
+            mode = getattr(args, "mode", None) or os.environ.get("PRISMOR_MODE", "observe")
+            agents_str = getattr(args, "agents", None)
+            agents = [a.strip() for a in agents_str.split(",")] if agents_str else None
+            cloak_flag = getattr(args, "cloak", None)
+            cloak = (
+                cloak_flag
+                if cloak_flag is not None
+                else os.environ.get("PRISMOR_CLOAK", "").lower() in {"1", "true", "yes", "on"}
+            )
+            run_non_interactive(target, mode=mode, agents=agents, cloak=cloak)
+        else:
+            run_wizard(target)
         return
 
     # ── iam ────────────────────────────────────────────────────────────
@@ -1576,6 +1598,49 @@ def build_parser() -> argparse.ArgumentParser:
         help="Event type to test (default: command)",
     )
     iam_check.add_argument("--value", required=True, help="Value to test (command, path, or URL)")
+
+    # ── setup ────────────────────────────────────────────────────────────
+    setup_parser = subparsers.add_parser(
+        "setup",
+        help="Interactive onboarding wizard — pick mode, toggle rules, select agents, enable cloaking",
+    )
+    setup_parser.add_argument(
+        "target",
+        nargs="?",
+        default=".",
+        metavar="TARGET_DIR",
+        help="Workspace directory to configure (default: current directory)",
+    )
+    setup_parser.add_argument(
+        "--non-interactive",
+        action="store_true",
+        help="Skip TUI; read settings from flags or env vars (PRISMOR_MODE, PRISMOR_CLOAK)",
+    )
+    setup_parser.add_argument(
+        "--mode",
+        choices=["observe", "enforce"],
+        default=None,
+        help="Enforcement mode (non-interactive only; default: observe)",
+    )
+    setup_parser.add_argument(
+        "--agents",
+        default=None,
+        metavar="AGENT[,AGENT…]",
+        help="Comma-separated agents to hook (non-interactive only): claude,cursor,windsurf,…",
+    )
+    setup_parser.add_argument(
+        "--cloak",
+        dest="cloak",
+        action="store_true",
+        default=None,
+        help="Enable secret cloaking (non-interactive only)",
+    )
+    setup_parser.add_argument(
+        "--no-cloak",
+        dest="cloak",
+        action="store_false",
+        help="Disable secret cloaking (non-interactive only)",
+    )
 
     return parser
 
