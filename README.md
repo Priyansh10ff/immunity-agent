@@ -48,10 +48,10 @@ Standard OS-level and endpoint security tools monitor the kernel and filesystem.
 - 📦 [Supply Chain](docs/supply-chain.md) covers install-time enforcement, IOC matching, and risk scoring
 - 🛜 [Network Isolation](docs/network-isolation.md) covers egress allowlists, raw IP detection, and tunnel blocking
 - 🔍 [Skill Scanner](docs/skill-scanner.md) covers MCP server and skill risk scanning across supported agents
-- 🔐 [Sweep and Cloak](docs/sweep-and-cloak.md) covers secret prevention at tool boundaries and cleanup for leaked secrets
+- 🔐 [Sweep and Cloak](docs/sweep-and-cloak.md) covers secret prevention at tool boundaries and cleanup for leaked secrets - see [Using Cloak](docs/using-cloak.md) for the practical setup, best practices, and threat model
 - 🐳 [Docker and Containers](docs/docker.md) covers container hardening, prerequisites, and known limitations
 
-These capabilities map to the [OWASP Top 10 for LLM Applications](https://genai.owasp.org/llm-top-10/) — covering prompt injection (LLM01), sensitive information disclosure (LLM02), supply chain (LLM03), improper output handling (LLM05), and excessive agency (LLM06).
+These capabilities map to the [OWASP Top 10 for LLM Applications](https://genai.owasp.org/llm-top-10/) - covering prompt injection (LLM01), sensitive information disclosure (LLM02), supply chain (LLM03), improper output handling (LLM05), and excessive agency (LLM06).
 
 ---
 
@@ -103,7 +103,7 @@ warden install-hooks --agent all --mode enforce    # block dangerous actions
 
 ## Self-Hosted Dashboard
 
-Warden includes a built-in web dashboard that visualizes session data from your local workspace DBs. No cloud, no external services — everything runs on your machine.
+Warden includes a built-in web dashboard that visualizes session data from your local workspace DBs. No cloud, no external services - everything runs on your machine.
 
 ```bash
 python3 warden/cli.py serve            # http://127.0.0.1:7070

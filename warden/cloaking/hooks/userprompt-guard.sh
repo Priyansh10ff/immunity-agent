@@ -17,7 +17,10 @@
 #         or empty (no-op) otherwise.
 set -uo pipefail
 
-SECRETS_DIR="${PRISMOR_SECRETS_DIR:-$HOME/.prismor/secrets}"
+# shellcheck source=_patterns.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_patterns.sh"
+
+SECRETS_DIR="$(prismor_secrets_dir)"
 mkdir -p "$SECRETS_DIR"
 chmod 700 "$SECRETS_DIR" 2>/dev/null || true
 
@@ -36,24 +39,10 @@ if [[ "$trimmed" == "!!allow "* ]]; then
 fi
 
 # ── Detection patterns ────────────────────────────────────────────────────
-# Conservative, known-prefix only. Order matters — longest/most-specific
-# first so partial matches don't fire for the wrong pattern.
-PATTERNS=(
-  'sk_live_[0-9a-zA-Z]{16,}'          # Stripe live
-  'sk_test_[0-9a-zA-Z]{16,}'          # Stripe test
-  'rk_live_[0-9a-zA-Z]{16,}'          # Stripe restricted
-  'github_pat_[0-9a-zA-Z_]{20,}'      # GitHub fine-grained PAT
-  'ghp_[0-9a-zA-Z]{36}'               # GitHub PAT
-  'gho_[0-9a-zA-Z]{36}'               # GitHub OAuth
-  'ghs_[0-9a-zA-Z]{36}'               # GitHub server
-  'ghu_[0-9a-zA-Z]{36}'               # GitHub user-to-server
-  'AKIA[0-9A-Z]{16}'                  # AWS access key ID
-  'ASIA[0-9A-Z]{16}'                  # AWS temp access key
-  'AIza[0-9A-Za-z_-]{35}'             # Google API key
-  'xox[bpoar]-[0-9]+-[0-9]+-[0-9a-zA-Z]{24,}'  # Slack tokens
-  'glpat-[0-9a-zA-Z_-]{20,}'          # GitLab PAT
-  'eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+'  # JWT
-)
+# Loaded from the shared single-source-of-truth file (builtin_patterns.txt)
+# plus any org-specific patterns the user added via `warden cloak pattern add`.
+prismor_load_patterns
+[[ "${#PATTERNS[@]}" -gt 0 ]] || exit 0
 
 # Collect unique matches across all patterns.
 matches="$(
