@@ -43,12 +43,21 @@ agents:
     deny_tools: []
     deny_network: true
     allowed_paths: ["docs/**"]
+  edit-only:
+    allowed_tools: [Read, Edit]
+    deny_tools: [Write]
+    deny_network: true
+    allowed_paths: ["**"]
 """
 
 
 class _IamTestBase(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
+        # Hermetic: drop the path+mtime config memo and the warn-once state so
+        # test order can't leak a cached config or a suppressed warning.
+        iam_mod._CONFIG_CACHE.clear()
+        iam_mod._WARNED_UNKNOWN_IDS.clear()
         # Isolate from any real ~/.prismor/iam.yaml on the test machine.
         self._orig_global = iam_mod._GLOBAL_IAM_PATH
         iam_mod._GLOBAL_IAM_PATH = self.tmp / "no-such-global-iam.yaml"
@@ -146,6 +155,39 @@ class TestIamBlockingDecision(_IamTestBase):
     def test_allowed_network_does_not_block(self):
         os.environ["WARDEN_AGENT_ID"] = "researcher"
         ev = {"type": "network", "url": "https://api.example.com", "agent_event": "PreToolUse"}
+        self.assertIsNone(iam_mod.check_iam(workspace=self.tmp, event=ev, session_id="s"))
+
+
+class TestDenyToolsEnforcement(_IamTestBase):
+    """deny_tools must take precedence over allowed_tools.
+
+    Regression for the review finding: ``edit-only`` allows Edit but denies
+    Write, yet a file_write was allowed because the checker only asked whether
+    *any* write-family tool was allowed and never consulted deny_tools.
+    """
+
+    def test_denied_write_blocks_when_tool_unknown(self):
+        # No metadata.tool_name → a file_write resolves to the literal Write,
+        # which edit-only denies. Must block even though Edit is allowed.
+        os.environ["WARDEN_AGENT_ID"] = "edit-only"
+        ev = {"type": "file_write", "path": "main.py", "agent_event": "PreToolUse"}
+        f = iam_mod.check_iam(workspace=self.tmp, event=ev, session_id="s")
+        self.assertIsNotNone(f)
+        self.assertEqual(f["category"], "iam")
+        self.assertIsNotNone(should_block([f], ev, block_categories=self._block_categories()))
+
+    def test_denied_write_blocks_via_metadata_tool_name(self):
+        # An explicit Write tool (from the hook normalizer) is denied.
+        os.environ["WARDEN_AGENT_ID"] = "edit-only"
+        ev = {"type": "file_write", "path": "main.py",
+              "metadata": {"tool_name": "Write"}, "agent_event": "PreToolUse"}
+        self.assertIsNotNone(iam_mod.check_iam(workspace=self.tmp, event=ev, session_id="s"))
+
+    def test_allowed_edit_passes_via_metadata_tool_name(self):
+        # The same profile permits Edit; the concrete tool from metadata wins.
+        os.environ["WARDEN_AGENT_ID"] = "edit-only"
+        ev = {"type": "file_write", "path": "main.py",
+              "metadata": {"tool_name": "Edit"}, "agent_event": "PreToolUse"}
         self.assertIsNone(iam_mod.check_iam(workspace=self.tmp, event=ev, session_id="s"))
 
 

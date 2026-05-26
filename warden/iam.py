@@ -7,6 +7,10 @@ Agent identities are defined in YAML config files. Config resolution order:
 The active agent identity is set via the WARDEN_AGENT_ID environment variable.
 If unset, no IAM restrictions are applied beyond the base Warden policy.
 
+Trust boundary: WARDEN_AGENT_ID is inherited by the agent being constrained, so
+IAM guards cooperative/misconfigured agents, not adversarial ones. See the
+``check_iam`` docstring for details and mitigations.
+
 Config format:
   agents:
     readonly-bot:
@@ -87,22 +91,52 @@ def _load_yaml(path: Path) -> Optional[Dict[str, Any]]:
         return None
 
 
+def _mtime(path: Path) -> float:
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return -1.0
+
+
+# path+mtime keyed memo. Per-event hook runs are separate processes so this is
+# a no-op there, but the long-lived `warden serve` path calls load_iam_config
+# on every request — this keeps it off the YAML parser in the hot path while
+# still reloading automatically when either config file changes on disk.
+_CONFIG_CACHE: Dict[Any, Dict[str, Any]] = {}
+
+
 def load_iam_config(workspace: Optional[Path] = None) -> Dict[str, Any]:
-    """Load IAM config. Project-level agents override global agents."""
+    """Load IAM config. Project-level agents override global agents.
+
+    Memoized on the (path, mtime) of both config files; a change to either
+    file invalidates the cache automatically on the next call.
+    """
+    project_path = (
+        workspace / ".prismor-warden" / _PROJECT_IAM_FILENAME if workspace else None
+    )
+    cache_key = (
+        str(_GLOBAL_IAM_PATH), _mtime(_GLOBAL_IAM_PATH),
+        str(project_path) if project_path else "",
+        _mtime(project_path) if project_path else -1.0,
+    )
+    cached = _CONFIG_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
     config: Dict[str, Any] = {}
 
     global_cfg = _load_yaml(_GLOBAL_IAM_PATH)
     if global_cfg:
         config.update(global_cfg)
 
-    if workspace:
-        project_path = workspace / ".prismor-warden" / _PROJECT_IAM_FILENAME
+    if project_path is not None:
         project_cfg = _load_yaml(project_path)
         if project_cfg:
             project_agents = project_cfg.get("agents", {})
             if project_agents:
                 config.setdefault("agents", {}).update(project_agents)
 
+    _CONFIG_CACHE[cache_key] = config
     return config
 
 
@@ -131,6 +165,10 @@ _DENY_ALL_PROFILE: Dict[str, Any] = {
     "allowed_paths": ["**"],
 }
 
+# Agent ids we've already warned about, so the unknown-identity notice prints
+# once per process instead of on every tool call (the hook hot path).
+_WARNED_UNKNOWN_IDS: set = set()
+
 
 def check_iam(
     workspace: Optional[Path] = None,
@@ -141,6 +179,14 @@ def check_iam(
 
     Returns a finding dict if the event is blocked, None if allowed or if no
     WARDEN_AGENT_ID is set.
+
+    Trust boundary: the identity is selected by the ``WARDEN_AGENT_ID``
+    environment variable, which is inherited by the very agent being
+    constrained. An identity that can execute commands can spawn a child
+    process with the variable unset (disabling IAM) or set to a more permissive
+    profile. IAM is therefore a guardrail for cooperative/misconfigured agents,
+    not a sandbox against an adversarial one — pair it with a deny-all base
+    policy and OS-level isolation when the threat model requires it.
     """
     agent_id = get_active_agent_id()
     if not agent_id or event is None:
@@ -150,10 +196,12 @@ def check_iam(
     profile = resolve_agent_profile(agent_id, config)
 
     if profile is None:
-        sys.stderr.write(
-            f"[warden/iam] unknown agent identity '{agent_id}' — applying deny-all policy.\n"
-            f"             Add '{agent_id}' to ~/.prismor/iam.yaml or .prismor-warden/iam.yaml\n"
-        )
+        if agent_id not in _WARNED_UNKNOWN_IDS:
+            sys.stderr.write(
+                f"[warden/iam] unknown agent identity '{agent_id}' — applying deny-all policy.\n"
+                f"             Add '{agent_id}' to ~/.prismor/iam.yaml or .prismor-warden/iam.yaml\n"
+            )
+            _WARNED_UNKNOWN_IDS.add(agent_id)
         profile = _DENY_ALL_PROFILE
 
     from warden.scoped_agent import check_scoped_rules
