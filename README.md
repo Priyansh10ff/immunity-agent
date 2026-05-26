@@ -18,9 +18,9 @@
 
 ---
 
-<!-- <p align="center">
+<p align="center">
   <img src="assets/prismor-cli-demo.gif" alt="Prismor CLI Demo" width="820" />
-</p> -->
+</p>
 
 ---
 
@@ -192,17 +192,18 @@ alias npm="python3 /path/to/immunity-agent/immunity npm"
 alias pip="python3 /path/to/immunity-agent/immunity pip"
 ```
 
-| What it checks | pnpm / npm | immunity |
-|---|---|---|
-| Install packages | ✅ | ✅ (passes through after checks) |
-| Risk scoring (age, maintainer count, install scripts) | ❌ | ✅ |
-| IOC database (known compromised packages and versions) | ❌ | ✅ |
-| Advisory feed cross-check (Warden / NVD) | ❌ | ✅ |
-| Install script content analysis | ❌ | ✅ |
-| Hard block before install | ❌ | ✅ |
-| Works across npm, pnpm, pip, uv, cargo, go | ❌ | ✅ |
-
 Verdicts are additive: `< 30` allow · `30–59` warn · `≥ 60` block. IOC matches force a block regardless of score. See [docs/supply-chain.md](docs/supply-chain.md) for the full scoring table, ecosystem support, and how to add new IOCs.
+
+### `immunity harden` — close the bypass gap
+
+Runtime scoring only fires when an install goes through `immunity`. A CI step, IDE plugin, or agent that ignores the alias bypasses it entirely. `immunity harden` is a static gate that writes `ignore-scripts`, `save-exact`, and pinned-fetch settings into `.npmrc` / `.yarnrc.yml` / `pip.conf` / `.cargo/config.toml` so the package manager itself enforces them — neutralising the `preinstall`/`postinstall` payload vector used by every recent npm supply chain attack (mini-shai-hulud, AntV, the mistralai/guardrails-ai PyPI wave).
+
+```bash
+immunity harden              # apply hardening to the current directory
+immunity harden --dry-run    # preview without writing
+```
+
+Run it once at project bootstrap; existing keys are never overwritten.
 
 ---
 
