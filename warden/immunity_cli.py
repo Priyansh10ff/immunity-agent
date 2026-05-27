@@ -147,5 +147,21 @@ def _print_usage() -> None:
     print()
 
 
+def _warden_shim() -> None:
+    """Deprecation shim installed as the 'warden' entry point.
+
+    Replaces the old standalone binary on upgrade so users who still have
+    'warden' in aliases or scripts get a clear migration message instead of
+    silently running stale code.  All arguments are forwarded to immunity
+    unchanged, so existing invocations keep working.
+    """
+    import sys
+    sys.stderr.write(
+        "Warning: 'warden' is deprecated and will be removed in a future release.\n"
+        "Use 'immunity' instead — it is a drop-in replacement.\n\n"
+    )
+    main()
+
+
 if __name__ == "__main__":
     main()

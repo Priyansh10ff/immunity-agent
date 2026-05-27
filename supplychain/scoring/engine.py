@@ -83,7 +83,11 @@ class RiskScorer:
                 add("typosquat_suspect", 40, f"name resembles trusted package '{mimic}'")
 
         # ── IOC: known compromised packages (mini-shai-hulud and future attacks) ──
-        ioc_match = _ioc.check_package(spec.name, meta.version)
+        # Prefer the user-requested version (spec.version) because meta.version
+        # is fetched from the registry and may differ — e.g. "pip install pkg==2.4.6"
+        # where the registry currently advertises 2.4.5 as the latest.
+        ioc_check_version = spec.version or meta.version
+        ioc_match = _ioc.check_package(spec.name, ioc_check_version)
         if ioc_match:
             points = 100 if ioc_match.force_block else 40
             add(f"ioc_{ioc_match.ioc_id}", points, ioc_match.description)

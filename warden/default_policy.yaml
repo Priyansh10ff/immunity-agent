@@ -260,6 +260,27 @@ rules:
       - '[?&][^=&\s]+=sk_(?:live|test)_[a-zA-Z0-9]{24,}'
     action: block
 
+  # ── CRITICAL: API key passed as an HTTP header flag ───────────────────
+  # Complements secret-in-url-params (network/url) by catching the same
+  # credential shapes when they appear in -H / --header shell flags.
+  # Each pattern mirrors one shape from secret-in-url-params so coverage
+  # stays in sync when new key formats are added there.
+  - id: credential-in-header
+    severity: CRITICAL
+    category: secret_exfiltration
+    title: API key or token passed in an HTTP -H/--header flag
+    event_types: [shell]
+    fields: [command]
+    patterns:
+      - '(?:-H|--header)\s+[^;\n]*sk-(?:ant-api03-|proj-)?[a-zA-Z0-9_-]{30,}'
+      - '(?:-H|--header)\s+[^;\n]*sk-[a-zA-Z0-9]{32,}'
+      - '(?:-H|--header)\s+[^;\n]*(?:ghp|gho|ghs|ghr|github_pat)_[a-zA-Z0-9_]{20,}'
+      - '(?:-H|--header)\s+[^;\n]*AKIA[A-Z0-9]{16}'
+      - '(?:-H|--header)\s+[^;\n]*xox[bpas]-[0-9]+-[a-zA-Z0-9-]+'
+      - '(?:-H|--header)\s+[^;\n]*AIza[0-9A-Za-z_-]{35}'
+      - '(?:-H|--header)\s+[^;\n]*sk_(?:live|test)_[a-zA-Z0-9]{24,}'
+    action: block
+
   # ── HIGH: Database modification ───────────────────────────────────────
   - id: db-modification
     severity: HIGH

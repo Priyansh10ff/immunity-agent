@@ -43,6 +43,7 @@ Documentation = "https://docs.prismor.dev"
 
 [project.scripts]
 immunity = "warden.immunity_cli:main"
+warden = "warden.immunity_cli:_warden_shim"
 
 [tool.hatch.version]
 path = "warden/__init__.py"

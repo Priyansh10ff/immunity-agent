@@ -14,6 +14,7 @@ class PackageSpec:
     raw: str          # as given by user, e.g. "express", "github:user/repo"
     name: str         # normalized name without version, e.g. "express", "@scope/pkg"
     source: str       # "registry" | "git" | "tarball" | "local"
+    version: str = "" # user-requested version extracted from raw, e.g. "2.4.6"
 
 
 @dataclass
@@ -83,6 +84,29 @@ def _normalize_name(raw: str, ecosystem: str) -> str:
     return raw
 
 
+def _extract_version(raw: str, ecosystem: str) -> str:
+    """Extract the user-requested version from a package spec string.
+
+    Returns an empty string when no version is pinned so the caller can
+    fall back to whatever the registry reports.
+    """
+    if ecosystem in ("pip", "uv"):
+        # pip: pkg==1.2.3  pkg>=1.0  pkg~=1.0  pkg[extra]==1.0
+        m = re.search(r'==([A-Za-z0-9._-]+)', raw)
+        return m.group(1) if m else ""
+    if ecosystem in ("npm", "pnpm", "yarn", "bun"):
+        # @scope/pkg@1.2.3  or  pkg@1.2.3
+        if raw.startswith("@"):
+            parts = raw[1:].split("@")
+            return parts[1] if len(parts) > 1 else ""
+        parts = raw.split("@")
+        return parts[1] if len(parts) > 1 else ""
+    if ecosystem == "cargo":
+        parts = raw.split("@")
+        return parts[1] if len(parts) > 1 else ""
+    return ""
+
+
 def detect_install(argv: List[str]) -> Optional[InstallEvent]:
     """Parse argv (e.g. ['npm', 'install', 'express']) → InstallEvent or None.
 
@@ -127,7 +151,8 @@ def detect_install(argv: List[str]) -> Optional[InstallEvent]:
         else:
             source = _classify_source(arg)
             name = _normalize_name(arg, eco) if source == "registry" else arg
-            packages.append(PackageSpec(raw=arg, name=name, source=source))
+            version = _extract_version(arg, eco) if source == "registry" else ""
+            packages.append(PackageSpec(raw=arg, name=name, source=source, version=version))
 
     return InstallEvent(
         ecosystem=eco,
