@@ -67,6 +67,7 @@ packages = ["warden", "supplychain"]
 include = [
     "warden/",
     "supplychain/",
+    "immunity-agent.pth",
     "advisories/immunity-feed.json",
     "advisories/immunity-feed.json.sig",
     "keys/public.pub",
