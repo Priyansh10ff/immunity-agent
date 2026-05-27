@@ -69,6 +69,18 @@ See [benchmark.md](benchmark.md) for the full methodology, per-category breakdow
 
 ## Quick Start
 
+### Universal Install (55+ agents)
+
+Install to any supported agent (Claude Code, Cursor, Codex, OpenCode, GitHub Copilot, and [55+ more](https://github.com/vercel-labs/skills#supported-agents)) using the [skills CLI](https://skills.sh):
+
+```bash
+npx skills add PrismorSec/immunity-agent
+```
+
+Browse the skills directory: [skills.sh](https://skills.sh)
+
+### Platform-specific Install
+
 **Option A — pip (recommended):**
 
 ```bash
