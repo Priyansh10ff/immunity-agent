@@ -72,7 +72,8 @@ class RiskScorer:
             # ── CVE scoring via NVD ──────────────────────────────────────────
             cves = fetch_cves(spec.name, meta.ecosystem)
             _CVE_POINTS = {"critical": 50, "high": 30, "medium": 15, "low": 5}
-            for cve in cves[:3]:  # cap at 3 to avoid output noise
+            cves_sorted = sorted(cves, key=lambda c: c.get("cvss_score") or 0, reverse=True)
+            for cve in cves_sorted[:3]:  # cap at 3 to avoid output noise
                 pts = _CVE_POINTS.get(cve["severity"], 0)
                 if pts:
                     add(f"nvd_{cve['severity']}", pts, cve["title"])
