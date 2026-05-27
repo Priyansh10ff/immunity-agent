@@ -2,7 +2,7 @@
 
 Prevention layer that keeps real secret values out of AI coding agent
 context, JSONL transcripts, and upstream API requests. Complements
-``warden sweep`` (post-hoc remediation) by providing realtime protection
+``immunity sweep`` (post-hoc remediation) by providing realtime protection
 at the tool boundary via Claude Code hooks.
 
 Public entry points (imported by ``warden/cli.py``):

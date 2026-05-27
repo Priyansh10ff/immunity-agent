@@ -7,20 +7,20 @@ Immunity Agent wraps your package manager so every install is evaluated before i
 ## Usage
 
 ```bash
-immunity npm install express
-immunity pip install requests numpy
-immunity pnpm add lodash
-immunity uv add fastapi
-immunity cargo add serde
-immunity go get github.com/some/pkg
+immunity supplychain npm install express
+immunity supplychain pip install requests numpy
+immunity supplychain pnpm add lodash
+immunity supplychain uv add fastapi
+immunity supplychain cargo add serde
+immunity supplychain go get github.com/some/pkg
 ```
 
 Any command that isn't a recognised package install passes through transparently - so you can alias `npm` or `pip` to `immunity` without breakage.
 
 ```bash
 # Alias-based transparent wrapping
-alias npm="python3 /path/to/immunity-agent/immunity npm"
-alias pip="python3 /path/to/immunity-agent/immunity pip"
+alias npm="python3 /path/to/immunity-agent/immunity supplychain npm"
+alias pip="python3 /path/to/immunity-agent/immunity supplychain pip"
 ```
 
 ---
@@ -171,12 +171,12 @@ _SCRIPT_PATTERNS.append((
 
 Install-time scoring only fires when the install command actually goes through `immunity`. If something invokes `npm install` directly (a CI step, an IDE plugin, an agent that doesn't honour the alias), the runtime gate is bypassed.
 
-`immunity harden` closes that gap by hardening the package manager's own config files. It runs before any install happens and applies settings the package manager itself enforces.
+`immunity supplychain harden` closes that gap by hardening the package manager's own config files. It runs before any install happens and applies settings the package manager itself enforces.
 
 ```bash
-immunity harden              # apply hardening to the current directory
-immunity harden --dry-run    # preview without writing
-immunity harden <path>       # harden a specific project root
+immunity supplychain harden              # apply hardening to the current directory
+immunity supplychain harden --dry-run    # preview without writing
+immunity supplychain harden <path>       # harden a specific project root
 ```
 
 What it does for each ecosystem detected in the project root:
@@ -189,7 +189,7 @@ What it does for each ecosystem detected in the project root:
 | `pip.conf` | `requirements.txt` / `pyproject.toml` / `setup.py` / `setup.cfg` | `no-input=true`, `disable-pip-version-check=true` |
 | `.cargo/config.toml` | `Cargo.toml` present | `[net] retry=2`, `git-fetch-with-cli=true` |
 
-Existing keys are never overwritten — if you've already set `save-exact=false` for a reason, the hardener leaves it and reports it. New settings are appended under a `# immunity harden` comment so they're easy to identify and remove later.
+Existing keys are never overwritten — if you've already set `save-exact=false` for a reason, the hardener leaves it and reports it. New settings are appended under a `# immunity supplychain harden` comment so they're easy to identify and remove later.
 
 ### Why these settings
 
@@ -206,7 +206,7 @@ The config hardening and the runtime scorer are complementary, not redundant:
 - **Hardening** narrows the attack surface for *any* install (`npm install` direct, CI, agent without alias).
 - **Runtime scoring** still catches the things hardening can't: a published-2-days-ago malicious package that has no install scripts but is named to typosquat a popular library, or a package whose name matches the IOC database.
 
-Run `immunity harden` once when bootstrapping a project, and use the `immunity` wrapper for installs. The two together give you both a static gate (what the package manager itself enforces) and a dynamic gate (what the immunity scorer rejects).
+Run `immunity supplychain harden` once when bootstrapping a project, and use the `immunity` wrapper for installs. The two together give you both a static gate (what the package manager itself enforces) and a dynamic gate (what the immunity scorer rejects).
 
 ### Caveats
 
@@ -218,7 +218,7 @@ Run `immunity harden` once when bootstrapping a project, and use the `immunity` 
 ## Architecture
 
 ```
-immunity npm install express
+immunity supplychain npm install express
          │
          ▼
 supplychain/ecosystems/detector.py   - parse argv → InstallEvent

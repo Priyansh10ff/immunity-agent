@@ -10,7 +10,7 @@ Performs a single-shot check across all Warden subsystems:
   7. Network isolation     — are network rules enabled?
 
 Each check returns findings with a severity, a human-readable message,
-and an optional auto-fix function for ``warden audit --fix``.
+and an optional auto-fix function for ``immunity audit --fix``.
 """
 from __future__ import annotations
 
@@ -260,7 +260,7 @@ def _check_cloaking(workspace: Path) -> List[AuditFinding]:
         findings.append(AuditFinding(
             severity="LOW",
             category="cloaking",
-            message="No secrets registered — consider registering secrets with `warden cloak add`",
+            message="No secrets registered — consider registering secrets with `immunity cloak add`",
         ))
     else:
         findings.append(AuditFinding(

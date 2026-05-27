@@ -5,9 +5,9 @@ Discovers MCP server and skill configurations across supported agents
 events from each entry, and evaluates them through the PolicyEngine.
 
 Usage (from CLI):
-    warden scan                   # scan all discovered configs
-    warden scan --agent claude    # only Claude Code configs
-    warden scan --json            # machine-readable output
+    immunity scan                   # scan all discovered configs
+    immunity scan --agent claude    # only Claude Code configs
+    immunity scan --json            # machine-readable output
 """
 from __future__ import annotations
 

@@ -42,8 +42,7 @@ Repository = "https://github.com/PrismorSec/immunity-agent"
 Documentation = "https://docs.prismor.dev"
 
 [project.scripts]
-warden = "warden.cli:main"
-immunity = "supplychain.cli:main"
+immunity = "warden.immunity_cli:main"
 
 [tool.hatch.version]
 path = "warden/__init__.py"

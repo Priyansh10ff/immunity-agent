@@ -491,11 +491,11 @@ def do_install(target, mode, rules, agents, tokenize=False):
         spinner_run("Writing policy overrides", write_policy)
 
     # 3. Install hooks
-    cli = PRISMOR_DIR / "warden" / "cli.py"
+    cli = PRISMOR_DIR / "immunity"
     for agent in agents:
         def install(a=agent):
             if not cli.exists():
-                return False, "cli.py not found"
+                return False, "immunity entry point not found"
             r = subprocess.run([sys.executable, str(cli), "install-hooks",
                                 "--agent", a, "--workspace", str(target),
                                 "--scope", "project", "--mode", mode],
@@ -507,7 +507,7 @@ def do_install(target, mode, rules, agents, tokenize=False):
     if tokenize and "claude" in agents:
         def install_tokenize():
             if not cli.exists():
-                return False, "cli.py not found"
+                return False, "immunity entry point not found"
             if not shutil.which("jq"):
                 return False, "jq not found (brew install jq)"
             r = subprocess.run([sys.executable, str(cli), "cloak", "install",
@@ -550,25 +550,25 @@ def do_install(target, mode, rules, agents, tokenize=False):
         return r.returncode == 0, "verified" if r.returncode == 0 else "failed"
     spinner_run("Verifying feed signature", verify)
 
-    # 6. Add warden to PATH
+    # 6. Add immunity to PATH
     def add_to_path():
-        wrapper = PRISMOR_DIR / "scripts" / "warden"
+        wrapper = PRISMOR_DIR / "scripts" / "immunity"
         if not wrapper.exists():
             return False, "wrapper script not found"
         # Symlink into /usr/local/bin if writable, else add to PATH in rc
         local_bin = Path("/usr/local/bin")
-        link = local_bin / "warden"
+        link = local_bin / "immunity"
         if local_bin.exists() and os.access(str(local_bin), os.W_OK):
             if link.exists() or link.is_symlink():
                 link.unlink()
             link.symlink_to(wrapper)
-            return True, "linked to /usr/local/bin/warden"
+            return True, "linked to /usr/local/bin/immunity"
         # Fallback: add scripts dir to PATH in shell rc
         export_line = f'export PATH="{PRISMOR_DIR}/scripts:$PATH"'
         shell = os.environ.get("SHELL", "/bin/zsh")
         rc = Path.home() / (".zshrc" if "zsh" in shell else ".bashrc" if "bash" in shell else ".profile")
         content = rc.read_text() if rc.exists() else ""
-        # Clean up old broken alias if present
+        # Clean up legacy `warden` alias if present (pre-unification leftover)
         if "alias warden=" in content:
             lines = content.splitlines(keepends=True)
             lines = [l for l in lines if "alias warden=" not in l]
@@ -576,9 +576,9 @@ def do_install(target, mode, rules, agents, tokenize=False):
             rc.write_text(content)
         if str(PRISMOR_DIR / "scripts") in content:
             return True, "already in " + rc.name
-        rc.write_text(content.rstrip() + f"\n\n# Prismor Warden\n{export_line}\n")
+        rc.write_text(content.rstrip() + f"\n\n# Prismor immunity\n{export_line}\n")
         return True, f"PATH added to {rc.name}"
-    spinner_run("Adding warden command", add_to_path)
+    spinner_run("Adding immunity command", add_to_path)
 
     # Done
     home = str(Path.home())
@@ -593,12 +593,12 @@ def do_install(target, mode, rules, agents, tokenize=False):
     info("Feed",    str(PRISMOR_DIR / "advisories/immunity-feed.json").replace(home, "~"))
     info("Warden",  f"hooks installed (mode: {mode})")
     info("Config",  str(target / "CLAUDE.md").replace(home, "~"))
-    info("Command", "warden (restart shell if not found)")
+    info("Command", "immunity (restart shell if not found)")
     print()
     print(w("  Quick commands:", GRN))
-    print(f"    warden status                      {w('most recent session', DIM)}")
-    print(f"    warden sessions --findings-only     {w('all flagged sessions by risk', DIM)}")
-    print(f"    warden check \"rm -rf /\"             {w('pre-check a command', DIM)}")
+    print(f"    immunity status                      {w('most recent session', DIM)}")
+    print(f"    immunity sessions --findings-only     {w('all flagged sessions by risk', DIM)}")
+    print(f"    immunity check \"rm -rf /\"             {w('pre-check a command', DIM)}")
     print()
     sys.stdout.write(SHOW)
     sys.stdout.flush()

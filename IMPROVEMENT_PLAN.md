@@ -21,7 +21,7 @@ These are high-ROI additions that fit the current regex-policy model or require 
 ### 1.1 Canarytoken integration (3–5 days)
 Plant fake `~/.aws/credentials`, SSH keys, `.env` entries that beacon to a user-owned webhook (Thinkst Canarytokens or self-hosted) when any process reads them. This catches exfil attempts at the attempt, not the leak. No tool does this for AI agents yet — we'd be first.
 
-- New subcommand: `warden canary plant` / `warden canary list` / `warden canary status`
+- New subcommand: `immunity canary plant` / `immunity canary list` / `immunity canary status`
 - Integrate with https://canarytokens.org (free) or let users point at a custom webhook URL
 - Auto-seed on `warden init --with-canaries`
 
@@ -32,7 +32,7 @@ The current `agent-config-tampering` rule only covers `.claude/settings.json` an
 Commands like `cat .еnv` (Cyrillic `е`) or `rm -rf /еtc` bypass every current rule. Add a pre-normalization step in `policy_engine._resolve_path` that flags paths containing mixed-script or confusable characters (use `unicodedata` + Unicode confusables list).
 
 ### 1.4 MCP schema auditing (3–4 days)
-`warden scan` currently matches regex patterns against MCP config JSON. Upgrade it to statically analyze MCP `tools/list` schemas for:
+`immunity scan` currently matches regex patterns against MCP config JSON. Upgrade it to statically analyze MCP `tools/list` schemas for:
 - `any`-typed parameters on tools that touch filesystem/network
 - Descriptions containing "sudo", "bypass", "all files", "any command"
 - Tools that combine filesystem + network + execute in one server
@@ -43,21 +43,21 @@ This is extending what Invariant's `mcp-scan` does, but tighter integration with
 ### 1.5 SIEM / telemetry export (1 week)
 Enterprise procurement blocker. Add OTEL traces + Splunk HEC / syslog / webhook sinks for findings. Invariant and Lakera already offer this; it's table stakes for paid customers.
 
-- `warden hook-dispatch` emits OTEL spans when `OTEL_EXPORTER_OTLP_ENDPOINT` is set
+- `immunity hook-dispatch` emits OTEL spans when `OTEL_EXPORTER_OTLP_ENDPOINT` is set
 - New `outputs:` section in policy.yaml for webhook / syslog / file destinations
 
-### 1.6 Lockfile / dependency reverification on `warden deps` (2 days)
+### 1.6 Lockfile / dependency reverification on `immunity deps` (2 days)
 Today `deps` matches manifest names against the threat feed. Add:
 - Detect `package-lock.json` divergence from `package.json` (tampering)
 - Check `integrity:` hashes in lockfiles against npm registry
 - Flag `file:` / `git+` deps in lockfiles (not just install commands)
 
-### 1.7 `warden check` ergonomics (2 days)
+### 1.7 `immunity check` ergonomics (2 days)
 - `--from-log <file>` to replay a session log through the current policy (useful for CI)
 - `--explain` showing which rule(s) and which evidence token matched
 - `--suggest-allowlist` emitting a ready-to-paste allowlist entry when the user confirms a finding is a FP
 
-### 1.8 `warden policy test` (3 days)
+### 1.8 `immunity policy test` (3 days)
 Let users author `.prismor-warden/policy-tests.yaml` with `{command, expected: block|pass|warn}` cases. CI-friendly way to validate policy changes. Ship 50 starter cases mapped to OWASP LLM Top 10.
 
 ---
@@ -96,7 +96,7 @@ This is Prismor's documented "roadmap" item and the biggest detection-ceiling un
 - Ship three starter rules: creds-to-network, env-to-external-host, SSH-key-to-git-remote
 
 ### 2.4 MCP runtime proxy (4 weeks)
-Today `warden scan` is static — it reads MCP configs once. But tool-poisoning attacks mutate at runtime (Invariant's "rug-pull" research; the CurXecute Cursor CVE in late 2025). A proxy that sits between the agent and each MCP server observes every `tools/call` and can:
+Today `immunity scan` is static — it reads MCP configs once. But tool-poisoning attacks mutate at runtime (Invariant's "rug-pull" research; the CurXecute Cursor CVE in late 2025). A proxy that sits between the agent and each MCP server observes every `tools/call` and can:
 - Diff tool schemas between sessions
 - Block tools that change names/descriptions/parameters
 - Log full arg payloads for audit
@@ -138,12 +138,12 @@ Ship Docker Compose templates. Users get Anthropic's recommended Docker hardenin
 These take longer but move Immunity from "good OSS tool" to "category-defining platform."
 
 ### 3.1 Policy marketplace / signed rule packs (4–6 weeks)
-Users install rule packs by name: `warden policy add owasp-llm-top10`, `warden policy add anthropic-claude-code`, `warden policy add finance-compliance-soc2`. Each pack is a signed YAML bundle hosted in a community GitHub org or OSV.dev-style index.
+Users install rule packs by name: `immunity policy add owasp-llm-top10`, `immunity policy add anthropic-claude-code`, `immunity policy add finance-compliance-soc2`. Each pack is a signed YAML bundle hosted in a community GitHub org or OSV.dev-style index.
 
 Invariant has a policy repo; we'd be the *curated marketplace* equivalent. Revenue model later: paid org-private packs.
 
 ### 3.2 OWASP / MITRE ATLAS rule mapping (1 week + ongoing curation)
-Every rule gains `owasp_llm: LLM01`, `mitre_atlas: AML.TA0005` metadata. `warden audit --compliance owasp` / `--compliance nist-ai-rmf` / `--compliance eu-ai-act` reports which controls the current policy covers.
+Every rule gains `owasp_llm: LLM01`, `mitre_atlas: AML.TA0005` metadata. `immunity audit --compliance owasp` / `--compliance nist-ai-rmf` / `--compliance eu-ai-act` reports which controls the current policy covers.
 
 Enterprise buyers ask this on day one. It's a week of meta-work that unlocks procurement conversations.
 
@@ -158,7 +158,7 @@ OS-level allow-list enforcement that doesn't rely on agent hooks at all. `prismo
 
 ### 3.6 Dashboard & team features (6–8 weeks)
 Today: CLI-only. To sell into teams:
-- Local web UI (`warden dashboard --serve 7700`) with findings timeline, rule coverage, session heatmap
+- Local web UI (`immunity dashboard --serve 7700`) with findings timeline, rule coverage, session heatmap
 - Multi-developer session aggregation (opt-in, workspace-scoped, no cloud by default)
 - Optional: hosted team dashboard for orgs that want cross-developer visibility
 

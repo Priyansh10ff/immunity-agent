@@ -36,9 +36,9 @@ def maybe_show() -> None:
         f"\n"
         f"  {BOLD}{CYAN}immunity-agent{RST} installed\n"
         f"\n"
-        f"  Run {BOLD}warden setup{RST} to configure runtime hooks for your AI coding agent.\n"
+        f"  Run {BOLD}immunity setup{RST} to configure runtime hooks for your AI coding agent.\n"
         f"\n"
-        f"  {DIM}Interactive TUI:{RST}   warden setup\n"
-        f"  {DIM}Scripted / CI:{RST}     warden setup --non-interactive --mode observe\n"
-        f"  {DIM}All options:{RST}       warden setup --help\n"
+        f"  {DIM}Interactive TUI:{RST}   immunity setup\n"
+        f"  {DIM}Scripted / CI:{RST}     immunity setup --non-interactive --mode observe\n"
+        f"  {DIM}All options:{RST}       immunity setup --help\n"
     )

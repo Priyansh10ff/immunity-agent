@@ -1,0 +1,5 @@
+#!/bin/sh
+# Prismor immunity CLI wrapper (used by the global PATH symlink installed by setup.py).
+# Delegates to the unified umbrella entry point at the repo root.
+PRISMOR_HOME="${PRISMOR_HOME:-$HOME/.prismor}"
+exec python3 "${PRISMOR_HOME}/immunity" "$@"

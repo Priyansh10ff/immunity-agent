@@ -3,9 +3,9 @@
 MCP servers and skills extend what your agent can do, but they also extend the attack surface. Studies have found that a significant percentage of community skills contain malicious patterns. Warden's skill scanner checks every MCP server and skill config installed on your machine before you use them.
 
 ```bash
-warden scan                    # scan all agents (Claude, Cursor, Windsurf, OpenClaw, Hermes)
-warden scan --agent claude     # only Claude Code configs
-warden scan --json             # machine-readable output
+immunity scan                    # scan all agents (Claude, Cursor, Windsurf, OpenClaw, Hermes)
+immunity scan --agent claude     # only Claude Code configs
+immunity scan --json             # machine-readable output
 ```
 
 ## Config locations
@@ -24,7 +24,7 @@ Each MCP server and skill entry is evaluated against Warden's policy rules. Find
 
 ## Remote MCP transport checks
 
-MCP servers increasingly run over the network (`http`, `sse`, `streamable-http`) instead of a local stdio process. `warden scan` audits the transport of every remote MCP server it discovers and raises a finding for each insecure pattern:
+MCP servers increasingly run over the network (`http`, `sse`, `streamable-http`) instead of a local stdio process. `immunity scan` audits the transport of every remote MCP server it discovers and raises a finding for each insecure pattern:
 
 | Rule ID                      | Severity | What it flags                                                                 |
 | ---------------------------- | -------- | ----------------------------------------------------------------------------- |
@@ -37,7 +37,7 @@ MCP servers increasingly run over the network (`http`, `sse`, `streamable-http`)
 
 ### Configuring the action
 
-By default these findings are warnings. Set them to block (to fail CI via `warden scan --sarif`, or to block in enforce mode) in your project's `.prismor-warden/policy.yaml`:
+By default these findings are warnings. Set them to block (to fail CI via `immunity scan --sarif`, or to block in enforce mode) in your project's `.prismor-warden/policy.yaml`:
 
 ```yaml
 settings:
@@ -49,5 +49,5 @@ settings:
 Hermes stores per-session JSONL transcripts at `~/.hermes/sessions/` and a queryable SQLite index with FTS5 at `~/.hermes/state.db`. Warden hooks intercept tool calls at the gateway layer before the transcript is written. The session store can also be ingested offline for retrospective analysis:
 
 ```bash
-warden ingest --input ~/.hermes/sessions/<id>.jsonl --agent hermes
+immunity ingest --input ~/.hermes/sessions/<id>.jsonl --agent hermes
 ```

@@ -66,7 +66,7 @@ _Last updated: 2026-04-21._
 
 - **Config:** `~/.hermes/config.json` — registers a JS plugin scaffolded at `warden/hermes-plugin/`.
 - **Plugin hooks:** `before_tool_call`, `message_sending`, internal `message:received` hook at `~/.hermes/hooks/prismor-warden/`.
-- **Session ingest:** offline analysis of `~/.hermes/sessions/*.jsonl` via `warden ingest --input <file> --agent hermes`.
+- **Session ingest:** offline analysis of `~/.hermes/sessions/*.jsonl` via `immunity ingest --input <file> --agent hermes`.
 - **Code:** `warden/hooks.py` `_merge_hermes()`, `_normalize_hermes()`.
 
 ### GitHub Copilot CLI
@@ -131,7 +131,7 @@ Each agent below exposes a blocking pre-tool hook. An adapter requires (1) confi
 
 These agents don't expose a programmable pre-tool hook. Integration is limited to:
 
-- **Sweep** — scanning the agent's config directory for leaked secrets with `warden sweep`.
+- **Sweep** — scanning the agent's config directory for leaked secrets with `immunity sweep`.
 - **Rules** — shipping `AGENTS.md` / rules-file content the agent loads on every turn (static guardrails, no runtime enforcement).
 
 ### Google Antigravity
@@ -150,13 +150,13 @@ These agents don't expose a programmable pre-tool hook. Integration is limited t
 
 - **Hooks:** none. MCP is the only dynamic surface — wrapping Warden as an MCP proxy is feasible but out of scope.
 - **Surface:** `.trae/rules/` markdown + MCP server registration.
-- **Config dir:** `~/.trae/` (scanned by `warden sweep`), workspace `.trae/rules/` and `.trae/agents/`.
+- **Config dir:** `~/.trae/` (scanned by `immunity sweep`), workspace `.trae/rules/` and `.trae/agents/`.
 
 ### Kilocode
 
 - **Hooks:** soft only. `session.chat.before` can inject a guardrail prompt into chat params but cannot veto a tool call. Tool filtering is permission/approval UI, not programmable.
 - **Surface:** `AGENTS.md`, `.kilocode/rules/`, `kilo.jsonc`; plugin can inject prompt-level policy.
-- **Config dir:** `~/.kilocode/` (scanned by `warden sweep`), workspace `.kilocode/rules/`.
+- **Config dir:** `~/.kilocode/` (scanned by `immunity sweep`), workspace `.kilocode/rules/`.
 
 ---
 
@@ -170,7 +170,7 @@ When a new AI coding agent ships a pre-tool hook API, the checklist is:
 4. Write `_strip_<agent>(config, marker)` for clean uninstall.
 5. Write `_normalize_<agent>(payload, session_id)` mapping the agent's payload to Warden's canonical `{type, session_id, agent, agent_event, ...}` shape.
 6. Add the config directory to `TOOL_DIRS` in `warden/sweep.py` if sweep applies.
-7. Add MCP/skill config locations to `warden scan` discovery.
+7. Add MCP/skill config locations to `immunity scan` discovery.
 8. Update this file.
 
 ---

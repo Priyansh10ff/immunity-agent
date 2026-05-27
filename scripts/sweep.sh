@@ -1,5 +1,5 @@
 #!/bin/bash
-# Prismor Sweep — convenience wrapper for `warden sweep`
+# Prismor Sweep — convenience wrapper for `immunity sweep`
 #
 # Usage:
 #   bash sweep.sh                 # dry-run: scan and report only
@@ -10,11 +10,11 @@
 #   bash sweep.sh --dirs ~/.foo   # scan custom directories
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-WARDEN_CLI="$(dirname "$SCRIPT_DIR")/warden/cli.py"
+IMMUNITY_CLI="$(dirname "$SCRIPT_DIR")/immunity"
 
-if [[ ! -f "$WARDEN_CLI" ]]; then
-  echo "[sweep] Error: warden/cli.py not found at $WARDEN_CLI" >&2
+if [[ ! -f "$IMMUNITY_CLI" ]]; then
+  echo "[sweep] Error: immunity entry point not found at $IMMUNITY_CLI" >&2
   exit 1
 fi
 
-exec python3 "$WARDEN_CLI" sweep "$@"
+exec python3 "$IMMUNITY_CLI" sweep "$@"

@@ -12,8 +12,8 @@ This is the practical guide. For internals see
 Two layers. Install both — they're complementary:
 
 ```bash
-warden cloak install                                  # prevention: cloak secrets at the tool boundary
-warden install-hooks --agent claude --mode enforce    # enforcement: block direct reads of the vault
+immunity cloak install                                  # prevention: cloak secrets at the tool boundary
+immunity install-hooks --agent claude --mode enforce    # enforcement: block direct reads of the vault
 ```
 
 Cloak alone keeps secrets out of context. The runtime monitor is what stops an
@@ -35,8 +35,8 @@ You mostly do nothing. The flow is automatic:
 Register a secret deliberately (value read from stdin, never argv):
 
 ```bash
-warden cloak add stripe_key      # then reference it anywhere as @@SECRET:stripe_key@@
-warden cloak list                # placeholder names only — never values
+immunity cloak add stripe_key      # then reference it anywhere as @@SECRET:stripe_key@@
+immunity cloak list                # placeholder names only — never values
 ```
 
 ## Custom detection patterns
@@ -45,7 +45,7 @@ Built-in patterns cover Stripe, GitHub, AWS, Google, Slack, GitLab, and JWTs.
 Add your org's token formats:
 
 ```bash
-warden cloak pattern add 'mycorp_[0-9a-f]{32}'
+immunity cloak pattern add 'mycorp_[0-9a-f]{32}'
 ```
 
 Patterns are POSIX regex, validated on add, and apply to both the paste guard
