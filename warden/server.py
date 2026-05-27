@@ -44,7 +44,7 @@ _CORS_HEADERS = {
 
 
 class WardenRequestHandler(BaseHTTPRequestHandler):
-    """Minimal HTTP handler for the warden dashboard API."""
+    """Minimal HTTP handler for the immunity dashboard API."""
 
     # Silence the default per-request access log
     def log_message(self, format: str, *args: Any) -> None:  # noqa: A002

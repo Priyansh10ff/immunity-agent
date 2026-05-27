@@ -1,17 +1,14 @@
 #!/usr/bin/env python3
-"""immunity — supply chain enforcement wrapper.
+"""immunity — unified CLI entry point.
 
-Usage: immunity <package-manager> <command> [args...]
-
-  immunity npm install express
-  immunity pip install requests
-  immunity pnpm add lodash
-  immunity cargo add serde
+Run `immunity --help` for the full command map. This script is a thin
+shim that delegates to `warden.immunity_cli:main` so the repo checkout
+works without `pip install`.
 """
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from supplychain.cli import main
+from warden.immunity_cli import main
 
 main()

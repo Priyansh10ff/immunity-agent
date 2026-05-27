@@ -1,7 +1,7 @@
 """Prismor Warden — interactive setup wizard, usable from both pip install and git clone.
 
 This module contains the full 5-step TUI wizard and the non-interactive install path.
-It is the backing implementation for ``warden setup``.
+It is the backing implementation for ``immunity setup``.
 
 The original wizard in ``scripts/setup.py`` continues to work for git-clone users
 running ``bash ~/.prismor/scripts/init.sh``; this module is its pip-installable twin.
@@ -643,13 +643,13 @@ def _do_install(target: Path, mode: str, rules: List[dict], agents: List[str], c
     _info("Skills",  "https://github.com/PrismorSec/security-playbook")
     _info("Warden",  f"hooks installed  (mode: {mode})")
     _info("Config",  str(target / "CLAUDE.md").replace(home, "~"))
-    _info("Command", "warden status  ·  warden sessions  ·  warden check \"<cmd>\"")
+    _info("Command", "immunity status  ·  immunity sessions  ·  immunity check \"<cmd>\"")
     print()
     print(_w("  Quick commands:", GRN))
-    print(f"    warden status                       {_w('most recent session', DIM)}")
-    print(f"    warden sessions --findings-only     {_w('all flagged sessions by risk', DIM)}")
-    print(f"    warden check \"rm -rf /\"              {_w('pre-check a command', DIM)}")
-    print(f"    warden sweep                        {_w('scan AI tool configs for leaked secrets', DIM)}")
+    print(f"    immunity status                       {_w('most recent session', DIM)}")
+    print(f"    immunity sessions --findings-only     {_w('all flagged sessions by risk', DIM)}")
+    print(f"    immunity check \"rm -rf /\"              {_w('pre-check a command', DIM)}")
+    print(f"    immunity sweep                        {_w('scan AI tool configs for leaked secrets', DIM)}")
     print()
     sys.stdout.write(SHOW)
     sys.stdout.flush()

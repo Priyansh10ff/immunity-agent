@@ -85,10 +85,10 @@ Browse the skills directory: [skills.sh](https://skills.sh)
 
 ```bash
 pip install immunity-agent
-warden setup          # interactive 5-step onboarding wizard
+immunity setup          # interactive 5-step onboarding wizard
 ```
 
-`warden setup` lets you pick enforcement mode, toggle detection rules, select agents, and optionally enable secret cloaking. Pass `--non-interactive` to skip the TUI.
+`immunity setup` lets you pick enforcement mode, toggle detection rules, select agents, and optionally enable secret cloaking. Pass `--non-interactive` to skip the TUI.
 
 **Option B — git clone + wizard:**
 
@@ -98,13 +98,80 @@ git clone https://github.com/PrismorSec/immunity-agent.git ~/.prismor
 PRISMOR_MODE=enforce PRISMOR_CLOAK=1 bash ~/.prismor/scripts/init.sh .
 ```
 
-This installs enforce-mode Warden hooks and the Cloak prevention layer. To register a secret, run `warden cloak add stripe_key` and enter the value when prompted. Reference it in tool calls as `@@SECRET:stripe_key@@` and the hook handles the rest.
+This installs enforce-mode Warden hooks and the Cloak prevention layer. To register a secret, run `immunity cloak add stripe_key` and enter the value when prompted. Reference it in tool calls as `@@SECRET:stripe_key@@` and the hook handles the rest.
 
 Prefer the interactive wizard? Drop the env vars:
 
 ```bash
 bash ~/.prismor/scripts/init.sh .
 ```
+
+### Command Reference
+
+Every command in the toolkit is reachable as `immunity <command>`. Run `immunity --help` to see the full map, or `immunity <command> --help` for per-command flags.
+
+**Setup & lifecycle**
+
+| Command | What it does | Why it matters |
+|---|---|---|
+| `immunity setup` | Interactive 5-step onboarding wizard (mode, rules, agents, cloaking). | First-time configuration. Saves you from hand-editing JSON hook configs across multiple agent tools. |
+| `immunity install-hooks --agent <name> --mode <observe\|enforce>` | Wires Warden hooks into Claude Code / Cursor / Windsurf / Copilot / OpenClaw / Hermes. | Without hooks installed, nothing is monitored — the engine never sees tool calls. |
+| `immunity uninstall-hooks --agent <name>` | Removes the installed hooks for an agent. | Clean rollback when you want to disable monitoring for a workspace or agent. |
+| `immunity info` | Shows workspace, mode, active rules, and hook install state. | Quick sanity check that the right policy is loaded in the right place. |
+
+**Daily monitoring**
+
+| Command | What it does | Why it matters |
+|---|---|---|
+| `immunity status` | Findings from the most recent agent session. | The "did anything risky just happen?" check — first thing to run after agent work. |
+| `immunity audit` | Full posture sweep across hooks, policy, feed signature, file perms, cloak setup. | Health check before deploying agents anywhere shared. `--fix` auto-remediates fixable issues. |
+| `immunity check "<command>"` | Pre-checks a shell command against the active policy without running it. | Test whether the engine would block a specific action; useful when writing allowlist entries. |
+| `immunity sessions [--findings-only]` | Lists stored agent sessions, optionally filtered to flagged runs. | Browse history to spot recurring risky patterns across multiple agent runs. |
+| `immunity session <id>` | Drills into a single session's tool-call trace and findings. | Forensics for a specific incident. |
+| `immunity analyze <file.jsonl>` | Runs the detection engine offline against a saved session log. | Use in CI to gate a session, or replay an old trace against a newer policy. |
+
+**Attack-surface scanning**
+
+| Command | What it does | Why it matters |
+|---|---|---|
+| `immunity scan` | Audits all MCP servers and skills installed for your agents. | Third-party MCPs are an unvetted code-execution surface — this surfaces dangerous patterns. |
+| `immunity deps` | Cross-references project deps against the signed IOC threat feed. | Catches packages already in your project that match known supply-chain compromises. |
+| `immunity learn` | Mines session history for repeated blocked or near-miss patterns. | Surfaces candidate rules you should accept into your project policy. `--apply ID` promotes one. |
+
+**Secret prevention**
+
+| Command | What it does | Why it matters |
+|---|---|---|
+| `immunity cloak install` | Installs cloaking hooks (UserPromptSubmit + PreToolUse) in Claude Code. | Routes real secrets through `@@SECRET:name@@` placeholders so values never enter tool args or transcripts. |
+| `immunity cloak add <name>` | Registers a real secret under a placeholder name (read from stdin). | The one-time on-ramp for every secret you want the agent to use without seeing. |
+| `immunity cloak list` / `remove <name>` | Manage registered placeholder names. | Audit and prune registered secrets. Never prints values. |
+| `immunity sweep` | Scans AI tool configs (`.claude/`, `.cursor/`, `~/.codeium/`, …) for leaked secrets already on disk. | Post-hoc cleanup of secrets that leaked before cloaking was enabled. `--redact` vaults them. |
+
+**Policy & identity**
+
+| Command | What it does | Why it matters |
+|---|---|---|
+| `immunity policy init` | Generates a starter `.prismor-warden/policy.yaml`. | Project-level rule overrides on top of the built-in defaults. |
+| `immunity policy show` | Prints the active rule set (defaults + project overrides). | Verifies which rules will actually fire in this workspace. |
+| `immunity policy validate <file>` | Static validation of a policy YAML file. | Pre-flight a rule change before committing it. |
+| `immunity iam list` / `show <agent>` | Manage per-agent permission profiles. | When multiple agents (e.g. Claude + Cursor) share a workspace, restrict each to what it actually needs. |
+| `immunity canary plant <path>` | Plants a honeytoken credential file. | Tripwire — fires a finding if an agent ever reads it, catching unscoped recon behavior. |
+
+**Supply chain**
+
+| Command | What it does | Why it matters |
+|---|---|---|
+| `immunity supplychain npm install <pkg>` | Scores `<pkg>` (age, maintainers, install scripts, IOC match) and blocks if dangerous before npm runs. | Stops typosquats and freshly-published malicious packages at the install boundary. |
+| `immunity supplychain pip install <pkg>` | Same gate for the Python ecosystem. | Same protection for pip / PyPI. |
+| `immunity supplychain <pnpm\|yarn\|uv\|cargo\|go> ...` | Same, for the rest of the supported ecosystems. | Single mental model regardless of which package manager the agent reaches for. |
+| `immunity supplychain harden [--dry-run]` | Writes `ignore-scripts`, `save-exact`, and pinned-fetch settings into `.npmrc` / `.yarnrc.yml` / `pip.conf` / `.cargo/config.toml`. | Defense-in-depth: closes the gap when an install bypasses the `immunity supplychain` alias (e.g. CI, IDE plugins). The package manager itself enforces the rules. |
+
+**Dashboard**
+
+| Command | What it does | Why it matters |
+|---|---|---|
+| `immunity serve` | Starts the local HTTP API server on `127.0.0.1:7070`. | Backend for the in-browser dashboard. No cloud, no external services. |
+| `immunity dashboard` | Terminal overview of every registered workspace and recent activity. | Cross-project view when you've installed hooks in more than one repo. |
 
 ### Warden Modes
 
@@ -118,8 +185,8 @@ Warden runs in two modes, set via the `--mode` flag or the `PRISMOR_MODE` env va
 Switch modes at any time by re-running the hook installer:
 
 ```bash
-warden install-hooks --agent all --mode observe    # log only
-warden install-hooks --agent all --mode enforce    # block dangerous actions
+immunity install-hooks --agent all --mode observe    # log only
+immunity install-hooks --agent all --mode enforce    # block dangerous actions
 ```
 
 ---
@@ -144,7 +211,7 @@ Open the URL in your browser. The dashboard polls `/api/stats` every 30 seconds 
 - **Threat patterns** — recurring findings ranked by frequency
 - **Live event feed** — latest events with verdict and severity
 
-The server reads from all workspaces registered via `warden install-hooks`. If no workspaces are registered yet, it starts with empty data.
+The server reads from all workspaces registered via `immunity install-hooks`. If no workspaces are registered yet, it starts with empty data.
 
 ![Self-Hosted Dashboard](assets/self-serve-img.png)
 
@@ -179,7 +246,7 @@ flowchart TD
     Sweep["Sweep — Secret Cleanup\n(scan & redact AI tool caches)"]
     IDE -.->|"offline scan"| Sweep
 
-    IDE -->|"immunity npm/pip/cargo..."| SC
+    IDE -->|"immunity supplychain npm/pip/cargo..."| SC
 
     subgraph SC["Supply Chain — Install Enforcement"]
         Scorer["Risk Scorer\n(age · maintainers · scripts)"]
@@ -200,30 +267,30 @@ flowchart TD
 The `immunity` CLI wraps your package manager and evaluates every install against live threat intelligence before it runs. Unlike pnpm or other package managers, `immunity` is a security enforcement layer that scores packages on age, maintainer count, install scripts, and known IOCs, then blocks dangerous ones before they hit your disk. Ships with IOC coverage for the **mini-shai-hulud** attack (May 11 2026) and the **AntV hijacked-maintainer** attack (May 19 2026).
 
 ```bash
-immunity npm install express                    # resolves cleanly, execs npm
-immunity npm install @tanstack/react-router     # BLOCK — IOC match (score 100)
-immunity pip install requests numpy             # resolves cleanly, execs pip
-immunity pnpm add lodash
-immunity uv add fastapi
-immunity cargo add serde
+immunity supplychain npm install express                    # resolves cleanly, execs npm
+immunity supplychain npm install @tanstack/react-router     # BLOCK — IOC match (score 100)
+immunity supplychain pip install requests numpy             # resolves cleanly, execs pip
+immunity supplychain pnpm add lodash
+immunity supplychain uv add fastapi
+immunity supplychain cargo add serde
 ```
 
 Any command that isn't a recognised package install passes through transparently, so you can alias your package managers:
 
 ```bash
-alias npm="python3 /path/to/immunity-agent/immunity npm"
-alias pip="python3 /path/to/immunity-agent/immunity pip"
+alias npm="python3 /path/to/immunity-agent/immunity supplychain npm"
+alias pip="python3 /path/to/immunity-agent/immunity supplychain pip"
 ```
 
 Verdicts are additive: `< 30` allow · `30–59` warn · `≥ 60` block. IOC matches force a block regardless of score. See [docs/supply-chain.md](docs/supply-chain.md) for the full scoring table, ecosystem support, and how to add new IOCs.
 
-### `immunity harden` — close the bypass gap
+### `immunity supplychain harden` — close the bypass gap
 
-Runtime scoring only fires when an install goes through `immunity`. A CI step, IDE plugin, or agent that ignores the alias bypasses it entirely. `immunity harden` is a static gate that writes `ignore-scripts`, `save-exact`, and pinned-fetch settings into `.npmrc` / `.yarnrc.yml` / `pip.conf` / `.cargo/config.toml` so the package manager itself enforces them — neutralising the `preinstall`/`postinstall` payload vector used by every recent npm supply chain attack (mini-shai-hulud, AntV, the mistralai/guardrails-ai PyPI wave).
+Runtime scoring only fires when an install goes through `immunity`. A CI step, IDE plugin, or agent that ignores the alias bypasses it entirely. `immunity supplychain harden` is a static gate that writes `ignore-scripts`, `save-exact`, and pinned-fetch settings into `.npmrc` / `.yarnrc.yml` / `pip.conf` / `.cargo/config.toml` so the package manager itself enforces them — neutralising the `preinstall`/`postinstall` payload vector used by every recent npm supply chain attack (mini-shai-hulud, AntV, the mistralai/guardrails-ai PyPI wave).
 
 ```bash
-immunity harden              # apply hardening to the current directory
-immunity harden --dry-run    # preview without writing
+immunity supplychain harden              # apply hardening to the current directory
+immunity supplychain harden --dry-run    # preview without writing
 ```
 
 Run it once at project bootstrap; existing keys are never overwritten.

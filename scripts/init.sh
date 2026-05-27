@@ -64,7 +64,7 @@ if [ -f "$SETUP_PY_FALLBACK" ] && command -v python3 &>/dev/null; then
 fi
 
 # ── Step 1: Ensure Prismor is cloned locally ────────────────────────────
-if [ -d "$PRISMOR_DIR" ] && [ -f "$PRISMOR_DIR/warden/cli.py" ]; then
+if [ -d "$PRISMOR_DIR" ] && [ -f "$PRISMOR_DIR/immunity" ]; then
     info "Prismor found at $PRISMOR_DIR"
     info "Pulling latest..."
     git -C "$PRISMOR_DIR" pull --quiet 2>/dev/null || warn "Could not pull (offline?). Using existing version."
@@ -123,7 +123,7 @@ fi
 # ── Step 4: Install Warden hooks ────────────────────────────────────────
 info "Installing Warden hooks (mode: $MODE)..."
 for agent in "${AGENTS_FOUND[@]}"; do
-    python3 "$PRISMOR_DIR/warden/cli.py" install-hooks \
+    python3 "$PRISMOR_DIR/immunity" install-hooks \
         --agent "$agent" \
         --workspace "$TARGET_DIR" \
         --scope project \
@@ -140,10 +140,10 @@ if [ "$CLOAK" = "1" ]; then
                 warn "PRISMOR_CLOAK=1 set but jq is missing — install with 'brew install jq' and re-run"
             else
                 info "Installing cloaking hooks (secret prevention layer)..."
-                python3 "$PRISMOR_DIR/warden/cli.py" cloak install \
+                python3 "$PRISMOR_DIR/immunity" cloak install \
                     --workspace "$TARGET_DIR" \
                     --scope project >/dev/null 2>&1 && \
-                    ok "Cloaking hooks installed. Register secrets with: warden cloak add <name>" || \
+                    ok "Cloaking hooks installed. Register secrets with: immunity cloak add <name>" || \
                     warn "Could not install cloaking hooks"
             fi
             ;;
@@ -183,7 +183,7 @@ echo ""
 if [[ $REPLY =~ ^[Yy]$ ]]; then
     echo ""
     info "Analyzing your current session..."
-    python3 "$PRISMOR_DIR/warden/cli.py" analyze 2>/dev/null || \
+    python3 "$PRISMOR_DIR/immunity" analyze 2>/dev/null || \
         warn "Session analysis failed"
 fi
 echo ""

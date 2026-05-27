@@ -18,7 +18,7 @@ Warden runs as a hook layer that monitors every tool call your coding agent make
 
 ```bash
 pip install immunity-agent
-warden setup          # interactive 5-step onboarding wizard
+immunity setup          # interactive 5-step onboarding wizard
 ```
 
 Pass `--non-interactive` for CI or scripted installs.
@@ -33,17 +33,17 @@ Pass `--non-interactive` for CI or scripted installs.
 Switch modes at any time:
 
 ```bash
-warden install-hooks --agent all --mode enforce    # block dangerous actions
-warden install-hooks --agent all --mode observe    # log only
+immunity install-hooks --agent all --mode enforce    # block dangerous actions
+immunity install-hooks --agent all --mode observe    # log only
 ```
 
 ## Key Commands
 
 ```bash
-warden audit          # security audit of current session logs
+immunity audit          # security audit of current session logs
 warden logs           # tail live session log
-warden status         # show hook installation and mode status
-warden cloak add KEY  # register a secret for cloaking
+immunity status         # show hook installation and mode status
+immunity cloak add KEY  # register a secret for cloaking
 ```
 
 ## Secret Cloaking
@@ -51,7 +51,7 @@ warden cloak add KEY  # register a secret for cloaking
 Real secret values live under `~/.prismor/secrets/`. Reference them in tool calls as `@@SECRET:<name>@@` and the hook substitutes the real value at runtime without exposing it in context or transcripts.
 
 ```bash
-warden cloak add stripe_key    # prompts for the value, stores it encrypted
+immunity cloak add stripe_key    # prompts for the value, stores it encrypted
 # then use @@SECRET:stripe_key@@ in commands — never the raw value
 ```
 
@@ -59,5 +59,5 @@ warden cloak add stripe_key    # prompts for the value, stores it encrypted
 
 - If Warden blocks an action, investigate the reason — do **not** attempt to bypass the hook or pass `--no-verify`
 - Reference secrets as `@@SECRET:<name>@@` rather than raw values in all tool calls
-- Run `warden audit` after completing multi-step tasks to verify no policy violations occurred
-- If `warden setup` has not been run, run it before proceeding with any agent task in the workspace
+- Run `immunity audit` after completing multi-step tasks to verify no policy violations occurred
+- If `immunity setup` has not been run, run it before proceeding with any agent task in the workspace

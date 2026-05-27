@@ -151,4 +151,5 @@ import shutil  # noqa: E402
 shutil.rmtree(_HOME, ignore_errors=True)
 
 print(f"\n{_passed} passed, {_failed} failed")
-sys.exit(1 if _failed else 0)
+if __name__ == "__main__":
+    sys.exit(1 if _failed else 0)

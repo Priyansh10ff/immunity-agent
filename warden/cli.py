@@ -114,9 +114,9 @@ def _color(text: str, color: str) -> str:
     return f"{color}{text}{_NC}"
 
 
-def main() -> None:
+def main(argv: Optional[List[str]] = None) -> None:
     parser = build_parser()
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     if args.command is None:
         parser.print_help()
@@ -131,10 +131,10 @@ def main() -> None:
     # fall back to a manual scan of argv to recover the original value.
     ws_value = getattr(args, "workspace", None)
     if not ws_value:
-        argv = sys.argv[1:]
-        for i, tok in enumerate(argv):
-            if tok == "--workspace" and i + 1 < len(argv):
-                ws_value = argv[i + 1]
+        scan_argv = argv if argv is not None else sys.argv[1:]
+        for i, tok in enumerate(scan_argv):
+            if tok == "--workspace" and i + 1 < len(scan_argv):
+                ws_value = scan_argv[i + 1]
                 break
             if tok.startswith("--workspace="):
                 ws_value = tok.split("=", 1)[1]
@@ -155,7 +155,7 @@ def main() -> None:
         if not registered:
             sys.stderr.write(
                 "[warden] Warning: no registered workspaces found.\n"
-                "         Run 'warden install-hooks' in a project first to collect data.\n"
+                "         Run 'immunity install-hooks' in a project first to collect data.\n"
             )
         run_server(host=args.host, port=args.port)
         return
@@ -457,7 +457,7 @@ def main() -> None:
             print(f"  {issues} issue(s): {', '.join(parts)}  |  {_color(f'{passed} passed', _GREEN)}")
 
             if fixable > 0:
-                print(f"  {_color(f'{fixable} issue(s) can be auto-fixed', _CYAN)} — run {_color('warden audit --fix', _BOLD)}")
+                print(f"  {_color(f'{fixable} issue(s) can be auto-fixed', _CYAN)} — run {_color('immunity audit --fix', _BOLD)}")
 
         print()
 
@@ -470,7 +470,7 @@ def main() -> None:
                 print(f"    {_color('FIXED', _GREEN)}  {action}")
             if actions:
                 print()
-                print(f"  {_color(f'{len(actions)} fix(es) applied.', _GREEN)} Run {_color('warden audit', _BOLD)} again to verify.")
+                print(f"  {_color(f'{len(actions)} fix(es) applied.', _GREEN)} Run {_color('immunity audit', _BOLD)} again to verify.")
             else:
                 print(f"    {_color('No fixes were applied.', _DIM)}")
             print()
@@ -784,7 +784,7 @@ def main() -> None:
             print(f"\n  {_color('Warden IAM', _BOLD)}  agent identities\n")
             if not agent_ids:
                 print(f"  {_color('No agents defined.', _DIM)}")
-                print(f"  Run: warden iam init\n")
+                print(f"  Run: immunity iam init\n")
                 return
             for aid in agent_ids:
                 marker = _color(" ← active", _GREEN) if aid == active else ""
@@ -964,7 +964,7 @@ def main() -> None:
             print(f"Secrets directory: {result['secretsDir']}")
             print()
             print("Next step: register your first secret with")
-            print(f"  {_color('warden cloak add <name>', _CYAN)}  (reads the value from stdin)")
+            print(f"  {_color('immunity cloak add <name>', _CYAN)}  (reads the value from stdin)")
             return
 
         if sub == "uninstall":
@@ -1090,11 +1090,11 @@ def main() -> None:
                 for p in custom:
                     print(f"  {_color('•', _CYAN)} {p}")
             else:
-                print(f"  {_color('none — add with: warden cloak pattern add <regex>', _DIM)}")
+                print(f"  {_color('none — add with: immunity cloak pattern add <regex>', _DIM)}")
             print()
             return
 
-        raise SystemExit("Usage: warden cloak {install|uninstall|add|list|remove|status|pattern}")
+        raise SystemExit("Usage: immunity cloak {install|uninstall|add|list|remove|status|pattern}")
 
     # ── canary subcommands ─────────────────────────────────────────────
     if args.command == "canary":
@@ -1126,7 +1126,7 @@ def main() -> None:
         if sub == "list" or sub is None:
             entries = canary_mod.list_canaries()
             if not entries:
-                print("No canaries planted. Try:  warden canary plant ~/.aws/credentials.canary --type aws")
+                print("No canaries planted. Try:  immunity canary plant ~/.aws/credentials.canary --type aws")
                 return
             print(f"  {_color('PRISMOR WARDEN', _BOLD)}  canaries")
             print(f"  {_color('─' * 50, _DIM)}")
@@ -1287,7 +1287,7 @@ def main() -> None:
                 if c.get("sample_evidence"):
                     print(f"       Sample: {c['sample_evidence'][:100]}")
                 print()
-            print(f"Use {_color('warden learn --apply ID', _BOLD)} to accept a rule.")
+            print(f"Use {_color('immunity learn --apply ID', _BOLD)} to accept a rule.")
             return
 
         # Run full learning analysis
@@ -1800,7 +1800,7 @@ def _print_dashboard() -> None:
     if not workspaces:
         print()
         print(f"  {_color('No registered workspaces found.', _DIM)}")
-        print(f"  Run {_color('warden install-hooks --agent all --mode enforce', _CYAN)} in a project to register it.")
+        print(f"  Run {_color('immunity install-hooks --agent all --mode enforce', _CYAN)} in a project to register it.")
         print()
         return
 
@@ -2182,7 +2182,7 @@ def _policy_edit(workspace: Path) -> None:
             policy_file.write_text('version: "1.0"\n\nrules: []\n\nallowlists: []\n')
         print(f"  {_color('✓', _GREEN)} All rules enabled (using defaults)")
 
-    print(f"\n  Run {_color('warden policy show', _CYAN)} to verify.")
+    print(f"\n  Run {_color('immunity policy show', _CYAN)} to verify.")
 
 
 # ── SARIF output ────────────────────────────────────────────────────────

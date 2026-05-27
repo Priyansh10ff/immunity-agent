@@ -1,22 +1,25 @@
-"""immunity — supply chain enforcement CLI.
+"""Supply-chain enforcement layer for the unified ``immunity`` CLI.
 
-Usage:
-  immunity npm install express
-  immunity pip install requests numpy
-  immunity pnpm add lodash
-  immunity uv add fastapi
-  immunity cargo add serde
-  immunity go get github.com/some/pkg
+Reachable as:
 
-Any command that isn't a recognised package install is passed through
-transparently — so you can alias npm/pip to immunity without breakage.
+  immunity supplychain npm install express
+  immunity supplychain pip install requests numpy
+  immunity supplychain pnpm add lodash
+  immunity supplychain uv add fastapi
+  immunity supplychain cargo add serde
+  immunity supplychain go get github.com/some/pkg
+  immunity supplychain harden [--dry-run] [PATH]
+
+Any sub-argv that isn't a recognised package install is passed through
+transparently — so the same wrapper can be used as a shell alias for
+``npm`` / ``pip`` / etc. via ``alias npm='immunity supplychain npm'``.
 """
 from __future__ import annotations
 
 import os
 import sys
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -145,10 +148,12 @@ def _record_to_store(event, verdicts) -> None:
         pass
 
 
-# ── Main ──────────────────────────────────────────────────────────────────────
+# ── Entry point ───────────────────────────────────────────────────────────────
 
-def main() -> None:
-    argv = sys.argv[1:]
+def run_supply(argv: Optional[List[str]] = None) -> None:
+    """Entry point for the ``immunity supplychain`` subcommand."""
+    if argv is None:
+        argv = sys.argv[1:]
 
     if not argv or argv[0] in ("-h", "--help"):
         _usage()
@@ -220,7 +225,7 @@ def _cmd_harden(args: List[str]) -> None:
     root = Path(path_args[0]).resolve() if path_args else Path.cwd()
 
     if not root.is_dir():
-        sys.stderr.write(f"immunity harden: not a directory: {root}\n")
+        sys.stderr.write(f"immunity supplychain harden: not a directory: {root}\n")
         sys.exit(2)
 
     results = harden_project(root, dry_run=dry_run)
@@ -228,25 +233,32 @@ def _cmd_harden(args: List[str]) -> None:
 
 
 def _usage() -> None:
-    print(f"  {_c('immunity', _BOLD)} — AI-native supply chain enforcement")
+    print(f"  {_c('immunity supplychain', _BOLD)} — AI-native supply chain enforcement")
     print()
-    print("  Usage: immunity <command> [args...]")
+    print("  Usage: immunity supplychain <package-manager> <args...>")
+    print("         immunity supplychain harden [--dry-run] [PATH]")
     print()
     print("  Install interception:")
-    print("    immunity npm install express")
-    print("    immunity pip install requests numpy")
-    print("    immunity pnpm add lodash")
-    print("    immunity uv add fastapi")
-    print("    immunity cargo add serde")
-    print("    immunity go get github.com/some/pkg")
+    print("    immunity supplychain npm install express")
+    print("    immunity supplychain pip install requests numpy")
+    print("    immunity supplychain pnpm add lodash")
+    print("    immunity supplychain uv add fastapi")
+    print("    immunity supplychain cargo add serde")
+    print("    immunity supplychain go get github.com/some/pkg")
     print()
     print("  Config hardening:")
-    print("    immunity harden              Apply hardening to project configs")
-    print("    immunity harden --dry-run    Preview without writing")
-    print("    immunity harden <path>       Harden a specific project root")
+    print("    immunity supplychain harden              Apply hardening to project configs")
+    print("    immunity supplychain harden --dry-run    Preview without writing")
+    print("    immunity supplychain harden <path>       Harden a specific project root")
     print()
     print("  Non-install commands pass through transparently.")
     print()
+
+
+# Back-compat shim — kept so `python -m supplychain.cli` keeps working for any
+# external caller. New code should use `warden.immunity_cli:main` instead.
+def main() -> None:
+    run_supply(sys.argv[1:])
 
 
 if __name__ == "__main__":
