@@ -82,7 +82,15 @@ Browse the skills directory: [skills.sh](https://skills.sh)
 
 ### Platform-specific Install
 
-**Option A — pip (recommended):**
+**Option A — curl (easiest):**
+
+```bash
+curl -sSL https://prismor.dev/install | sh
+```
+
+Detects your environment and uses the right install method automatically.
+
+**Option B — pip:**
 
 ```bash
 pip install immunity-agent
@@ -91,7 +99,7 @@ immunity setup          # interactive 5-step onboarding wizard
 
 `immunity setup` lets you pick enforcement mode, toggle detection rules, select agents, and optionally enable secret cloaking. Pass `--non-interactive` to skip the TUI.
 
-**Option B — git clone + wizard:**
+**Option C — git clone + wizard:**
 
 ```bash
 pip3 install pyyaml                          # required dependency
