@@ -529,18 +529,9 @@ def main(argv: Optional[List[str]] = None) -> None:
             raise SystemExit(1)
         return
 
-    # ── status: show most recent session findings ──────────────────────
+    # ── status: one-shot health check (mode, hooks, cloak, latest session) ──
     if args.command == "status":
-        sessions = list_sessions(workspace, 1)
-        if not sessions:
-            print("No sessions found.")
-            return
-        latest = sessions[0]
-        session = get_session(workspace, latest["sessionId"])
-        if session is None:
-            print("No session data available.")
-            return
-        _print_status(session)
+        _print_status_overview(workspace)
         return
 
     # ── analyze ────────────────────────────────────────────────────────
@@ -1442,7 +1433,10 @@ def build_parser() -> argparse.ArgumentParser:
     audit_parser.add_argument("--json", action="store_true", help="Output raw JSON")
 
     # ── status ─────────────────────────────────────────────────────────
-    status_parser = subparsers.add_parser("status", help="Show findings from the most recent session")
+    status_parser = subparsers.add_parser(
+        "status",
+        help="One-shot health check: workspace, mode, hooks, cloak, latest session",
+    )
     status_parser.add_argument("--workspace", help="Workspace path")
 
     # ── analyze ────────────────────────────────────────────────────────
@@ -1973,6 +1967,98 @@ def _print_status(session: Dict[str, Any]) -> None:
         print(f"  {_color(f'[{sev}]', color)} {finding['title']} ({finding['category']})")
         if finding.get("evidence"):
             print(f"         {finding['evidence']}")
+
+
+def _print_status_overview(workspace: Path) -> None:
+    """One-shot health check: mode, hooks, cloak, latest session.
+
+    Designed so an agent (or a human) can run `immunity status` once at
+    session start instead of stitching together `info` + `cloak status` +
+    the prior session-only `status`. Output is intentionally compact and
+    ends with the single next action that matters.
+    """
+    home = str(Path.home())
+    ws_display = str(workspace).replace(home, "~")
+
+    print()
+    print(f"  {_color('PRISMOR WARDEN', _BOLD)}  status")
+    print(f"  {_color('─' * 50, _DIM)}")
+    print()
+    print(f"  {_color('Workspace:', _GREEN)}   {ws_display}")
+
+    # Hooks + mode
+    agents_with_hooks: List[str] = []
+    mode: Optional[str] = None
+    for agent_name in ("claude", "cursor", "windsurf", "openclaw", "hermes", "copilot"):
+        hook_path = _find_hook_config(agent_name, workspace)
+        if hook_path and hook_path.exists():
+            try:
+                content = hook_path.read_text()
+                if "warden" in content.lower() or "prismor" in content.lower():
+                    agents_with_hooks.append(agent_name)
+                    if mode is None:
+                        if "--mode enforce" in content:
+                            mode = "enforce"
+                        elif "--mode observe" in content:
+                            mode = "observe"
+            except Exception:
+                pass
+
+    if agents_with_hooks:
+        mode_color = _GREEN if mode == "enforce" else _YELLOW
+        mode_str = _color(mode or "unknown", mode_color)
+        print(f"  {_color('Hooks:', _GREEN)}       {', '.join(agents_with_hooks)}  ({mode_str})")
+    else:
+        print(f"  {_color('Hooks:', _GREEN)}       {_color('not installed', _YELLOW)}")
+
+    # Cloaking — lazy import so the cloaking subsystem stays optional
+    cloak_state = "unknown"
+    cloak_secret_count = 0
+    try:
+        from warden.cloaking import status as cloak_status_fn, list_secrets
+        cinfo = cloak_status_fn(workspace=workspace, scope="project")
+        cloak_state = "installed" if cinfo.get("installed") else "not installed"
+        cloak_secret_count = len(list_secrets())
+    except Exception:
+        cloak_state = "not installed"
+
+    cloak_color = _GREEN if cloak_state == "installed" else _DIM
+    secrets_str = f"  ({cloak_secret_count} secret{'s' if cloak_secret_count != 1 else ''})" if cloak_secret_count else ""
+    print(f"  {_color('Cloaking:', _GREEN)}    {_color(cloak_state, cloak_color)}{secrets_str}")
+
+    # Rules
+    try:
+        engine = PolicyEngine(workspace=workspace)
+        print(f"  {_color('Rules:', _GREEN)}       {len(engine.rules)} active")
+    except Exception:
+        pass
+
+    # Latest session
+    sessions = list_sessions(workspace, 1)
+    print()
+    if not sessions:
+        print(f"  {_color('Latest session:', _GREEN)}  {_color('none yet', _DIM)}")
+    else:
+        latest = sessions[0]
+        session = get_session(workspace, latest["sessionId"])
+        if session is None:
+            print(f"  {_color('Latest session:', _GREEN)}  {_color('unavailable', _DIM)}")
+        else:
+            print(f"  {_color('LATEST SESSION', _BOLD)}")
+            _print_status(session)
+
+    # Next-step nudge — one action, picked by current state
+    print()
+    if not agents_with_hooks:
+        print(f"  {_color('Next:', _CYAN)} immunity install-hooks --agent claude --mode observe")
+    elif mode == "observe":
+        print(f"  {_color('Tip:', _DIM)}  observe mode logs only. Switch with:")
+        print(f"        immunity install-hooks --agent all --mode enforce")
+    elif sessions and sessions[0].get("findingsCount", 0) > 0:
+        print(f"  {_color('Next:', _CYAN)} immunity sessions --findings-only")
+    else:
+        print(f"  {_color('OK:', _GREEN)}   workspace is clean")
+    print()
 
 
 def _policy_init(workspace: Path) -> None:
