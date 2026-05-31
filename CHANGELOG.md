@@ -4,6 +4,37 @@ All notable changes to Immunity Agent (Prismor Warden) are documented here.
 The format loosely follows [Keep a Changelog](https://keepachangelog.com/)
 and the project uses [Semantic Versioning](https://semver.org/).
 
+## [1.5.7] — 2026-05-31
+
+Onboarding reliability: the installer can no longer report success while
+installing nothing, and a broken/partial install can no longer break the
+host Python. Also ships the hybrid semantic prompt-injection defense from
+1.5.6, which was bumped in code but never published to PyPI.
+
+### Fixed
+
+- **`scripts/init.sh` — honest install status.** The git-clone path printed
+  `Warden: hooks installed` unconditionally, even when every `install-hooks`
+  call failed (errors were swallowed by `2>/dev/null`). The final banner is
+  now driven by a real success counter: zero hooks installed → loud
+  `Initialization FAILED` and exit 1, with the underlying error surfaced
+  instead of hidden.
+- **`immunity-agent.pth` — crash-proof startup hook.** The shipped `.pth`
+  ran `import warden._post_install` at every Python interpreter startup. If
+  `warden` was ever unimportable (e.g. an editable install whose source dir
+  was later deleted), this printed a traceback on *every* `python3`
+  invocation machine-wide and poisoned the `warden` namespace so the cloned
+  CLI also failed. Now wrapped in `try/except` so it can never raise.
+- **`scripts/init.sh` — `immunity` on PATH.** The git-clone path never added
+  the CLI to PATH, so the next documented command (`immunity cloak add`) was
+  `command not found`. It now symlinks into `/usr/local/bin` (or appends to
+  the shell rc).
+- **`scripts/init.sh` — non-interactive exit code.** The trailing "Check
+  current session?" prompt hit EOF under `set -e` in piped/CI runs and made
+  the installer exit 1 *after* a fully successful install. It is now gated on
+  a TTY. Also corrects the stale `prismor.git` → `immunity-agent.git` repo URL
+  and only shows the "switch to enforce mode" hint when not already enforcing.
+
 ## [1.5.6] — 2026-05-28
 
 Hybrid semantic prompt-injection defense.
