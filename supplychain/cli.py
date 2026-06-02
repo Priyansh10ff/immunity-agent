@@ -118,12 +118,37 @@ def _print_report(event, verdicts, feed_hits: list) -> None:
 # ── Process replacement ───────────────────────────────────────────────────────
 
 def _exec(argv: List[str]) -> None:
-    """Replace the current process with the real command — transparent passthrough."""
+    """Replace the current process with the real command — transparent passthrough.
+
+    For pip/pip3 installs on systems with PEP 668 externally-managed Python,
+    falls back to pipx so the install still works instead of spewing an error.
+    """
     import shutil
+    import subprocess
+
     binary = shutil.which(argv[0])
     if binary is None:
         sys.stderr.write(f"immunity: command not found: {argv[0]}\n")
         sys.exit(127)
+
+    # Detect pip install on externally-managed Python (PEP 668) before exec-replacing.
+    # Probing with --dry-run avoids actually installing anything.
+    if argv[0] in ("pip", "pip3") and len(argv) > 1 and argv[1] == "install":
+        probe = subprocess.run(
+            [binary, "install", "--dry-run", *argv[2:]],
+            capture_output=True, text=True,
+        )
+        if "externally-managed-environment" in probe.stderr:
+            packages = " ".join(a for a in argv[2:] if not a.startswith("-"))
+            sys.stderr.write(
+                f"immunity: pip is externally managed on this system (PEP 668).\n"
+                f"  Use a virtual environment:\n"
+                f"    python3 -m venv .venv && .venv/bin/pip install {packages}\n"
+                f"  Or install system-wide (not recommended):\n"
+                f"    pip install --break-system-packages {packages}\n"
+            )
+            sys.exit(1)
+
     os.execv(binary, argv)
 
 
@@ -195,6 +220,7 @@ def run_supply(argv: Optional[List[str]] = None) -> None:
     feed_hits = _check_feed(event.packages, feed)
 
     _print_report(event, verdicts, feed_hits)
+    sys.stdout.flush()
     _record_to_store(event, verdicts)
 
     # ── Decision ──────────────────────────────────────────────────────────────
