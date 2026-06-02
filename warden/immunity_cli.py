@@ -38,7 +38,7 @@ def _c(text: str, code: str) -> str:
 _TOP_LEVEL_SHORTCUTS = {
     # Common, frequently-typed:
     "setup", "status", "audit", "info", "dashboard", "serve",
-    "check", "scan", "deps",
+    "check", "scan", "deps", "semantic-check",
     "analyze", "ingest", "sessions", "session",
     "install-hooks", "uninstall-hooks", "hook-dispatch",
 }

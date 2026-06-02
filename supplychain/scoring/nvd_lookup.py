@@ -94,16 +94,27 @@ def fetch_cves(package_name: str, ecosystem: str) -> List[Dict[str, Any]]:
                 for match in node.get("cpeMatch", []):
                     cpe_strings.append(match.get("criteria", ""))
 
-        # Post-filter by CPE product name to reduce false positives
+        # Post-filter by CPE product name to reduce false positives.
+        # CPE 2.3 format: cpe:2.3:part:vendor:product:version:...
+        # Match against the product field (index 4) to avoid substring hits
+        # like "express" matching "outlook_express" or "internet_explorer".
         pkg_lower = package_name.lower().lstrip("@").replace("/", "_").replace("-", "_")
+        pkg_raw = package_name.lower()
         if cpe_strings:
             matched = False
             for cpe in cpe_strings:
-                cpe_lower = cpe.lower()
-                # Check if package name or normalized variant appears in CPE
-                if pkg_lower in cpe_lower or package_name.lower() in cpe_lower:
+                parts = cpe.lower().split(":")
+                # CPE 2.3: parts[4] = product
+                product = parts[4] if len(parts) > 4 else ""
+                if product == pkg_lower or product == pkg_raw.replace("/", "_").replace("-", "_"):
                     matched = True
                     break
+                # Fallback: scoped packages like @scope/name — check vendor:product pair
+                if len(parts) > 5 and "/" in package_name.lower():
+                    scope, name = package_name.lower().lstrip("@").split("/", 1)
+                    if parts[3] == scope and parts[4] == name:
+                        matched = True
+                        break
             if not matched:
                 continue
 
