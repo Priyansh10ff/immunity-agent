@@ -35,7 +35,25 @@ MANIFEST_LANGUAGE_MAP = [
 ]
 
 PROMPT_INJECTION_PATTERN = re.compile(
-    r"(ignore\s+(all\s+)?(any\s+)?(previous\s+)?instructions|reveal\s+(your|the)\s+system\s+prompt|developer\s+instructions|exfiltrat(e|ion)|print\s+.*(secret|token|key|credential|password)|show\s+.*(token|secret|key|credential|password)|bypass(es|ed|ing)?\s+guardrails|jailbreak)",
+    r"(?:"
+    # Instruction override — direct phrase attacks
+    r"ignore\s+(?:all\s+)?(?:any\s+)?(?:previous\s+)?instructions"
+    r"|reveal\s+(?:your|the)\s+system\s+prompt"
+    r"|developer\s+instructions"
+    r"|exfiltrat(?:e|ion)"
+    r"|print\s+.*(?:secret|token|key|credential|password)"
+    r"|show\s+.*(?:token|secret|key|credential|password)"
+    r"|bypass(?:es|ed|ing)?\s+guardrails"
+    r"|jailbreak"
+    # Covert exfiltration — natural-language instructions to send data silently
+    r"|(?:silently|quietly|covertly|secretly)\s+(?:send|forward|transmit|upload|share|post)\b"
+    r"|without\s+(?:the\s+)?user\s+(?:knowing|noticing|seeing|being\s+aware|realizing)"
+    r"|(?:forward|send|transmit|relay)\s+(?:this\s+)?(?:conversation|context|chat\s+history|transcript|session)\s+to\b"
+    r"|(?:call|ping|hit|notify)\s+(?:this\s+)?(?:webhook|endpoint|callback\s+url)\s+with\s+(?:the\s+)?(?:user|conversation|context|session)"
+    # Social trust exploitation
+    r"|(?:appear|seem|act)\s+(?:helpful|friendly|trustworthy|cooperative)\s+(?:while|but\s+(?:actually|then)|before\s+(?:then|you))"
+    r"|(?:gain|build|establish)\s+(?:the\s+)?user(?:'s)?\s+trust\s+(?:and\s+then|before|so\s+that|in\s+order\s+to)"
+    r")",
     re.IGNORECASE,
 )
 

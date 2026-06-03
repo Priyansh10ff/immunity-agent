@@ -11,6 +11,7 @@ Usage (from CLI):
 """
 from __future__ import annotations
 
+import ast
 import json
 import re
 import shlex
@@ -18,7 +19,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
-from warden.policy_engine import PolicyEngine
+from warden.policy_engine import PolicyEngine, _has_invisible_chars, _has_suspicious_unicode
 
 # Maximum size of skill source files to read (100 KB).
 _MAX_SOURCE_SIZE = 100 * 1024
@@ -31,6 +32,160 @@ _SOURCE_EXTENSIONS = {
 
 # Severity ordering for descending sort.
 _SEVERITY_ORDER = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3, "UNKNOWN": 4}
+
+# ── AST dangerous-code detection constants ───────────────────────────────────
+
+_DANGEROUS_BUILTINS: frozenset = frozenset({"exec", "eval", "compile", "__import__"})
+
+_SUBPROCESS_METHODS: frozenset = frozenset({
+    "run", "Popen", "check_output", "call", "check_call",
+    "getoutput", "getstatusoutput",
+})
+
+_OS_EXEC_METHODS: frozenset = frozenset({
+    "system", "popen",
+    "execl", "execle", "execlp", "execlpe",
+    "execv", "execve", "execvp", "execvpe",
+    "spawnl", "spawnle", "spawnlp", "spawnlpe",
+    "spawnv", "spawnve", "spawnvp", "spawnvpe",
+    "posix_spawn", "posix_spawnp",
+})
+
+
+class _DangerousCallVisitor(ast.NodeVisitor):
+    """Walk a Python AST and flag dangerous execution patterns.
+
+    Goes beyond string matching: catches dynamic dispatch via getattr() and
+    first-order taint — an unvalidated function parameter flowing directly
+    into a dangerous sink (escalated from HIGH to CRITICAL).
+    """
+
+    def __init__(self) -> None:
+        self.hits: List[Dict[str, Any]] = []
+        self._params: set = set()
+
+    def _emit(self, node: ast.AST, rule_id: str, title: str, severity: str = "HIGH") -> None:
+        self.hits.append({
+            "rule_id": rule_id,
+            "title": title,
+            "severity": severity,
+            "lineno": getattr(node, "lineno", 0),
+        })
+
+    def _param_flows_in(self, call: ast.Call) -> bool:
+        """True if any argument is a direct reference to a tracked function parameter."""
+        for arg in call.args:
+            if isinstance(arg, ast.Name) and arg.id in self._params:
+                return True
+        for kw in call.keywords:
+            if isinstance(kw.value, ast.Name) and kw.value.id in self._params:
+                return True
+        return False
+
+    def _enter_function(self, node: ast.FunctionDef) -> set:
+        prev = self._params.copy()
+        all_args = node.args.args + node.args.posonlyargs + node.args.kwonlyargs
+        self._params = {a.arg for a in all_args}
+        if node.args.vararg:
+            self._params.add(node.args.vararg.arg)
+        if node.args.kwarg:
+            self._params.add(node.args.kwarg.arg)
+        return prev
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:  # type: ignore[override]
+        prev = self._enter_function(node)
+        self.generic_visit(node)
+        self._params = prev
+
+    visit_AsyncFunctionDef = visit_FunctionDef  # type: ignore[assignment]
+
+    def visit_Call(self, node: ast.Call) -> None:  # type: ignore[override]
+        func = node.func
+
+        # Plain builtins: exec(...), eval(...), compile(...), __import__(...)
+        if isinstance(func, ast.Name) and func.id in _DANGEROUS_BUILTINS:
+            tainted = self._param_flows_in(node)
+            self._emit(
+                node,
+                rule_id="ast-dangerous-builtin",
+                title=f"Dangerous builtin `{func.id}()` called",
+                severity="CRITICAL" if tainted else "HIGH",
+            )
+
+        # module.method() calls — subprocess.run(), os.system(), etc.
+        elif isinstance(func, ast.Attribute):
+            attr = func.attr
+            if attr in _SUBPROCESS_METHODS:
+                tainted = self._param_flows_in(node)
+                self._emit(
+                    node,
+                    rule_id="ast-subprocess-call",
+                    title=f"`subprocess.{attr}()` call detected",
+                    severity="CRITICAL" if tainted else "HIGH",
+                )
+            elif attr in _OS_EXEC_METHODS:
+                tainted = self._param_flows_in(node)
+                self._emit(
+                    node,
+                    rule_id="ast-os-exec",
+                    title=f"`os.{attr}()` execution call detected",
+                    severity="CRITICAL" if tainted else "HIGH",
+                )
+
+        # Dynamic dispatch: getattr(module, 'dangerous_method')
+        if (
+            isinstance(func, ast.Name)
+            and func.id == "getattr"
+            and len(node.args) >= 2
+        ):
+            attr_arg = node.args[1]
+            attr_val = (
+                attr_arg.value
+                if isinstance(attr_arg, ast.Constant) and isinstance(attr_arg.value, str)
+                else None
+            )
+            if attr_val and (attr_val in _SUBPROCESS_METHODS or attr_val in _OS_EXEC_METHODS):
+                self._emit(
+                    node,
+                    rule_id="ast-dynamic-dispatch",
+                    title=f"Dynamic dispatch to dangerous method `getattr(…, {attr_val!r})`",
+                    severity="HIGH",
+                )
+
+        self.generic_visit(node)
+
+
+def _ast_scan_python(source: str, entry_name: str) -> List[Dict[str, Any]]:
+    """Parse Python source with the AST and return dangerous-code findings.
+
+    Catches patterns the regex rules miss: dynamic dispatch via getattr(),
+    and first-order taint (unvalidated parameter flowing into a dangerous sink).
+    Fails silently for non-Python or syntax-broken files.
+    """
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return []
+
+    visitor = _DangerousCallVisitor()
+    visitor.visit(tree)
+
+    findings: List[Dict[str, Any]] = []
+    for hit in visitor.hits:
+        ln = hit["lineno"]
+        findings.append({
+            "id": f"{hit['rule_id']}-{entry_name}-L{ln}",
+            "severity": hit["severity"],
+            "category": "skill_risk",
+            "title": f"{hit['title']} in '{entry_name}' (line {ln})",
+            "evidence": f"line={ln} rule={hit['rule_id']}",
+            "eventIndex": 0,
+            "ruleId": hit["rule_id"],
+            "action": "warn",
+            "skillName": entry_name,
+        })
+
+    return findings
 
 
 # ── Config discovery ────────────────────────────────────────────────────────
@@ -490,6 +645,21 @@ def audit_mcp_schema(
     # Remote-transport hygiene (HTTP/SSE/streamable-HTTP MCP servers).
     findings.extend(_audit_remote_transport(name, cfg, egress_allowlist, mcp_action))
 
+    # Unicode-confusable checks — homoglyph spoofing in server/tool names and
+    # invisible characters embedded in tool descriptions (hidden instructions).
+    if _has_suspicious_unicode(name):
+        findings.append({
+            "id": f"mcp-confusable-name-{name}",
+            "severity": "MEDIUM",
+            "category": "skill_risk",
+            "title": f"MCP server name '{name}' contains Unicode-confusable characters (homoglyph spoofing)",
+            "evidence": f"server name: {name!r}",
+            "eventIndex": 0,
+            "ruleId": "mcp-confusable-name",
+            "action": "warn",
+            "skillName": name,
+        })
+
     # Over-broad allow-lists
     for list_key in ("allowedPaths", "allowedDomains", "permissions"):
         values = cfg.get(list_key)
@@ -532,8 +702,37 @@ def audit_mcp_schema(
         for tool in tools:
             if not isinstance(tool, dict):
                 continue
-            t_name = str(tool.get("name", "")).lower()
+            t_name_raw = str(tool.get("name", ""))
+            t_name = t_name_raw.lower()
             t_schema = tool.get("inputSchema") or tool.get("input_schema") or {}
+            t_desc = str(tool.get("description") or "")
+
+            # Confusable-char checks: homoglyph spoofing in tool names and
+            # invisible characters used as hidden instruction separators in descriptions.
+            if t_name_raw and _has_suspicious_unicode(t_name_raw):
+                findings.append({
+                    "id": f"mcp-confusable-tool-{name}-{t_name}",
+                    "severity": "MEDIUM",
+                    "category": "skill_risk",
+                    "title": f"MCP tool '{t_name_raw}' in server '{name}' contains Unicode-confusable characters (homoglyph spoofing)",
+                    "evidence": f"tool name: {t_name_raw!r}",
+                    "eventIndex": 0,
+                    "ruleId": "mcp-confusable-tool-name",
+                    "action": "warn",
+                    "skillName": name,
+                })
+            if t_desc and _has_suspicious_unicode(t_desc):
+                findings.append({
+                    "id": f"mcp-confusable-desc-{name}-{t_name}",
+                    "severity": "HIGH",
+                    "category": "skill_risk",
+                    "title": f"MCP tool '{t_name_raw}' description in server '{name}' contains Unicode-confusable or invisible characters (possible hidden instruction)",
+                    "evidence": f"tool description contains suspicious Unicode: {t_name_raw!r}",
+                    "eventIndex": 0,
+                    "ruleId": "mcp-confusable-tool-desc",
+                    "action": "warn",
+                    "skillName": name,
+                })
 
             # Categorise this tool's capability
             if any(h in t_name for h in _EXEC_TOOL_NAME_HINTS):
@@ -677,6 +876,15 @@ def scan_skills(
             sf["skillSource"] = entry.get("source", "")
             sf["agent"] = entry.get("agent", "unknown")
             findings.append(sf)
+
+        # AST-level dangerous code detection for Python skill sources.
+        # Non-Python files fail ast.parse silently and return [].
+        skill_source = _resolve_skill_source(entry)
+        if skill_source:
+            for af in _ast_scan_python(skill_source, entry["name"]):
+                af["skillSource"] = entry.get("source", "")
+                af["agent"] = entry.get("agent", "unknown")
+                findings.append(af)
 
     # Sort by severity: CRITICAL first, then HIGH, MEDIUM, LOW
     findings.sort(key=lambda f: _SEVERITY_ORDER.get(f.get("severity", "UNKNOWN"), 99))

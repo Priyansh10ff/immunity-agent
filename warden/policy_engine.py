@@ -430,6 +430,27 @@ class PolicyEngine:
                 })
                 break  # one finding per event is enough
 
+        # ── Invisible-char check for skill content ─────────────────────────
+        # Zero-width characters in a skill manifest have no legitimate use —
+        # they are used to embed hidden instructions that survive rendering.
+        # We check combined_text here (where skill content lives) rather than
+        # command/path/url, which the block above already handles.
+        if event_type == "skill_manifest":
+            _skill_text = field_values.get("combined_text", "")
+            if _skill_text and _has_invisible_chars(_skill_text):
+                finding_id = f"skill-invisible-chars-{index}"
+                prefixed_id = f"{session_id}:{finding_id}" if session_id else finding_id
+                findings.append({
+                    "id": prefixed_id,
+                    "severity": "HIGH",
+                    "category": "skill_risk",
+                    "title": "Skill content contains invisible zero-width characters (possible hidden instruction injection)",
+                    "evidence": f"Invisible Unicode found in skill manifest content",
+                    "eventIndex": index,
+                    "ruleId": "skill-invisible-chars",
+                    "action": "warn",
+                })
+
         # ── Egress allowlist check ──────────────────────────────────────
         if self.egress_allowlist and event_type == "network":
             url = field_values.get("url", "")
@@ -749,6 +770,25 @@ _CONFUSABLE_CODEPOINTS = frozenset({
     # Zero-width joiners & invisible separators — often abused
     0x200B, 0x200C, 0x200D, 0x2060, 0xFEFF,
 })
+
+
+_INVISIBLE_CODEPOINTS: frozenset = frozenset({
+    0x200B,  # zero-width space
+    0x200C,  # zero-width non-joiner
+    0x200D,  # zero-width joiner
+    0x2060,  # word joiner
+    0xFEFF,  # BOM / zero-width no-break space
+})
+
+
+def _has_invisible_chars(text: str) -> bool:
+    """Return True if ``text`` contains invisible zero-width characters.
+
+    Unlike ``_has_suspicious_unicode``, this fires on invisible chars alone —
+    no ASCII co-presence required. Used for skill content where zero-width
+    characters have no legitimate purpose and indicate hidden payload injection.
+    """
+    return any(ord(ch) in _INVISIBLE_CODEPOINTS for ch in text)
 
 
 def _has_suspicious_unicode(text: str) -> bool:

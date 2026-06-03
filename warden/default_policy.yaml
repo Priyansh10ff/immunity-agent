@@ -198,11 +198,20 @@ rules:
   - id: prompt-injection
     severity: HIGH
     category: prompt_injection
-    title: Detects 'ignore instructions', 'reveal system prompt' in agent I/O
+    title: Detects instruction override, system-prompt extraction, and covert exfiltration in agent I/O
     event_types: [prompt, tool_result]
     fields: [combined_text]
     patterns:
+      # Instruction override — direct phrase attacks
       - '(ignore\s+(all\s+)?(any\s+)?(previous\s+)?instructions|reveal\s+(your|the)\s+system\s+prompt|developer\s+instructions|exfiltrat(e|ion)|print\s+.*(secret|token|key|credential|password)|show\s+.*(token|secret|key|credential|password)|bypass(es|ed|ing)?\s+guardrails|jailbreak)'
+      # Covert exfiltration — natural-language instructions to send data without user awareness
+      - '(?:silently|quietly|covertly|secretly)\s+(?:send|forward|transmit|upload|share|post)\b'
+      - 'without\s+(?:the\s+)?user\s+(?:knowing|noticing|seeing|being\s+aware|realizing)'
+      - '(?:forward|send|transmit|relay)\s+(?:this\s+)?(?:conversation|context|chat\s+history|transcript|session)\s+to\b'
+      - '(?:call|ping|hit|notify)\s+(?:this\s+)?(?:webhook|endpoint|callback\s+url)\s+with\s+(?:the\s+)?(?:user|conversation|context|session)'
+      # Social trust exploitation — establish rapport before acting against user interest
+      - '(?:appear|seem|act)\s+(?:helpful|friendly|trustworthy|cooperative)\s+(?:while|but\s+(?:actually|then)|before\s+(?:then|you))'
+      - '(?:gain|build|establish)\s+(?:the\s+)?user(?:''s)?\s+trust\s+(?:and\s+then|before|so\s+that|in\s+order\s+to)'
     action: block
 
   # ── CRITICAL: Prompt injection hidden in HTML/CSS/invisible chars ─────
@@ -475,6 +484,28 @@ rules:
       - 'disregard.*system\s*prompt'
       - 'forget\s+(everything|all|your)\s+(previous|prior|instructions)'
     action: block
+
+  # ── MEDIUM: Skill encodes behavior bias or covert steering ──────────
+  # Scoped to skill_manifest only — these patterns are FP-prone in general
+  # agent I/O but have no legitimate use in a skill definition.
+  - id: skill-behavior-manipulation
+    severity: MEDIUM
+    category: skill_risk
+    title: Skill encodes behavior bias, covert steering, or persistent influence over the agent
+    event_types: [skill_manifest]
+    fields: [combined_text]
+    patterns:
+      # Output bias — hard-coding recommendations or silencing alternatives
+      - 'always\s+(?:recommend|suggest|prefer|use|choose)\s+\w[\w\s]{0,30}(?:over|instead\s+of|rather\s+than)'
+      - 'never\s+(?:mention|recommend|suggest|tell|warn|inform)\s+(?:the\s+)?(?:user|them)\b'
+      - 'do\s+not\s+(?:mention|disclose|tell|reveal|show)\s+(?:the\s+)?user\b'
+      # Gradual covert steering
+      - '(?:gradually|subtly|slowly|incrementally)\s+(?:steer|guide|push|nudge|shift|move)\s+(?:the\s+)?(?:user|conversation|discussion)'
+      - '(?:without\s+(?:the\s+)?user\s+(?:knowing|noticing|realizing)).*?(?:change|modify|influence|affect|steer)'
+      # Persistent appended instructions
+      - 'append\s+(?:this|the\s+following)\s+to\s+(?:every|each|all)\s+(?:response|message|reply|output)'
+      - 'include\s+(?:this|the\s+following)\s+in\s+(?:every|each|all)\s+(?:response|message|reply|output)'
+    action: warn
 
   # ── HIGH: Skill references sensitive file paths ───────────────────
   - id: skill-secret-access
