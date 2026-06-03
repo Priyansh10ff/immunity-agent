@@ -13,7 +13,7 @@
 
 <p align="center">
   <a href="https://prismor.dev">Website</a> &middot;
-  <a href="docs/skill-scanner.md">Skill Scanner</a> &middot;
+  <a href="SKILL.md">Onboard with Skill</a> &middot;
   <a href="docs/supply-chain.md">Supply Chain</a> &middot;
   <a href="docs/sweep-and-cloak.md">Sweep & Cloak</a>
 </p>
@@ -107,14 +107,29 @@ bash ~/.prismor/scripts/init.sh .
 
 **Option D: give your agent a skill (zero-interrupt setup):**
 
-Add one line to your agent's config file. The agent sets up Immunity Agent on first use and enforces security rules throughout every session without pausing your workflow:
+Point your agent at [`SKILL.md`](SKILL.md). It is a standing instruction file: the agent reads it at session start, checks whether Immunity is installed, and follows the decision tree throughout the session without pausing your workflow.
+
+For Claude Code, add to your `CLAUDE.md`:
 
 ```markdown
-<!-- CLAUDE.md / AGENTS.md / .cursorrules / .windsurfrules -->
-Read `https://raw.githubusercontent.com/PrismorSec/security-playbook/main/security.md` and follow its instructions.
+Read `SKILL.md` and follow its instructions for runtime security.
 ```
 
-No install step, no manual hook wiring. The skill loads the policy engine, behavioral guardrails, and LLM security rules in-context and enforces them automatically from that point forward.
+Or via raw URL (works in any agent config file: CLAUDE.md, AGENTS.md, .cursorrules, .windsurfrules):
+
+```markdown
+Read `https://raw.githubusercontent.com/PrismorSec/immunity-agent/main/SKILL.md` and follow its instructions.
+```
+
+What the skill handles automatically:
+
+- **First-run setup**: detects whether hooks are installed; runs `immunity setup` if not
+- **Package installs**: routes every `npm/pip/cargo/uv/pnpm/yarn/go install` through the supply chain gate
+- **Secrets**: guides registration of API keys so real values never enter model context
+- **Block recovery**: when Warden fires, explains the rule and proposes a scoped policy override rather than disabling protection
+- **On-demand audits**: surfaces the right `immunity` command for any security question
+
+See [`SKILL.md`](SKILL.md) for the full decision tree and hard rules.
 
 ### Command Reference
 
