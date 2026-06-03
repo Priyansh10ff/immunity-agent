@@ -35,7 +35,25 @@ MANIFEST_LANGUAGE_MAP = [
 ]
 
 PROMPT_INJECTION_PATTERN = re.compile(
-    r"(ignore\s+(all\s+)?(any\s+)?(previous\s+)?instructions|reveal\s+(your|the)\s+system\s+prompt|developer\s+instructions|exfiltrat(e|ion)|print\s+.*(secret|token|key|credential|password)|show\s+.*(token|secret|key|credential|password)|bypass(es|ed|ing)?\s+guardrails|jailbreak)",
+    r"(?:"
+    # Instruction override — direct phrase attacks
+    r"ignore\s+(?:all\s+)?(?:any\s+)?(?:previous\s+)?instructions"
+    r"|reveal\s+(?:your|the)\s+system\s+prompt"
+    r"|developer\s+instructions"
+    r"|exfiltrat(?:e|ion)"
+    r"|print\s+.*(?:secret|token|key|credential|password)"
+    r"|show\s+.*(?:token|secret|key|credential|password)"
+    r"|bypass(?:es|ed|ing)?\s+guardrails"
+    r"|jailbreak"
+    # Covert exfiltration — natural-language instructions to send data silently
+    r"|(?:silently|quietly|covertly|secretly)\s+(?:send|forward|transmit|upload|share|post)\b"
+    r"|without\s+(?:the\s+)?user\s+(?:knowing|noticing|seeing|being\s+aware|realizing)"
+    r"|(?:forward|send|transmit|relay)\s+(?:this\s+)?(?:conversation|context|chat\s+history|transcript|session)\s+to\b"
+    r"|(?:call|ping|hit|notify)\s+(?:this\s+)?(?:webhook|endpoint|callback\s+url)\s+with\s+(?:the\s+)?(?:user|conversation|context|session)"
+    # Social trust exploitation
+    r"|(?:appear|seem|act)\s+(?:helpful|friendly|trustworthy|cooperative)\s+(?:while|but\s+(?:actually|then)|before\s+(?:then|you))"
+    r"|(?:gain|build|establish)\s+(?:the\s+)?user(?:'s)?\s+trust\s+(?:and\s+then|before|so\s+that|in\s+order\s+to)"
+    r")",
     re.IGNORECASE,
 )
 
@@ -133,6 +151,64 @@ PATH_TRAVERSAL_PATTERN = re.compile(
     r"|/etc/(passwd|shadow|hosts|sudoers)"
     r"|/proc/self/(environ|cmdline|maps|root)"
     r"|/proc/\d+/(environ|cmdline|maps)"
+    r")",
+    re.IGNORECASE,
+)
+
+# Cloud IMDS (Instance Metadata Service) reconnaissance — AWS 169.254.169.254,
+# GCP metadata.google.internal, and the ECS task metadata endpoint.
+# Also covers numeric encoding forms used to bypass naive string checks:
+#   decimal integer: 2130706433 (169.254.169.254 as uint32)
+#   hex integer:     0xa9fea9fe
+#   octal octets:    0251.0376.0251.0376
+#   IPv6-mapped:     ::ffff:a9fe:a9fe / ::ffff:169.254.169.254
+CLOUD_METADATA_PATTERN = re.compile(
+    r"(?:"
+    r"169\.254\.169\.254"
+    r"|metadata\.google\.internal"
+    r"|169\.254\.170\.2"
+    r"|2130706433"                            # decimal integer encoding
+    r"|0xa9fe[:\-]?a9fe"                      # hex encoding (curl accepts 0xa9fea9fe)
+    r"|0251\.0376\.0251\.0376"                # octal octet encoding
+    r"|::ffff:a9fe:a9fe"                      # IPv6-mapped (short hex)
+    r"|::ffff:169\.254\.169\.254"             # IPv6-mapped (dotted decimal)
+    r")",
+    re.IGNORECASE,
+)
+
+# PII in tool outputs or prompts — SSN, credit card numbers, US phone numbers.
+# Intentionally requires formatted delimiters to avoid false-positives on bare
+# numeric sequences (version strings, IDs, IP addresses, etc.).
+PII_PATTERN = re.compile(
+    r"(?:"
+    # SSN: 123-45-6789 / 123.45.6789 / 123 45 6789 (all common printed forms)
+    # Negative lookaheads guard invalid AAA ranges (000, 666, 9xx) and invalid
+    # group values (middle 00, last 0000) per SSA issuance rules.
+    r"\b(?!000|666|9\d{2})\d{3}[-.\s](?!00)\d{2}[-.\s](?!0000)\d{4}\b"
+    # Credit card: 4×4 groups (Visa/MC/Discover) with space or dash separator
+    r"|\b(?:4[0-9]{3}|5[1-5][0-9]{2}|6011|6[45][0-9]{2})[-\s][0-9]{4}[-\s][0-9]{4}[-\s][0-9]{4}\b"
+    # Amex: 4-6-5 groups
+    r"|\b3[47][0-9]{2}[-\s][0-9]{6}[-\s][0-9]{5}\b"
+    # US phone: (555) 123-4567 / 555-123-4567 / +1-555-123-4567
+    r"|\b(?:\+1[-.\s])?\(?[2-9][0-9]{2}\)?[-.\s][2-9][0-9]{2}[-.\s][0-9]{4}\b"
+    r")",
+    re.IGNORECASE,
+)
+
+# Model parameter manipulation and tool definition tampering via prompts.
+# Expanded verb list covers common synonyms (adjust, alter, configure, assign).
+# The "from now on" sub-pattern catches persistent instruction framing that
+# doesn't use verb+object structure (a common bypass vector).
+MODEL_MANIPULATION_PATTERN = re.compile(
+    r"(?:"
+    r"(?:set|change|override|modify|update|adjust|alter|configure|assign)\s+(?:the\s+)?temperature\s+(?:to|=)\s*[0-9]"
+    r"|(?:set|change|override|modify|update|adjust|alter|configure|assign)\s+(?:the\s+)?max_tokens\s+(?:to|=)\s*\d+"
+    r"|(?:redefine|override|replace|modify|tamper\s+with)\s+(?:the\s+)?(?:tool|function)\s+(?:definition|schema|spec|list)"
+    r"|(?:inject|insert|add)\s+(?:a\s+)?(?:new\s+)?tool\s+(?:definition|call)\b"
+    r"|(?:prepend|append|inject)\s+(?:to\s+)?(?:the\s+)?system\s+(?:prompt|message|instruction)"
+    # Persistent instruction framing — "from now on you will/must/should …"
+    r"|from\s+(?:now|this\s+point)\s+on[,\s]+you\s+(?:will|must|should|are\s+to)\b"
+    r"|for\s+all\s+future\s+(?:responses?|messages?|requests?|interactions?)\b"
     r")",
     re.IGNORECASE,
 )
@@ -333,6 +409,46 @@ def evaluate_event(event: Dict[str, Any], index: int, session_id: str = "") -> L
                 category="path_traversal",
                 title="Path traversal or sensitive system file access detected",
                 evidence=_check_path,
+                event_index=index,
+                session_id=session_id,
+            )
+        )
+
+    _metadata_target = command if event_type == "shell" else url
+    if event_type in {"shell", "network"} and _metadata_target and CLOUD_METADATA_PATTERN.search(_metadata_target):
+        findings.append(
+            _finding(
+                finding_id=f"cloud-metadata-ssrf-{index}",
+                severity="CRITICAL",
+                category="reconnaissance",
+                title="Cloud instance metadata endpoint access detected",
+                evidence=_metadata_target,
+                event_index=index,
+                session_id=session_id,
+            )
+        )
+
+    if event_type in {"prompt", "tool_result"} and PII_PATTERN.search(combined_text):
+        findings.append(
+            _finding(
+                finding_id=f"pii-exposure-{index}",
+                severity="HIGH",
+                category="pii_exposure",
+                title="Personally identifiable information (PII) detected in agent context",
+                evidence=_truncate(combined_text),
+                event_index=index,
+                session_id=session_id,
+            )
+        )
+
+    if event_type in {"prompt", "tool_result"} and MODEL_MANIPULATION_PATTERN.search(combined_text):
+        findings.append(
+            _finding(
+                finding_id=f"model-manipulation-{index}",
+                severity="HIGH",
+                category="model_manipulation",
+                title="Model parameter manipulation or tool definition tampering attempt detected",
+                evidence=_truncate(combined_text),
                 event_index=index,
                 session_id=session_id,
             )
