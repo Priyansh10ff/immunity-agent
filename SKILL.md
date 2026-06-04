@@ -212,6 +212,5 @@ Capability deep dives:
 - [`docs/docker.md`](./docs/docker.md): container hardening and limitations
 
 Project docs:
-
 - [`AGENT_INTEGRATIONS.md`](./AGENT_INTEGRATIONS.md): per-agent hook surfaces (matrix)
 - [`AGENTS.md`](./AGENTS.md): guidance for contributors editing this repo
