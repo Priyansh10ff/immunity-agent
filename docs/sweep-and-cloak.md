@@ -1,30 +1,128 @@
 # Sweep and Cloak
 
-Sweep and Cloak are complementary. Cloak prevents secrets from entering model context in the first place. Sweep cleans up anything that already leaked into AI tool caches.
+Sweep and Cloak are complementary. Cloak prevents secrets from entering model
+context in the first place. Sweep cleans up anything that already leaked into AI
+tool caches.
 
 <img width="1820" height="796" alt="image" src="https://github.com/user-attachments/assets/68137da9-5e7a-4228-b55a-ec50b5cabd51" />
 
-## Sweep
-
-Sweep scans the local config directories of Claude, Cursor, Windsurf, Codex, and others for secrets that have already leaked. It finds API keys, tokens, and credentials, then lets you redact or delete them. Redacted values are saved to an AES-256 encrypted vault so you can restore them if needed.
-
-```bash
-immunity sweep              # dry run, shows what's exposed
-immunity sweep --redact     # redact in place, save to vault
-immunity sweep --clean      # delete files containing secrets
-immunity sweep --restore --all
-```
+---
 
 ## Cloak
 
-Cloak works at the tool boundary. You register a real secret once under a placeholder (`@@SECRET:name@@`). A `PreToolUse` hook substitutes the real value only at execution time, then scrubs it back out of captured output before the model sees it. The value never appears in the conversation transcript or any upstream API request. Pasted secrets are intercepted automatically.
+Cloak works at the tool boundary. You register a real secret once under a
+placeholder (`@@SECRET:name@@`). A `PreToolUse` hook substitutes the real value
+only at execution time, then scrubs it back out of captured output before the
+model sees it. The value never appears in the conversation transcript or any
+upstream API request. Pasted secrets are intercepted automatically.
+
+### Setup (once)
+
+Two layers — install both, they're complementary:
 
 ```bash
-immunity cloak install                        # install hooks into .claude/settings.json
-immunity cloak add stripe_key                 # register a secret (read from stdin)
+immunity cloak install                                  # prevention: cloak secrets at the tool boundary
+immunity install-hooks --agent claude --mode enforce    # enforcement: block direct reads of the vault
+```
+
+Cloak alone keeps secrets out of context. The enforce-mode monitor is what stops
+an agent from simply opening the vault files directly — so you want both.
+
+### Everyday use
+
+You mostly do nothing. The flow is automatic:
+
+- **Paste a secret into chat** → it's detected, vaulted, and your prompt is
+  blocked once so you resubmit the sanitized version. The model then sees only
+  `@@SECRET:auto_xxxx@@`.
+- **The model emits a raw secret in a command, file, or MCP call** → the call is
+  denied, the value is vaulted, and the model is told to use the placeholder.
+- **The model uses a placeholder** → the hook substitutes the real value at run
+  time and scrubs it back out of the output.
+
+Register a secret deliberately (value read from stdin, never argv):
+
+```bash
+immunity cloak add stripe_key                 # reference anywhere as @@SECRET:stripe_key@@
 immunity cloak add aws_prod --from-file ~/.keys/aws
-immunity cloak list                           # show registered placeholder names
+immunity cloak list                           # placeholder names only — never values
 immunity cloak status
 ```
 
-See [`warden/cloaking/README.md`](../warden/cloaking/README.md) for full implementation details.
+### Custom detection patterns
+
+Built-in patterns cover Stripe, GitHub, AWS, Google, Slack, GitLab, and JWTs.
+Add your org's token formats:
+
+```bash
+immunity cloak pattern add 'mycorp_[0-9a-f]{32}'
+immunity cloak pattern list
+immunity cloak pattern remove 'mycorp_[0-9a-f]{32}'
+```
+
+Patterns are POSIX regex, validated on add, and apply to both the paste guard and
+the tool-call guard.
+
+### Best practices
+
+- **Run both layers.** `cloak install` without the enforce-mode monitor leaves the
+  vault readable by a determined or prompt-injected agent.
+- **Reference, never inline.** Use `@@SECRET:name@@` in commands and files. Don't
+  ask the model to hardcode a live secret — store the placeholder or an env-var
+  reference instead.
+- **Protect the vault directory.** `~/.prismor/secrets/` is plaintext on disk
+  (file permissions are its only guard). Exclude it from git, backups, and sync
+  (Time Machine, iCloud, Dropbox). Add a Claude `permissions.deny` rule for
+  `Read(~/.prismor/secrets/**)` for defense in depth.
+- **`/clear` after any suspected leak.** If the model ever saw a raw value, it can
+  still echo it from memory — hooks can't filter assistant prose.
+- **Don't fight a false positive — bypass it.** Prefix a prompt with `!!allow ` to
+  discuss a secret format without auto-cloaking.
+
+### Threat model
+
+| Scenario | Covered? |
+|---|---|
+| Secret in a pasted prompt | ✅ auto-vaulted, prompt re-sanitized |
+| Raw secret in a command / file write / MCP arg | ✅ denied + vaulted |
+| Model using a placeholder | ✅ resolved locally, output scrubbed |
+| Agent directly reading a vault file | ✅ **only with the enforce-mode monitor** |
+| Secret with no recognizable shape (hand-typed, freshly generated) | ⚠️ may not match a pattern |
+| Model narrating a value it already saw | ❌ use `/clear` |
+| Anything running as your user, off-agent | ❌ OS file permissions only |
+
+Bottom line: in normal placeholder-based use with both layers installed, the AI
+never sees vault contents. The vault is not encrypted at rest — the protection
+against a *direct read* is the runtime monitor and file permissions, not the
+cloaking hooks alone.
+
+---
+
+## Sweep
+
+Sweep scans the local config directories of Claude, Cursor, Windsurf, Codex, and
+others for secrets that have already leaked. It finds API keys, tokens, and
+credentials, then lets you redact or delete them. Redacted values are saved to an
+AES-256 encrypted vault so you can restore them if needed.
+
+```bash
+immunity sweep                     # dry run — shows what's exposed, no changes
+immunity sweep --redact            # redact in place, save originals to vault
+immunity sweep --clean             # delete files containing secrets (vault backup first)
+immunity sweep --restore --all     # restore all secrets from vault
+immunity sweep --restore --file <path>  # restore one file
+immunity sweep --show-vault        # inspect vault contents (requires passphrase)
+immunity sweep --purge             # redact with no vault backup (no recovery)
+```
+
+Run `immunity sweep` dry first; if something looks like a false positive, check
+the cloak pattern list before reaching for `--purge`.
+
+---
+
+## See also
+
+- [`warden/cloaking/README.md`](../warden/cloaking/README.md) — full implementation details
+- [Warden](warden.md) — the enforce-mode monitor that closes the vault-read gap
+- [Canary](canary.md) — honeytokens for detecting recon attempts
+- [CLI Reference](cli-reference.md) — all commands at a glance

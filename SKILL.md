@@ -194,9 +194,24 @@ pick the smallest tool that answers the question:
 
 ## Reference
 
-- [`docs/warden.md`](./docs/warden.md): policy engine, session logs, full CLI reference
+Start here for the full command map: [`docs/cli-reference.md`](./docs/cli-reference.md) — every command, every flag, grouped by domain, with links to each deep dive.
+
+Capability deep dives:
+
+- [`docs/warden.md`](./docs/warden.md): policy engine, session logs, audit, full CLI reference
 - [`docs/supply-chain.md`](./docs/supply-chain.md): scoring table, IOC feed, ecosystem support
-- [`docs/sweep-and-cloak.md`](./docs/sweep-and-cloak.md): secret prevention design + cleanup
-- [`docs/using-cloak.md`](./docs/using-cloak.md): practical cloak setup and threat model
+- [`docs/sweep-and-cloak.md`](./docs/sweep-and-cloak.md): secret prevention design, practical setup, best practices, threat model, and cleanup
+- [`docs/semantic-guard.md`](./docs/semantic-guard.md): opt-in LLM-assisted prompt-injection guard
+- [`docs/skill-scanner.md`](./docs/skill-scanner.md): MCP server + skill risk scanning
+- [`docs/network-isolation.md`](./docs/network-isolation.md): egress allowlists, raw-IP detection
+- [`docs/canary.md`](./docs/canary.md): honeytoken tripwires for recon detection
+- [`docs/iam.md`](./docs/iam.md): named agent identities and permission profiles
+- [`docs/scoped-agent.md`](./docs/scoped-agent.md): session-scoped, task-derived rules
+- [`docs/learning.md`](./docs/learning.md): mining session history for new rules
+- [`docs/dashboard.md`](./docs/dashboard.md): terminal + web dashboards and session forensics
+- [`docs/docker.md`](./docs/docker.md): container hardening and limitations
+
+Project docs:
+
 - [`AGENT_INTEGRATIONS.md`](./AGENT_INTEGRATIONS.md): per-agent hook surfaces (matrix)
 - [`AGENTS.md`](./AGENTS.md): guidance for contributors editing this repo

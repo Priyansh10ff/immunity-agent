@@ -14,6 +14,7 @@
 <p align="center">
   <a href="https://prismor.dev">Website</a> &middot;
   <a href="SKILL.md">Onboard with Skill</a> &middot;
+  <a href="docs/cli-reference.md">CLI Reference</a> &middot;
   <a href="docs/supply-chain.md">Supply Chain</a> &middot;
   <a href="docs/sweep-and-cloak.md">Sweep & Cloak</a>
 </p>
@@ -50,9 +51,16 @@ Standard OS-level and endpoint security tools monitor the kernel and filesystem.
 - 📦 [Supply Chain](docs/supply-chain.md) covers install-time enforcement, IOC matching, and risk scoring
 - 🛜 [Network Isolation](docs/network-isolation.md) covers egress allowlists, raw IP detection, and tunnel blocking
 - 🔍 [Skill Scanner](docs/skill-scanner.md) covers MCP server and skill risk scanning across supported agents
-- 🔐 [Sweep and Cloak](docs/sweep-and-cloak.md) covers secret prevention at tool boundaries and cleanup for leaked secrets - see [Using Cloak](docs/using-cloak.md) for the practical setup, best practices, and threat model
+- 🔐 [Sweep and Cloak](docs/sweep-and-cloak.md) covers secret prevention at tool boundaries, practical setup, best practices, threat model, and cleanup for leaked secrets
 - 🧠 [Semantic Guard](docs/semantic-guard.md): opt-in hybrid layer that adds an LLM-assisted intent check for paraphrased prompt-injection attempts the regex rules cannot catch
+- 🪤 [Canary](docs/canary.md) plants honeytoken credential files that trip a CRITICAL finding the moment an agent reads them, catching recon behavior
+- 🪪 [IAM](docs/iam.md) gives each agent a named identity and least-privilege permission profile when several agents share a workspace
+- 🎯 [Scoped Agent](docs/scoped-agent.md) synthesizes minimal, task-specific rules per session so an injected pivot off-task gets blocked
+- 🧬 [Learning](docs/learning.md) mines session history to propose new rules, flag false positives, and detect evasion
+- 📊 [Dashboard](docs/dashboard.md) covers the terminal and local web dashboards plus session forensics
 - 🐳 [Docker and Containers](docs/docker.md) covers container hardening, prerequisites, and known limitations
+
+Full command map across every capability: [CLI Reference](docs/cli-reference.md).
 
 These capabilities map to the [OWASP Top 10 for LLM Applications](https://genai.owasp.org/llm-top-10/) - covering prompt injection (LLM01), sensitive information disclosure (LLM02), supply chain (LLM03), improper output handling (LLM05), and excessive agency (LLM06).
 
