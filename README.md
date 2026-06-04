@@ -66,16 +66,6 @@ These capabilities map to the [OWASP Top 10 for LLM Applications](https://genai.
 
 ---
 
-## Benchmarks
-
-Measured overhead is 0.8 ms per tool call across 10,000 simulated agent sessions, below the 1 ms threshold for every task category tested.
-
-![Warden Simulation Results](assets/warden-simulation.png)
-
-See [benchmark.md](benchmark.md) for the full methodology, per-category breakdown, and latency analysis.
-
----
-
 ## Quick Start
 
 ### Platform-specific Install
@@ -150,6 +140,16 @@ Switch modes at any time by re-running the hook installer:
 immunity install-hooks --agent all --mode observe    # log only
 immunity install-hooks --agent all --mode enforce    # block dangerous actions
 ```
+
+---
+
+## Benchmarks
+
+Measured overhead is 0.8 ms per tool call across 10,000 simulated agent sessions, below the 1 ms threshold for every task category tested.
+
+![Warden Simulation Results](assets/warden-simulation.png)
+
+See [benchmark.md](benchmark.md) for the full methodology, per-category breakdown, and latency analysis.
 
 ---
 
