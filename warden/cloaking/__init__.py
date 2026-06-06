@@ -3,21 +3,27 @@
 Prevention layer that keeps real secret values out of AI coding agent
 context, JSONL transcripts, and upstream API requests. Complements
 ``immunity sweep`` (post-hoc remediation) by providing realtime protection
-at the tool boundary via Claude Code hooks.
+at the tool boundary via Claude Code and Hermes Agent hooks.
 
 Public entry points (imported by ``warden/cli.py``):
-  install    — merge cloaking hooks into .claude/settings.json
-  uninstall  — remove them
-  add_secret — register a real secret value under a placeholder name
-  list_secrets   — list registered placeholder names (never values)
-  remove_secret  — delete a registered secret
-  secrets_dir    — path to the secrets directory (honors $PRISMOR_SECRETS_DIR)
-  add_pattern / remove_pattern / list_custom_patterns / builtin_patterns
-                 — manage the secret-detection regexes used by the guard hooks
+  install    — merge cloaking hooks into .claude/settings.json (Claude Code)
+  uninstall  — remove Claude Code cloaking hooks
+  status     — check Claude Code cloaking installation state
+  hermes_install   — install cloaking plugin for Hermes Agent
+  hermes_uninstall — remove cloaking plugin from Hermes Agent
+  hermes_status    — check Hermes cloaking installation state
+  add_secret / list_secrets / remove_secret / secrets_dir
+  add_pattern / remove_pattern / list_custom_patterns
 """
+
 from __future__ import annotations
 
 from warden.cloaking.installer import install, uninstall, status
+from warden.cloaking.hermes_installer import (
+    install as hermes_install,
+    uninstall as hermes_uninstall,
+    status as hermes_status,
+)
 from warden.cloaking.patterns import (
     add_pattern,
     all_patterns,
@@ -37,6 +43,9 @@ __all__ = [
     "install",
     "uninstall",
     "status",
+    "hermes_install",
+    "hermes_uninstall",
+    "hermes_status",
     "add_secret",
     "list_secrets",
     "remove_secret",

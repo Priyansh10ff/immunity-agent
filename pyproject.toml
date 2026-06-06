@@ -45,17 +45,17 @@ Documentation = "https://docs.prismor.dev"
 immunity = "warden.immunity_cli:main"
 warden = "warden.immunity_cli:_warden_shim"
 
+# Hermes Agent plugin auto-discovery entry point
+[project.entry-points."hermes_agent.plugins"]
+prismor-warden-cloak = "warden.cloaking.hermes_plugin_entry:register"
+
 [tool.hatch.version]
 path = "warden/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["warden", "supplychain"]
 
-# Bundle the runtime data (advisory feed, public signing key, starter
-# templates) into the wheel under warden/data/ without moving the source
-# files, so the signing pipeline and verify_feed.sh keep their repo-root
-# layout. warden/paths.py resolves both layouts. The private key (*.pem) is
-# never mapped here and is git-ignored, so it cannot leak into the wheel.
+# Bundle runtime data into the wheel under warden/data/
 [tool.hatch.build.targets.wheel.force-include]
 "immunity-agent.pth" = "immunity-agent.pth"
 "advisories/immunity-feed.json" = "warden/data/advisories/immunity-feed.json"
@@ -63,6 +63,8 @@ packages = ["warden", "supplychain"]
 "keys/public.pub" = "warden/data/keys/public.pub"
 "templates/policy-tests-owasp.yaml" = "warden/data/templates/policy-tests-owasp.yaml"
 "templates/CLAUDE.md.template" = "warden/data/templates/CLAUDE.md.template"
+"warden/cloaking/hermes-plugin/plugin.yaml" = "warden/data/cloaking/hermes-plugin/plugin.yaml"
+"warden/cloaking/hermes-plugin/__init__.py" = "warden/data/cloaking/hermes-plugin/__init__.py"
 
 [tool.hatch.build.targets.sdist]
 include = [

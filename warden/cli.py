@@ -980,6 +980,9 @@ def main(argv: Optional[List[str]] = None) -> None:
             install as cloak_install,
             uninstall as cloak_uninstall,
             status as cloak_status,
+            hermes_install,
+            hermes_uninstall,
+            hermes_status,
             add_secret,
             list_secrets,
             remove_secret,
@@ -989,42 +992,71 @@ def main(argv: Optional[List[str]] = None) -> None:
         sub = getattr(args, "cloak_command", None)
 
         if sub == "install":
-            result = cloak_install(
-                workspace=workspace,
-                scope=args.scope,
-                enable_userprompt_guard=not args.no_userprompt_guard,
-                enable_secret_guard=not args.no_secret_guard,
-                enable_sweep_on_stop=args.sweep_on_stop,
-            )
-            print(f"Installed cloaking hooks at {result['configPath']}")
-            for label in result["hooksInstalled"]:
-                print(f"  + {label}")
-            print(f"Secrets directory: {result['secretsDir']}")
+            cloak_agent = getattr(args, "agent", "claude")
+            if cloak_agent in ("claude", "all"):
+                result = cloak_install(
+                    workspace=workspace,
+                    scope=args.scope,
+                    enable_userprompt_guard=not args.no_userprompt_guard,
+                    enable_secret_guard=not args.no_secret_guard,
+                    enable_sweep_on_stop=args.sweep_on_stop,
+                )
+                print(f"Installed Claude Code cloaking hooks at {result['configPath']}")
+                for label in result["hooksInstalled"]:
+                    print(f"  + {label}")
+            if cloak_agent in ("hermes", "all"):
+                h_result = hermes_install(
+                    workspace=workspace,
+                    scope=args.scope,
+                )
+                print(f"Installed Hermes Agent cloaking plugin at {h_result['pluginDir']}")
+                for label in h_result["hooksInstalled"]:
+                    print(f"  + {label}")
+            print(f"Secrets directory: {result.get('secretsDir', h_result.get('secretsDir', str(Path.home() / '.prismor' / 'secrets')))}")
             print()
             print("Next step: register your first secret with")
             print(f"  {_color('immunity cloak add <name>', _CYAN)}  (reads the value from stdin)")
             return
 
         if sub == "uninstall":
-            result = cloak_uninstall(workspace=workspace, scope=args.scope)
-            if result["removed"]:
-                print(f"Removed cloaking hooks from {result['configPath']}")
-            else:
-                print(f"No cloaking hooks found at {result['configPath']}")
+            cloak_agent = getattr(args, "agent", "claude")
+            if cloak_agent in ("claude", "all"):
+                result = cloak_uninstall(workspace=workspace, scope=args.scope)
+                if result["removed"]:
+                    print(f"Removed Claude Code cloaking hooks from {result['configPath']}")
+                else:
+                    print(f"No Claude Code cloaking hooks found at {result['configPath']}")
+            if cloak_agent in ("hermes", "all"):
+                h_result = hermes_uninstall(workspace=workspace, scope=args.scope)
+                if h_result["removed"]:
+                    print(f"Removed Hermes Agent cloaking plugin from {h_result['pluginDir']}")
+                else:
+                    print(f"No Hermes Agent cloaking plugin found at {h_result['pluginDir']}")
             return
 
         if sub == "status":
-            result = cloak_status(workspace=workspace, scope=args.scope)
-            installed_color = _GREEN if result["installed"] else _YELLOW
             print()
             print(f"  {_color('CLOAKING', _BOLD)}")
             print(f"  {_color('─' * 50, _DIM)}")
-            print(f"  {_color('Config:', _GREEN)}    {result['configPath']}")
+            # Claude Code cloaking status
+            result = cloak_status(workspace=workspace, scope=args.scope)
             state = "installed" if result["installed"] else "not installed"
-            print(f"  {_color('State:', _GREEN)}     {_color(state, installed_color)}")
-            if result["events"]:
-                print(f"  {_color('Hooks:', _GREEN)}     {', '.join(result['events'])}")
-            print(f"  {_color('Secrets:', _GREEN)}   {result['secretsDir']}")
+            installed_color = _GREEN if result["installed"] else _YELLOW
+            print(f"  {_color('Claude Code:', _GREEN)} {_color(state, installed_color)}")
+            if result.get("configPath"):
+                print(f"  {_color('Config:', _GREEN)}     {result['configPath']}")
+            if result.get("events"):
+                print(f"  {_color('Events:', _GREEN)}    {', '.join(result['events'])}")
+            # Hermes Agent cloaking status
+            h_result = hermes_status(workspace=workspace, scope=args.scope)
+            h_state = "installed" if h_result["installed"] else "not installed"
+            h_color = _GREEN if h_result["installed"] else _YELLOW
+            print(f"  {_color('Hermes Agent:', _GREEN)} {_color(h_state, h_color)}")
+            if h_result.get("pluginDir"):
+                print(f"  {_color('Plugin dir:', _GREEN)} {h_result['pluginDir']}")
+            if h_result.get("hooks"):
+                print(f"  {_color('Hooks:', _GREEN)}     {', '.join(h_result['hooks'])}")
+            print(f"  {_color('Secrets dir:', _GREEN)} {result.get('secretsDir', h_result.get('secretsDir', str(Path.home() / '.prismor' / 'secrets')))}")
             secrets = list_secrets()
             if secrets:
                 print(f"  {_color('Registered:', _GREEN)}  {len(secrets)} placeholder(s)")
@@ -1528,7 +1560,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     cloak_sub = cloak_parser.add_subparsers(dest="cloak_command")
 
-    t_install = cloak_sub.add_parser("install", help="Install cloaking hooks in .claude/settings.json")
+    t_install = cloak_sub.add_parser("install", help="Install secret-cloaking hooks for supported agents")
+    t_install.add_argument("--agent", choices=["claude", "hermes", "all"], default="claude",
+                           help="Agent to install cloaking for (default: claude)")
     t_install.add_argument("--workspace", help="Workspace path")
     t_install.add_argument("--scope", choices=["project", "user"], default="project",
                            help="Hook scope (default: project)")
@@ -1539,7 +1573,9 @@ def build_parser() -> argparse.ArgumentParser:
     t_install.add_argument("--sweep-on-stop", action="store_true",
                            help="Also wire a Stop-hook dry-run sweep for residue detection")
 
-    t_uninstall = cloak_sub.add_parser("uninstall", help="Remove cloaking hooks")
+    t_uninstall = cloak_sub.add_parser("uninstall", help="Remove secret-cloaking hooks")
+    t_uninstall.add_argument("--agent", choices=["claude", "hermes", "all"], default="claude",
+                             help="Agent to remove cloaking for (default: claude)")
     t_uninstall.add_argument("--workspace", help="Workspace path")
     t_uninstall.add_argument("--scope", choices=["project", "user"], default="project",
                              help="Hook scope (default: project)")

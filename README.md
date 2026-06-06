@@ -52,6 +52,7 @@ Standard OS-level and endpoint security tools monitor the kernel and filesystem.
 - 🛜 [Network Isolation](docs/network-isolation.md) covers egress allowlists, raw IP detection, and tunnel blocking
 - 🔍 [Skill Scanner](docs/skill-scanner.md) covers MCP server and skill risk scanning across supported agents
 - 🔐 [Sweep and Cloak](docs/sweep-and-cloak.md) covers secret prevention at tool boundaries, practical setup, best practices, threat model, and cleanup for leaked secrets
+- 🤖 [Hermes Agent Cloaking](docs/hermes.md) covers Hermes-specific secret cloaking with pip entry-point auto-discovery, filesystem install, and pre_gateway_dispatch paste guard
 - 🧠 [Semantic Guard](docs/semantic-guard.md): opt-in hybrid layer that adds an LLM-assisted intent check for paraphrased prompt-injection attempts the regex rules cannot catch
 - 🪤 [Canary](docs/canary.md) plants honeytoken credential files that trip a CRITICAL finding the moment an agent reads them, catching recon behavior
 - 🪪 [IAM](docs/iam.md) gives each agent a named identity and least-privilege permission profile when several agents share a workspace

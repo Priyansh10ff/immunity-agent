@@ -2,7 +2,7 @@
 
 How Prismor Warden integrates with each major AI coding agent — what ships today, what's planned, and what mechanism each agent exposes for runtime security monitoring.
 
-_Last updated: 2026-04-21._
+_Last updated: 2026-06-05._
 
 ---
 
@@ -64,10 +64,21 @@ _Last updated: 2026-04-21._
 
 ### Hermes (NousResearch gateway)
 
+Immunity Agent integrates with Hermes at two complementary layers:
+
+**1. Runtime hooks** (for policy enforcement and session monitoring):
 - **Config:** `~/.hermes/config.json` — registers a JS plugin scaffolded at `warden/hermes-plugin/`.
 - **Plugin hooks:** `before_tool_call`, `message_sending`, internal `message:received` hook at `~/.hermes/hooks/prismor-warden/`.
 - **Session ingest:** offline analysis of `~/.hermes/sessions/*.jsonl` via `immunity ingest --input <file> --agent hermes`.
 - **Code:** `warden/hooks.py` `_merge_hermes()`, `_normalize_hermes()`.
+
+**2. Secret cloaking** (for preventing secrets from entering model context):
+- **Discovery:** pip-installed Hermes auto-discovers the plugin via the `hermes_agent.plugins` entry-point group in `pyproject.toml`. No filesystem setup needed.
+- **Alternative install:** `immunity cloak install --agent hermes` copies the plugin to `~/.hermes/plugins/prismor-warden-cloak/`.
+- **Hooks installed:** `pre_tool_call` (decloak + secret guard), `post_tool_call` (audit), `transform_terminal_output` (scrub output), `transform_tool_result` (scrub tool results), `pre_gateway_dispatch` (paste guard).
+- **Auto-vaulting:** pasted secrets are detected, vaulted under `auto_<hash>` names, and re-sent as `@@SECRET:auto_xxx@@` without the agent ever seeing the raw value.
+- **Code:** `warden/cloaking/hermes_installer.py`, `warden/cloaking/hermes_plugin_entry.py`.
+- **Docs:** [docs/hermes.md](docs/hermes.md).
 
 ### GitHub Copilot CLI
 
