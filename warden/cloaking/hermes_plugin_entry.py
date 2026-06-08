@@ -67,13 +67,19 @@ def _secrets_dir() -> Path:
 
 
 def _read_secret(name: str) -> Optional[str]:
-    """Read a secret value by placeholder name. Returns None if missing."""
-    try:
-        path = _secrets_dir() / name
-        if path.exists() and path.is_file():
-            return path.read_text(encoding="utf-8").strip()
-    except Exception:
-        pass
+    """Read a secret value by placeholder name. Returns None if missing.
+
+    Searches the root secrets dir first, then falls back to the
+    auto_vault subdirectory so paste-guard-auto-vaulted secrets
+    (stored under auto_vault/auto_*) are resolvable by name.
+    """
+    for base in (_secrets_dir(), _vault_path()):
+        try:
+            path = base / name
+            if path.exists() and path.is_file():
+                return path.read_text(encoding="utf-8").strip()
+        except Exception:
+            continue
     return None
 
 
