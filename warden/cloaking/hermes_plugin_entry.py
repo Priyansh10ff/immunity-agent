@@ -235,24 +235,23 @@ def on_pre_tool_call(
                 },
             }
 
-    # Phase 2: Raw secret detection
+    # Phase 2: Raw secret detection - always block, regardless of vault state.
+    # If already vaulted we surface the *existing* placeholder name so the agent
+    # learns the canonical reference rather than getting a second auto_ name.
     raw_matches = _scan_for_raw_secrets(search_text)
     for value in raw_matches:
         existing = _is_already_vaulted(value)
-        if existing:
-            continue
-
-        placeholder_name = _vault_secret(value)
-        logger.info(
-            "Vaulted raw secret under auto_%s (tool=%s, session=%s)",
-            placeholder_name, tool_name, session_id,
-        )
+        placeholder_name = existing if existing else _vault_secret(value)
+        if not existing:
+            logger.info(
+                "Vaulted raw secret under auto_%s (tool=%s, session=%s)",
+                placeholder_name, tool_name, session_id,
+            )
         return {
             "action": "block",
             "message": (
                 f"Raw secret detected in tool call. "
-                f"Use @@SECRET:{placeholder_name}@@ instead. "
-                f"Run: immunity cloak add {placeholder_name}"
+                f"Use @@SECRET:{placeholder_name}@@ instead."
             ),
         }
 
