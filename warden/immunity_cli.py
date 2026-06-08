@@ -41,6 +41,7 @@ _TOP_LEVEL_SHORTCUTS = {
     "check", "scan", "deps", "semantic-check",
     "analyze", "ingest", "sessions", "session",
     "install-hooks", "uninstall-hooks", "hook-dispatch",
+    "update",
 }
 
 # Domains that map to a warden.cli subparser of the same name.
@@ -108,6 +109,7 @@ def _print_usage() -> None:
     print()
     print(f"  {b('Quick start')}")
     print(f"    immunity setup              {d('Interactive onboarding wizard')}")
+    print(f"    immunity update             {d('Check for and install the latest version')}")
     print(f"    immunity status             {d('One-shot health check: hooks, mode, cloak, latest session')}")
     print(f"    immunity audit              {d('Full security posture audit')}")
     print(f"    immunity info               {d('Workspace summary (deprecated alias of status)')}")
