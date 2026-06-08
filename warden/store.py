@@ -95,6 +95,56 @@ def read_session_events(workspace: Path, session_id: str) -> List[Dict[str, Any]
         return [json.loads(line) for line in handle.read().splitlines() if line.strip()]
 
 
+# Expected column set per managed table. NOT NULL is intentionally omitted —
+# SQLite can't ADD COLUMN NOT NULL without a default, and fresh DBs already get
+# the constraint via CREATE TABLE.
+_EXPECTED_COLUMNS: Dict[str, List[tuple]] = {
+    "sessions": [
+        ("session_id", "TEXT"), ("agent", "TEXT"), ("source", "TEXT"),
+        ("workspace_path", "TEXT"), ("repo_url", "TEXT"),
+        ("started_at", "TEXT"), ("updated_at", "TEXT"),
+        ("risk_score", "INTEGER"), ("findings_count", "INTEGER"),
+        ("summary_json", "TEXT"),
+    ],
+    "events": [
+        ("session_id", "TEXT"), ("ts", "TEXT"), ("type", "TEXT"),
+        ("agent_event", "TEXT"), ("command_text", "TEXT"),
+        ("path_text", "TEXT"), ("url_text", "TEXT"),
+        ("content_text", "TEXT"), ("raw_json", "TEXT"),
+    ],
+    "findings": [
+        ("session_id", "TEXT"), ("event_index", "INTEGER"),
+        ("severity", "TEXT"), ("category", "TEXT"), ("title", "TEXT"),
+        ("evidence", "TEXT"), ("enrichment_json", "TEXT"),
+    ],
+    "supply_chain_events": [
+        ("ts", "TEXT"), ("workspace_path", "TEXT"), ("ecosystem", "TEXT"),
+        ("package_name", "TEXT"), ("package_version", "TEXT"),
+        ("install_cmd", "TEXT"), ("verdict", "TEXT"), ("score", "INTEGER"),
+        ("signals_json", "TEXT"), ("ioc_id", "TEXT"),
+        ("recommended_version", "TEXT"), ("session_id", "TEXT"),
+    ],
+}
+
+
+def _migrate_schema(connection) -> None:
+    """Add any missing columns to managed tables. Idempotent."""
+    for table, cols in _EXPECTED_COLUMNS.items():
+        try:
+            existing = {row[1] for row in connection.execute(f"PRAGMA table_info({table})")}
+        except sqlite3.OperationalError:
+            continue  # table doesn't exist yet; CREATE TABLE will handle it
+        if not existing:
+            continue
+        for name, sqltype in cols:
+            if name in existing:
+                continue
+            try:
+                connection.execute(f"ALTER TABLE {table} ADD COLUMN {name} {sqltype}")
+            except sqlite3.OperationalError:
+                pass
+
+
 def initialize_database(workspace: Path) -> Path:
     ensure_data_dirs(workspace)
     db_path = get_db_path(workspace)
@@ -126,7 +176,6 @@ def initialize_database(workspace: Path) -> Path:
                 content_text TEXT,
                 raw_json TEXT NOT NULL
             );
-            CREATE INDEX IF NOT EXISTS idx_events_session_id ON events(session_id);
             CREATE TABLE IF NOT EXISTS findings (
                 finding_id TEXT PRIMARY KEY,
                 session_id TEXT NOT NULL,
@@ -137,7 +186,6 @@ def initialize_database(workspace: Path) -> Path:
                 evidence TEXT,
                 enrichment_json TEXT
             );
-            CREATE INDEX IF NOT EXISTS idx_findings_session_id ON findings(session_id);
             CREATE TABLE IF NOT EXISTS supply_chain_events (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 ts TEXT NOT NULL,
@@ -153,21 +201,20 @@ def initialize_database(workspace: Path) -> Path:
                 recommended_version TEXT,
                 session_id TEXT
             );
+            """
+        )
+        # Migrate before creating indexes — old DBs may be missing columns the
+        # indexes reference (e.g. supply_chain_events.session_id).
+        _migrate_schema(connection)
+        connection.executescript(
+            """
+            CREATE INDEX IF NOT EXISTS idx_events_session_id ON events(session_id);
+            CREATE INDEX IF NOT EXISTS idx_findings_session_id ON findings(session_id);
             CREATE INDEX IF NOT EXISTS idx_sc_ts ON supply_chain_events(ts);
             CREATE INDEX IF NOT EXISTS idx_sc_verdict ON supply_chain_events(verdict);
             CREATE INDEX IF NOT EXISTS idx_sc_session ON supply_chain_events(session_id);
             """
         )
-        # Backfill columns on pre-existing DBs (idempotent: ignore if column exists)
-        for ddl in (
-            "ALTER TABLE supply_chain_events ADD COLUMN recommended_version TEXT",
-            "ALTER TABLE supply_chain_events ADD COLUMN session_id TEXT",
-        ):
-            try:
-                connection.execute(ddl)
-            except sqlite3.OperationalError:
-                pass
-        # Add learning tables (Tier 3: Session-Based Learning)
         from warden.learning import initialize_learning_tables
         initialize_learning_tables(connection)
 
@@ -498,41 +545,35 @@ def _extract_mcp_or_tool(raw_json: str) -> Optional[Dict[str, str]]:
     return None
 
 
+# Tracks DBs already migrated this process, so the read-paths only pay the
+# write-open cost on first touch.
+_MIGRATED_PATHS: set = set()
+
+
 def _connect_ro(db_path: Path):
-    """Open a SQLite DB read-only; returns None if unavailable."""
+    """Open a SQLite DB read-only; returns None if unavailable.
+
+    On first touch per process, opens a write connection to apply any pending
+    column migrations so stale v1.5.8-era DBs don't crash read queries.
+    """
+    p = str(db_path)
+    if p not in _MIGRATED_PATHS and db_path.exists():
+        try:
+            wc = sqlite3.connect(db_path)
+            try:
+                _migrate_schema(wc)
+                wc.commit()
+            finally:
+                wc.close()
+        except Exception:
+            pass
+        _MIGRATED_PATHS.add(p)
     try:
         conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
         conn.row_factory = sqlite3.Row
         return conn
     except Exception:
         return None
-
-
-def _migrate_sc_columns(db_path: Path) -> None:
-    """Backfill any newly-added supply_chain_events columns onto an old DB.
-
-    Idempotent: if the column already exists, sqlite raises OperationalError
-    and we move on.  This lets the dashboard read pre-existing data without
-    requiring an immunity-cli write to trigger initialize_database.
-    """
-    if not db_path.exists():
-        return
-    try:
-        conn = sqlite3.connect(db_path)
-        try:
-            for ddl in (
-                "ALTER TABLE supply_chain_events ADD COLUMN recommended_version TEXT",
-                "ALTER TABLE supply_chain_events ADD COLUMN session_id TEXT",
-            ):
-                try:
-                    conn.execute(ddl)
-                except sqlite3.OperationalError:
-                    pass
-            conn.commit()
-        finally:
-            conn.close()
-    except Exception:
-        pass
 
 
 def get_aggregate_stats(hours: int = 24) -> Dict[str, Any]:
@@ -1368,7 +1409,6 @@ def get_supply_chain_stats(hours: int = 24) -> Dict[str, Any]:
 
     for ws in workspaces:
         db_path = get_db_path(ws)
-        _migrate_sc_columns(db_path)
         conn = _connect_ro(db_path)
         if conn is None:
             continue
