@@ -1353,6 +1353,41 @@ def main(argv: Optional[List[str]] = None) -> None:
             print(format_learning_report(candidates, false_pos, refinements))
         return
 
+    if args.command == "update":
+        import subprocess
+        import urllib.request
+        import urllib.error
+        from warden import __version__ as _current
+        check_only = getattr(args, "check_only", False)
+        try:
+            with urllib.request.urlopen(
+                "https://pypi.org/pypi/immunity-agent/json", timeout=10
+            ) as resp:
+                latest = json.loads(resp.read())["info"]["version"]
+        except (urllib.error.URLError, KeyError, OSError) as exc:
+            sys.stderr.write(f"immunity update: could not reach PyPI — {exc}\n")
+            raise SystemExit(1)
+
+        if latest == _current:
+            print(f"immunity {_current} is already the latest version.")
+            return
+
+        print(f"Update available: {_current} → {latest}")
+        if check_only:
+            print("Run 'immunity update' (without --check) to install.")
+            return
+
+        result = subprocess.run(
+            [sys.executable, "-m", "pip", "install", "--upgrade", "immunity-agent"],
+            check=False,
+        )
+        if result.returncode == 0:
+            print(f"Updated to immunity-agent {latest}. Restart your shell or agent to use the new version.")
+        else:
+            sys.stderr.write("pip upgrade failed — check the output above.\n")
+            raise SystemExit(result.returncode)
+        return
+
     raise SystemExit(f"Unsupported command: {args.command}")
 
 
@@ -1699,6 +1734,17 @@ def build_parser() -> argparse.ArgumentParser:
         dest="cloak",
         action="store_false",
         help="Disable secret cloaking (non-interactive only)",
+    )
+
+    update_parser = subparsers.add_parser(
+        "update",
+        help="Check for and install the latest immunity-agent from PyPI",
+    )
+    update_parser.add_argument(
+        "--check",
+        dest="check_only",
+        action="store_true",
+        help="Show available update without installing",
     )
 
     return parser
