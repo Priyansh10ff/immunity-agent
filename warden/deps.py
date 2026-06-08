@@ -85,10 +85,15 @@ def check_lockfile_presence(workspace: Path) -> List[Dict[str, Any]]:
     return findings
 
 
-def parse_dependencies(manifest: Path, ecosystem: str) -> List[Dict[str, str]]:
+def parse_dependencies(
+    manifest: Path,
+    ecosystem: str,
+    lockfile_map: Optional[Dict[str, str]] = None,
+) -> List[Dict[str, str]]:
     """Extract dependency names and versions from a manifest file.
 
-    Returns list of {name, version, ecosystem}.
+    Returns list of {name, version, ecosystem[, range, pinned_via_lock]}.
+    `lockfile_map` is npm-only today and threaded through `_parse_package_json`.
     """
     try:
         text = manifest.read_text(encoding="utf-8")
@@ -96,7 +101,7 @@ def parse_dependencies(manifest: Path, ecosystem: str) -> List[Dict[str, str]]:
         return []
 
     if ecosystem == "npm":
-        return _parse_package_json(text)
+        return _parse_package_json(text, lockfile_map)
     elif ecosystem == "pip":
         if manifest.name == "pyproject.toml":
             return _parse_pyproject_toml(text)
@@ -108,18 +113,60 @@ def parse_dependencies(manifest: Path, ecosystem: str) -> List[Dict[str, str]]:
     return []
 
 
-def _parse_package_json(text: str) -> List[Dict[str, str]]:
-    """Parse package.json dependencies."""
+def _parse_package_json(text: str, lockfile_map: Optional[Dict[str, str]] = None) -> List[Dict[str, str]]:
+    """Parse package.json dependencies. If lockfile_map is supplied, replace
+    each floating range with the pinned version it resolves to.
+    """
     try:
         data = json.loads(text)
     except json.JSONDecodeError:
         return []
 
-    deps: List[Dict[str, str]] = []
+    lockfile_map = lockfile_map or {}
+    deps: List[Dict[str, Any]] = []
     for section in ("dependencies", "devDependencies"):
-        for name, version in (data.get(section) or {}).items():
-            deps.append({"name": name, "version": str(version), "ecosystem": "npm"})
+        for name, raw_version in (data.get(section) or {}).items():
+            raw = str(raw_version)
+            pinned = lockfile_map.get(name)
+            dep: Dict[str, Any] = {
+                "name": name,
+                "version": pinned if pinned else raw,
+                "ecosystem": "npm",
+                "range": raw,
+            }
+            if pinned:
+                dep["pinned_via_lock"] = True
+            deps.append(dep)
     return deps
+
+
+def _read_npm_lockfile(workspace: Path) -> Dict[str, str]:
+    """Read package-lock.json (v2/v3) and return top-level {name: pinned_version}.
+
+    Top-level entries are keyed by "node_modules/<name>" — nested
+    "node_modules/<a>/node_modules/<b>" are transitive and skipped.
+    """
+    pins: Dict[str, str] = {}
+    for lock in workspace.glob("**/package-lock.json"):
+        if ".git" in lock.parts or "node_modules" in lock.parts:
+            continue
+        try:
+            data = json.loads(lock.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            continue
+        packages = data.get("packages") or {}
+        if not isinstance(packages, dict):
+            continue
+        for path, meta in packages.items():
+            if not path.startswith("node_modules/") or "/node_modules/" in path[len("node_modules/"):]:
+                continue
+            if not isinstance(meta, dict):
+                continue
+            name = path[len("node_modules/"):]
+            version = meta.get("version")
+            if name and isinstance(version, str):
+                pins.setdefault(name, version)
+    return pins
 
 
 def _parse_requirements_txt(text: str) -> List[Dict[str, str]]:
@@ -213,38 +260,128 @@ def _parse_cargo_toml(text: str) -> List[Dict[str, str]]:
     return deps
 
 
+_AFFECTED_RE = re.compile(r"^\s*([A-Za-z0-9_./@-]+)\s*([<>=!]+)?\s*(.+)?\s*$")
+
+
+def _affected_to_range(affected_str: str) -> Tuple[str, Tuple]:
+    """Split "lodash<=4.17.20" into ("lodash", range-tuple).
+
+    Range-tuple is parsed via supplychain.version_range.parse_npm_range using
+    the operator prefix. Returns (name, (None, None)) if no version constraint
+    (e.g. bare "lodash") — caller falls back to name-only matching.
+    """
+    from supplychain.version_range import parse_npm_range
+
+    match = _AFFECTED_RE.match(affected_str or "")
+    if not match:
+        return ("", (None, None))
+    name = match.group(1).lower()
+    op = match.group(2) or ""
+    ver = match.group(3) or ""
+    if not op or not ver:
+        return (name, (None, None))
+    return (name, parse_npm_range(f"{op}{ver}"))
+
+
 def check_against_feed(
     deps: List[Dict[str, str]],
     feed: Dict[str, Any],
 ) -> List[Dict[str, Any]]:
-    """Match dependency names against threat feed advisories.
-
-    Returns list of matches with advisory details.
+    """Match dependencies against threat-feed advisories using range-aware
+    comparison. Falls back to name-only matching when either side lacks a
+    version (e.g. supplychain CLI passes ``version=""``).
     """
-    advisories = feed.get("advisories", [])
-    # Filter to dependency_vulnerability type only
-    dep_advisories = [a for a in advisories if a.get("type") == "dependency_vulnerability"]
+    from supplychain.version_range import (
+        is_floating, parse_npm_range, parse_version, ranges_overlap, version_in_range,
+    )
+
+    dep_advisories = [a for a in feed.get("advisories", []) if a.get("type") == "dependency_vulnerability"]
+
+    by_name: Dict[str, List[Dict[str, Any]]] = {}
+    for dep in deps:
+        by_name.setdefault(dep["name"].lower(), []).append(dep)
 
     matches: List[Dict[str, Any]] = []
-    dep_names = {d["name"].lower() for d in deps}
-
     for advisory in dep_advisories:
-        affected = advisory.get("affected", [])
-        for affected_str in affected:
-            # Extract package name from CPE-like strings: "package<=version"
-            pkg_name = re.split(r'[<>=!]', affected_str)[0].strip().lower()
-            if pkg_name in dep_names:
-                matching_deps = [d for d in deps if d["name"].lower() == pkg_name]
+        for affected_str in advisory.get("affected", []):
+            adv_name, adv_range = _affected_to_range(affected_str)
+            candidates = by_name.get(adv_name, [])
+            if not candidates:
+                continue
+            matched_deps: List[Dict[str, Any]] = []
+            for dep in candidates:
+                dep_version_str = str(dep.get("version", ""))
+                if not dep_version_str or adv_range == (None, None):
+                    # Name-only fallback: either we don't know the dep version
+                    # or the advisory has no version constraint.
+                    matched_deps.append(dep)
+                    continue
+                if dep.get("pinned_via_lock") or not is_floating(dep_version_str):
+                    pv = parse_version(dep_version_str)
+                    if pv is None:
+                        matched_deps.append(dep)
+                        continue
+                    if version_in_range(pv, *adv_range):
+                        matched_deps.append(dep)
+                else:
+                    # Unpinned floating range — overlap with the advisory's
+                    # vulnerable range means a resolve *could* land vulnerable.
+                    dep_range = parse_npm_range(dep_version_str)
+                    if ranges_overlap(dep_range, adv_range):
+                        matched_deps.append(dep)
+            if matched_deps:
                 matches.append({
                     "advisory_id": advisory.get("id", ""),
                     "severity": advisory.get("severity", "unknown"),
                     "title": advisory.get("title", ""),
                     "affected": affected_str,
                     "action": advisory.get("action", ""),
-                    "matched_deps": matching_deps,
+                    "matched_deps": matched_deps,
                 })
-
     return matches
+
+
+def check_floating_ranges(
+    workspace: Path,
+    lockfile_map: Optional[Dict[str, str]] = None,
+) -> List[Dict[str, Any]]:
+    """Flag floating semver ranges in package.json.
+
+    Severity LOW when a lockfile pin exists (future install is the risk),
+    MEDIUM when no pin exists. Manifests without any lockfile at all are
+    already covered by `check_lockfile_presence` — skip them to dedup.
+    """
+    from supplychain.version_range import is_floating
+
+    lockfile_map = lockfile_map or {}
+    findings: List[Dict[str, Any]] = []
+    for pkg_json in workspace.glob("**/package.json"):
+        if ".git" in pkg_json.parts or "node_modules" in pkg_json.parts:
+            continue
+        if not (pkg_json.parent / "package-lock.json").is_file():
+            continue
+        try:
+            data = json.loads(pkg_json.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            continue
+        for section in ("dependencies", "devDependencies"):
+            for name, raw in (data.get(section) or {}).items():
+                raw_str = str(raw)
+                if not is_floating(raw_str):
+                    continue
+                pinned = lockfile_map.get(name)
+                findings.append({
+                    "manifest": str(pkg_json),
+                    "name": name,
+                    "range": raw_str,
+                    "pinned_version": pinned or "",
+                    "severity": "LOW" if pinned else "MEDIUM",
+                    "message": (
+                        f"{name!r} uses floating range {raw_str!r}"
+                        + (f" (lockfile pins {pinned})" if pinned else " (no lockfile pin)")
+                    ),
+                })
+    return findings
 
 
 def check_lockfile_integrity(workspace: Path) -> List[Dict[str, Any]]:
@@ -339,17 +476,21 @@ def scan_workspace(
 ) -> Dict[str, Any]:
     """Full workspace dependency scan.
 
-    Returns {manifests, dependencies, feed_matches, lockfile_issues, integrity_issues}.
+    Returns {manifests, dependencies, feed_matches, lockfile_issues,
+    integrity_issues, floating_ranges}.
     """
     manifests = find_manifests(workspace)
+    lockfile_map = _read_npm_lockfile(workspace)
     all_deps: List[Dict[str, str]] = []
     for m in manifests:
-        deps = parse_dependencies(m["path"], m["ecosystem"])
+        lock = lockfile_map if m["ecosystem"] == "npm" else None
+        deps = parse_dependencies(m["path"], m["ecosystem"], lockfile_map=lock)
         all_deps.extend(deps)
 
     feed_matches = check_against_feed(all_deps, feed)
     lockfile_issues = check_lockfile_presence(workspace)
     integrity_issues = check_lockfile_integrity(workspace)
+    floating_ranges = check_floating_ranges(workspace, lockfile_map)
 
     return {
         "manifests": [{"path": str(m["path"]), "ecosystem": m["ecosystem"]} for m in manifests],
@@ -357,4 +498,5 @@ def scan_workspace(
         "feed_matches": feed_matches,
         "lockfile_issues": lockfile_issues,
         "integrity_issues": integrity_issues,
+        "floating_ranges": floating_ranges,
     }
