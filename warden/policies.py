@@ -209,6 +209,8 @@ MODEL_MANIPULATION_PATTERN = re.compile(
     # Persistent instruction framing — "from now on you will/must/should …"
     r"|from\s+(?:now|this\s+point)\s+on[,\s]+you\s+(?:will|must|should|are\s+to)\b"
     r"|for\s+all\s+future\s+(?:responses?|messages?|requests?|interactions?)\b"
+    # sed-style model swap: s/<modelA>/<modelB>/  — catches config-file model swaps.
+    r"|s/(?:gpt|claude|llama|mistral|gemini|phi|deepseek|qwen)[-\w.]*/(?:gpt|claude|llama|mistral|gemini|phi|deepseek|qwen)[-\w.]*/"
     r")",
     re.IGNORECASE,
 )
@@ -240,6 +242,9 @@ def evaluate_event(event: Dict[str, Any], index: int, session_id: str = "") -> L
             event.get("content"),
             event.get("stdout"),
             event.get("stderr"),
+            # Include command so PII/model-manipulation rules can scan
+            # `immunity check` shell pre-checks and agent-output text events.
+            event.get("command") if event_type in {"shell", "text"} else None,
         ]
         if value
     )
@@ -428,7 +433,7 @@ def evaluate_event(event: Dict[str, Any], index: int, session_id: str = "") -> L
             )
         )
 
-    if event_type in {"prompt", "tool_result"} and PII_PATTERN.search(combined_text):
+    if event_type in {"prompt", "tool_result", "shell", "text"} and PII_PATTERN.search(combined_text):
         findings.append(
             _finding(
                 finding_id=f"pii-exposure-{index}",
@@ -441,7 +446,7 @@ def evaluate_event(event: Dict[str, Any], index: int, session_id: str = "") -> L
             )
         )
 
-    if event_type in {"prompt", "tool_result"} and MODEL_MANIPULATION_PATTERN.search(combined_text):
+    if event_type in {"prompt", "tool_result", "shell", "text"} and MODEL_MANIPULATION_PATTERN.search(combined_text):
         findings.append(
             _finding(
                 finding_id=f"model-manipulation-{index}",

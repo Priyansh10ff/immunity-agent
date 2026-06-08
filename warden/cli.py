@@ -217,6 +217,8 @@ def main(argv: Optional[List[str]] = None) -> None:
         elif args.type in ("read", "write"):
             event_type = "file_read" if args.type == "read" else "file_write"
             findings = engine.check_path(args.value, event_type=event_type)
+        elif args.type == "text":
+            findings = engine.check_text(args.value)
         else:
             findings = engine.check_command(args.value)
 
@@ -1388,9 +1390,10 @@ def build_parser() -> argparse.ArgumentParser:
     check_parser.add_argument("value", nargs="?", help="The command string or file path to check (omit with --from-log)")
     check_parser.add_argument(
         "--type", "-t",
-        choices=["command", "read", "write"],
+        choices=["command", "read", "write", "text"],
         default="command",
-        help="What to check: command (default), read (file read), write (file write)",
+        help="What to check: command (default), read, write, or text "
+             "(arbitrary text — use to validate agent output for PII / model-swap)",
     )
     check_parser.add_argument("--workspace", help="Workspace path for project-level policy")
     check_parser.add_argument("--explain", action="store_true",

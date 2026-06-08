@@ -709,6 +709,12 @@ class PolicyEngine:
         event = {"type": event_type, "path": path}
         return self.evaluate(event, 0)
 
+    def check_text(self, text: str) -> List[Dict[str, Any]]:
+        """Quick check: evaluate arbitrary text (e.g. agent output) for
+        PII / model-manipulation content. Returns findings."""
+        event = {"type": "text", "content": text}
+        return self.evaluate(event, 0)
+
     def _is_allowlisted(self, rule_id: str, evidence: str) -> bool:
         for entry in self.allowlists:
             if entry.applies_to(rule_id) and entry.patterns.search(evidence):
