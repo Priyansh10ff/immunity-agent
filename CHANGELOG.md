@@ -1,3 +1,20 @@
+## [1.6.0] — 2026-06-05
+
+Hermes Agent secret cloaking plugin. Secret prevention now works natively inside Hermes Agent (Nous Research's AI agent platform), with dual-discovery via pip entry point or filesystem install.
+
+### Added
+
+- **Hermes Agent cloaking plugin** (`warden/cloaking/hermes_plugin_entry.py`) — shared `register()` function consumed by both Hermes' pip entry-point discovery and filesystem install. Five hooks: `pre_tool_call` (decloak + secret guard), `post_tool_call` (audit), `transform_terminal_output` (scrub), `transform_tool_result` (scrub), `pre_gateway_dispatch` (paste guard).
+- **Hermes installer** (`warden/cloaking/hermes_installer.py`) — `install()`/`uninstall()`/`status()` for filesystem-level setup. Copies plugin files to `~/.hermes/plugins/prismor-warden-cloak/`, enables it in Hermes config, and sets `PRISMOR_SECRETS_DIR` env var.
+- **`pyproject.toml` entry point** — registers `prismor-warden-cloak` under `[project.entry-points."hermes_agent.plugins"]` for auto-discovery when immunity-agent is pip-installed.
+- **`immunity cloak install --agent hermes`** — new `--agent` flag on `cloak install`/`uninstall`/`status` supports `claude`, `hermes`, or `all`. Installs for both agents in one command.
+- **`immunity cloak status`** — now shows both Claude Code and Hermes Agent state separately.
+- **Auto-vaulting for pasted secrets** — `pre_gateway_dispatch` detects raw secrets in user prompts, vaults them under deterministic `auto_<sha256_prefix>` names, and re-sends the sanitized prompt with `@@SECRET:auto_xxx@@`. Bypass with `!!allow` prefix.
+- **Documentation:** `docs/hermes.md` with architecture diagram, setup guide, and hook reference. AGENT_INTEGRATIONS.md updated with Hermes cloaking layer.
+
+### Packaging
+
+- Hermes plugin files (`plugin.yaml`, `__init__.py`) are force-included in the wheel under `warden/data/cloaking/hermes-plugin/` for filesystem install.
 # Changelog
 
 All notable changes to Immunity Agent (Prismor Warden) are documented here.
