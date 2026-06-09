@@ -24,6 +24,7 @@ these happen in a session:
 | Trigger | Section |
 |---|---|
 | New workspace, or unsure whether immunity is set up here | [§1 Check state](#1-check-state-first-command-of-every-session) |
+| `immunity status` shows an outdated version, or user asks to upgrade | [§2 Setup → keep current](#2-setup-run-once-per-workspace) |
 | About to run `npm/pip/cargo/uv/pnpm/yarn/go install …` | [§3 Safe-command map → package install](#3-safe-command-map) |
 | About to put a real secret value into a tool call | [§3 Safe-command map → secrets](#3-safe-command-map) |
 | About to run a shell command and you're uncertain it's safe | [§3 Safe-command map → pre-check](#3-safe-command-map) |
@@ -96,12 +97,31 @@ Per-agent matrix (only one `--agent` value per invocation, or `all`):
 
 After install, **verify** by re-running `immunity status`. The `Hooks:` line should now list the agent you just installed.
 
-Optional: cloaking for secret prevention (Claude Code only today):
+**Keep current.** `immunity status` prints the running version at the top. If the user asks to upgrade, or you see a stale version reported by `immunity status`, run:
 
 ```bash
+immunity update            # self-update to the latest published release
+immunity update --check    # check only, don't install
+```
+
+This is the supported upgrade path — don't tell the user to `pip install --upgrade` directly, since `immunity update` also handles the post-install hook refresh.
+
+Optional: cloaking for secret prevention (Claude Code and Hermes today):
+
+```bash
+# Claude Code (default):
 immunity cloak install --workspace .
 immunity cloak add stripe_key      # reads value from stdin, never shell history
+
+# Hermes (pip-installed Hermes auto-discovers via entry-points; this is the
+# explicit filesystem install for non-pip setups):
+immunity cloak install --agent hermes --workspace .
+
+# Both at once:
+immunity cloak install --agent all --workspace .
 ```
+
+`immunity cloak status` reports which agents have the cloaking layer active. See [`docs/hermes.md`](./docs/hermes.md) for the full Hermes integration story.
 
 ---
 
@@ -178,7 +198,9 @@ pick the smallest tool that answers the question:
 | "Audit my MCP servers and skills" | `immunity scan` |
 | "Full security posture, fix what you can" | `immunity audit --fix` |
 | "Recurring blocked patterns I should accept?" | `immunity learn` |
+| "Show all registered workspaces" | `immunity dashboard` (terminal overview across every workspace where hooks are installed) |
 | "Open the dashboard" | `immunity serve` → http://127.0.0.1:7070 |
+| "Am I on the latest version?" | `immunity update --check` (install with `immunity update`) |
 
 ---
 
@@ -201,6 +223,7 @@ Capability deep dives:
 - [`docs/warden.md`](./docs/warden.md): policy engine, session logs, audit, full CLI reference
 - [`docs/supply-chain.md`](./docs/supply-chain.md): scoring table, IOC feed, ecosystem support
 - [`docs/sweep-and-cloak.md`](./docs/sweep-and-cloak.md): secret prevention design, practical setup, best practices, threat model, and cleanup
+- [`docs/hermes.md`](./docs/hermes.md): Hermes Agent integration — secret cloaking plugin, pip auto-discovery, CLI install path
 - [`docs/semantic-guard.md`](./docs/semantic-guard.md): opt-in LLM-assisted prompt-injection guard
 - [`docs/skill-scanner.md`](./docs/skill-scanner.md): MCP server + skill risk scanning
 - [`docs/network-isolation.md`](./docs/network-isolation.md): egress allowlists, raw-IP detection
