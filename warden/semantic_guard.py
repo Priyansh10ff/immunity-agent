@@ -60,7 +60,7 @@ _sig(r"(already|previously)\s+(approved|authorized|granted|permitted)", 0.55, "f
 _sig(r"(the\s+)?(previous|prior|last)\s+(maintainer|admin|engineer|ciso|security\s+team)", 0.45, "authority_claim")
 _sig(r"(ciso|security\s+team|compliance\s+team|platform\s+team)\s+(has|have|already)", 0.55, "org_authority_claim")
 _sig(r"no\s+need\s+to\s+(check|verify|confirm|ask|validate)", 0.50, "skip_verification")
-_sig(r"(skip|bypass|disable|ignore)\s+(\w+\s+){0,2}(security|validation|check|permission|warden|hook)", 0.70, "explicit_bypass")
+_sig(r"(skip|bypass|disable|ignore)\s+(\w+\s+){0,2}(security|validation|check|permission|warden|hook|safety|restrictions?|safeguards?|guardrails?|controls?)", 0.70, "explicit_bypass")
 
 # Compliance / audit pretexts
 _sig(r"compliance\s+(requires|mandates|demands|needs)", 0.60, "compliance_pretext")
@@ -90,7 +90,7 @@ _sig(r"SYSTEM\s*:\s*(ignore|forget|override|you\s+are)", 0.90, "system_prompt_in
 _sig(r"ATTENTION\s+AI\s+(ASSISTANT|SYSTEM)", 0.80, "in_content_injection_marker")
 
 # Credential / secret extraction
-_sig(r"(provide|share|reveal|disclose|show|give)\s+.{0,60}(system.?prompt|your\s+instructions?|your\s+guidelines?|your\s+rules)", 0.70, "system_prompt_disclosure")
+_sig(r"(provide|share|reveal|disclose|show|give|repeat|translate|summari[sz]e|print|extract|inspect|dump|display|output)\s+.{0,60}((system|developer|initiali[sz]ation|internal)[\s-]*prompt|(your|hidden)\s+(instructions?|guidelines?|rules?|config\w*)|instructions?\s+you\s+(received|were\s+given)|internal\s+config\w*|conversation\s+history|hidden\s+context)", 0.70, "system_prompt_disclosure")
 _sig(r"(export|output|include|copy|dump)\s+.{0,60}(credential|secret|password|token|key|\.env|\.aws|shadow|passwd)", 0.75, "credential_exfil_request")
 _sig(r"(service\s+account\s+key|api\s+key|access\s+token)\s+.{0,40}(file|include|export)", 0.70, "credential_collection")
 _sig(r"(vendor|partner|support\s+team)\s+.{0,60}(credential|key|secret)", 0.60, "third_party_credential_share")
@@ -119,6 +119,15 @@ _sig(r"(grant|give).{0,40}(root\s+access|all\s+users|sudo|NOPASSWD)", 0.80, "pri
 _sig(r"\bexfiltrat", 0.40, "exfil_directive")
 _sig(r"(you\s+must\s+now|you\s+are\s+(required|instructed)\s+to)\s+.{0,120}(send|transmit|forward|exfiltrat|post|upload)\b", 0.70, "imperative_exfil_directive")
 _sig(r"(as\s+(a\s+)?(helpful|trusted|capable|responsible)\s+assistant)\b.{0,120}(you\s+must\s+now|you\s+are\s+(required|instructed)\s+to|must\s+now)", 0.55, "persona_directive_injection")
+
+# Memory / persistence poisoning — injects durable state to subvert future
+# sessions without any immediate exfil action (invisible to action-based rules).
+_sig(r"(remember\s+(this\s+)?(forever|permanently|always)|always\s+(trust|obey|follow)\s+.{0,30}(my|the\s+user).{0,20}(future\s+)?(instructions?|commands?|messages?)|store\s+this\s+(permanently|forever))", 0.65, "memory_poisoning")
+
+# Bulk PII / dataset exfiltration framing — whole-dataset extraction of
+# personal data, often disguised as a codegen or summarization task. Scored
+# in the warn band (not block): legitimate reporting tooling phrases similarly.
+_sig(r"(output|export|dump|list|generate|include|compile|extract)\s+.{0,40}(all|every|each|the\s+full|complete)\s+.{0,30}(employee|customer|user|client|personnel|staff|member|patient)\w*\s+.{0,20}(record|email|salary|salaries|address|phone|ssn|data|details?|info\w*|pii)", 0.55, "bulk_pii_exfil")
 
 
 def _heuristic_analyze(text: str) -> SemanticRisk:
