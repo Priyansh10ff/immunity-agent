@@ -47,7 +47,7 @@ HIGH_THRESH = 0.75   # at or above this: block straight through
 _STRUCTURAL_RULES: List[Tuple[re.Pattern, re.Pattern, re.Pattern]] = [
     (
         re.compile(r"\b(compliance|audit|security\s+team|pre.?approved|administrator|authorized|ciso)\b", re.I),
-        re.compile(r"\b(you\s+must|must\s+now|you\s+need\s+to|now\s+provide|please\s+provide|you\s+are\s+required)\b", re.I),
+        re.compile(r"\b(you\s+must|must\s+now|you\s+need\s+to|now\s+provide|please\s+provide|you\s+are\s+required|reveal|disclose|display|inspect|show)\b", re.I),
         re.compile(r"\b(system.?prompt|instructions?|configuration|api\s+key|credentials?|secrets?|policy|settings)\b", re.I),
     ),
     (

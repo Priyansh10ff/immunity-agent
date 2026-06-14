@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import json
 import os
+import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -22,6 +24,25 @@ from typing import Any, Dict, List, Optional
 PRISMOR_HOME = Path(os.environ.get("PRISMOR_HOME", Path.home() / ".prismor"))
 VAULT_PATH = PRISMOR_HOME / "sweep.vault.enc"
 VAULT_SALT_PATH = PRISMOR_HOME / "sweep.vault.salt"  # existence = vault initialized
+
+# Minimum gitleaks version tested against (rule set and JSON schema differ across majors)
+GITLEAKS_MIN_VERSION = (8, 18, 0)
+
+# Optional custom rule config for AI-tool-specific patterns
+_SWEEP_CONFIG = Path(__file__).parent / "sweep-gitleaks.toml"
+
+# Basic fallback patterns used when gitleaks is not installed
+_FALLBACK_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
+    ("openai-api-key",    re.compile(r'sk-[A-Za-z0-9]{20,48}')),
+    ("anthropic-api-key", re.compile(r'sk-ant-[A-Za-z0-9\-_]{20,}')),
+    ("huggingface-token", re.compile(r'hf_[A-Za-z0-9]{30,50}')),
+    ("github-pat",        re.compile(r'ghp_[A-Za-z0-9]{36}|ghs_[A-Za-z0-9]{36}')),
+    ("aws-access-key",    re.compile(r'(?<![A-Z0-9])AKIA[0-9A-Z]{16}(?![A-Z0-9])')),
+    ("replicate-api-key", re.compile(r'r8_[A-Za-z0-9]{32,}')),
+    ("generic-api-key",   re.compile(
+        r'(?i)(?:api[_-]?key|secret[_-]?key|auth[_-]?token)\s*[:=]\s*["\']?([A-Za-z0-9\-_\.]{20,})'
+    )),
+]
 
 # Directories to scan, keyed by tool name
 TOOL_DIRS: dict[str, Path] = {
@@ -176,39 +197,120 @@ def _prompt_passphrase(confirm: bool = False) -> str:
 
 # ── Gitleaks scanner ────────────────────────────────────────────────────
 
-def _check_gitleaks() -> str:
-    """Return gitleaks binary path or raise."""
-    path = shutil.which("gitleaks")
-    if not path:
-        err("gitleaks not found. Install: brew install gitleaks")
-        raise SystemExit(1)
-    return path
+def _gitleaks_install_hint() -> str:
+    """Return a platform-appropriate install hint for gitleaks."""
+    system = platform.system()
+    if system == "Darwin":
+        return "brew install gitleaks"
+    if system == "Linux":
+        return (
+            "go install github.com/gitleaks/gitleaks/v8@latest\n"
+            "  Or download a pre-built binary from https://github.com/gitleaks/gitleaks/releases"
+        )
+    if system == "Windows":
+        return (
+            "choco install gitleaks  (or: winget install gitleaks.gitleaks)\n"
+            "  Or download a pre-built binary from https://github.com/gitleaks/gitleaks/releases"
+        )
+    return "https://github.com/gitleaks/gitleaks/releases"
+
+
+def _find_gitleaks() -> Optional[str]:
+    """Return gitleaks binary path, or None if not installed."""
+    return shutil.which("gitleaks")
+
+
+def _check_gitleaks_version(path: str) -> None:
+    """Warn (non-fatal) if installed gitleaks is below the minimum tested version."""
+    try:
+        result = subprocess.run(
+            [path, "version"], capture_output=True, text=True, timeout=5
+        )
+        version_output = (result.stdout + result.stderr).strip()
+        m = re.search(r'v?(\d+)\.(\d+)\.(\d+)', version_output)
+        if m:
+            found = (int(m.group(1)), int(m.group(2)), int(m.group(3)))
+            if found < GITLEAKS_MIN_VERSION:
+                min_str = ".".join(str(v) for v in GITLEAKS_MIN_VERSION)
+                found_str = ".".join(str(v) for v in found)
+                warn(
+                    f"gitleaks {found_str} is below minimum tested version {min_str} — "
+                    "built-in rule set and JSON report schema have changed across major versions; "
+                    "results may vary. Consider upgrading."
+                )
+    except (subprocess.TimeoutExpired, OSError, ValueError):
+        pass  # Non-fatal; proceed with whatever version is present
 
 
 def _scan_directory(gitleaks: str, directory: Path) -> list[dict]:
     """Run gitleaks on a directory, return findings."""
-    with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
-        report_path = f.name
+    # mkstemp creates with 0o600 perms — secrets are safe if the process crashes mid-scan
+    fd, report_path = tempfile.mkstemp(suffix=".json")
+    os.close(fd)  # gitleaks opens the file itself; we just need the path
 
     try:
-        subprocess.run(
-            [
-                gitleaks, "dir", str(directory),
-                "--report-format", "json",
-                "--report-path", report_path,
-                "--no-banner",
-                "--max-target-megabytes", "1",
-                "--exit-code", "0",
-                "-l", "warn",
-            ],
-            capture_output=True,
-        )
+        cmd = [
+            gitleaks, "dir", str(directory),
+            "--report-format", "json",
+            "--report-path", report_path,
+            "--no-banner",
+            "--max-target-megabytes", "1",
+            "--exit-code", "0",
+            "-l", "warn",
+        ]
+        if _SWEEP_CONFIG.exists():
+            cmd += ["--config", str(_SWEEP_CONFIG)]
+
+        subprocess.run(cmd, capture_output=True)
         report = Path(report_path)
         if report.exists() and report.stat().st_size > 0:
             return json.loads(report.read_text())
         return []
     finally:
         Path(report_path).unlink(missing_ok=True)
+
+
+def _fallback_scan(directory: Path) -> list[dict]:
+    """Minimal built-in pattern scan used when gitleaks is not installed.
+
+    Covers common AI-tool secret formats so `warden sweep` still catches obvious
+    leaks on a fresh machine before the user has installed the gitleaks dependency.
+    """
+    findings: list[dict] = []
+    scan_exts = {
+        '.json', '.yaml', '.yml', '.toml', '.env', '.txt', '.md',
+        '.log', '.conf', '.cfg', '.ini', '.py', '.js', '.ts', '.sh',
+    }
+    skip_dirs = {'.git', '__pycache__', 'node_modules', '.tox', 'venv', '.venv'}
+
+    for root, dirs, files in os.walk(directory):
+        dirs[:] = [d for d in dirs if d not in skip_dirs]
+        for filename in files:
+            if not any(filename.endswith(ext) for ext in scan_exts):
+                continue
+            filepath = os.path.join(root, filename)
+            try:
+                with open(filepath, 'r', errors='replace') as fh:
+                    for lineno, line in enumerate(fh, 1):
+                        for rule_id, pattern in _FALLBACK_PATTERNS:
+                            m = pattern.search(line)
+                            if not m:
+                                continue
+                            secret = m.group(1) if m.lastindex else m.group(0)
+                            findings.append({
+                                "File": filepath,
+                                "RuleID": rule_id,
+                                "Secret": secret,
+                                "StartLine": lineno,
+                                "StartColumn": m.start(),
+                                "EndColumn": m.end(),
+                                "Match": line.strip()[:200],
+                                "Description": "basic-mode finding (gitleaks not installed)",
+                            })
+            except (OSError, PermissionError):
+                pass
+
+    return findings
 
 
 def _is_config_file(filepath: str) -> bool:
@@ -220,8 +322,18 @@ def _is_config_file(filepath: str) -> bool:
 # ── Core operations ─────────────────────────────────────────────────────
 
 def scan(custom_dirs: Optional[list[str]] = None) -> list[dict]:
-    """Scan AI tool directories and return gitleaks findings."""
-    gitleaks = _check_gitleaks()
+    """Scan AI tool directories and return findings.
+
+    Falls back to built-in regex patterns when gitleaks is not installed so the
+    command still provides basic coverage on a fresh machine.
+    """
+    gitleaks = _find_gitleaks()
+    if gitleaks:
+        _check_gitleaks_version(gitleaks)
+    else:
+        warn("gitleaks not found — running in basic mode (limited secret coverage).")
+        warn(f"Install for full coverage: {_gitleaks_install_hint()}")
+
     scan_dirs: list[tuple[str, Path]] = []
 
     if custom_dirs:
@@ -242,7 +354,10 @@ def scan(custom_dirs: Optional[list[str]] = None) -> list[dict]:
     all_findings: list[dict] = []
     for label, directory in scan_dirs:
         info(f"Scanning {directory}...")
-        findings = _scan_directory(gitleaks, directory)
+        if gitleaks:
+            findings = _scan_directory(gitleaks, directory)
+        else:
+            findings = _fallback_scan(directory)
         all_findings.extend(findings)
 
     return all_findings
