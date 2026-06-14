@@ -725,11 +725,25 @@ rules:
   - id: claude-credential-access
     severity: CRITICAL
     category: secret_access
-    title: Blocks access to Claude Code credentials and session transcripts
+    title: Blocks access to Claude Code credentials file
     event_types: [shell, file_read, file_write]
     fields: [command, path]
     patterns:
       - '(^|/)\.claude/\.credentials\.json'
+    action: block
+
+  # ── HIGH: Claude Code session transcript access ───────────────────
+  # file_read is excluded so immunity's own session-read commands
+  # (immunity sessions, immunity learn) don't self-trigger. Shell and
+  # file_write events still fire — catches piping transcripts out or
+  # overwriting them.
+  - id: claude-session-transcript-access
+    severity: HIGH
+    category: secret_access
+    title: Blocks writing to or shell-accessing Claude Code session transcripts
+    event_types: [shell, file_write]
+    fields: [command, path]
+    patterns:
       - '(^|/)\.claude/sessions/'
       - '(^|/)\.claude/projects/[^\n]*\.jsonl'
     action: block
@@ -785,14 +799,17 @@ rules:
     action: block
 
   # ── HIGH: Git remote hijacking ───────────────────────────────────
+  # Known SCM domains are excluded from the set-url/add/rename pattern
+  # so legitimate PR merge workflows (git remote set-url origin
+  # https://github.com/...) don't fire as false positives.
   - id: git-remote-hijack
     severity: HIGH
     category: secret_exfiltration
-    title: Detects git remote URL changes and force pushes
+    title: Detects git remote URL changes to unknown hosts and force pushes
     event_types: [shell]
     fields: [command]
     patterns:
-      - '\bgit\s+remote\s+(set-url|add|rename)\b'
+      - '\bgit\s+remote\s+(set-url|add|rename)\b(?![^\n]*(?:github\.com|gitlab\.com|bitbucket\.org|dev\.azure\.com|git\.sr\.ht|codeberg\.org))'
       - '\bgit\s+push\b[^\n]*--force'
     action: warn
 
@@ -1006,14 +1023,14 @@ rules:
 
   # ── HIGH: PII in agent context ────────────────────────────────────
   # Detects SSNs, formatted credit card numbers, and US phone numbers
-  # appearing in tool outputs or user prompts. Agents should never
-  # process raw PII — flag for redaction before the value propagates.
+  # appearing in tool outputs, user prompts, or shell commands. Agents
+  # should never process raw PII — flag for redaction before it propagates.
   - id: pii-exposure
     severity: HIGH
     category: pii_exposure
     title: Detects SSN, credit card numbers, and US phone numbers in agent context
-    event_types: [prompt, tool_result]
-    fields: [prompt, response, content, stdout, stderr]
+    event_types: [prompt, tool_result, shell]
+    fields: [prompt, response, content, stdout, stderr, command]
     patterns:
       # SSN: 123-45-6789 / 123.45.6789 / 123 45 6789 (with invalid-range guards)
       - '\b(?!000|666|9\d{2})\d{3}[-.\s](?!00)\d{2}[-.\s](?!0000)\d{4}\b'
