@@ -13,10 +13,20 @@ Supported sink types (configured under ``settings.outputs`` in policy.yaml):
     - type: file
       path: ~/.prismor/audit.log
       format: json     # or: cef
+    - type: prismor              # first-party control-plane sink
+      # No config needed — the device key + endpoint come from the enrolled
+      # identity at ~/.prismor/identity.json (see `immunity enroll`). Sends a
+      # *redacted* telemetry record by default; full content only when the
+      # org's resolved policy sets full_capture: true.
 
 Each sink receives one JSON event per finding. Dispatch is best-effort
 and non-blocking — a sink failure logs a warning but never blocks the
 user's tool call.
+
+The ``prismor`` sink is special: instead of the generic SIEM event built by
+``_build_event``, it forwards the privacy-bounded record from
+``warden.telemetry`` so raw commands/secrets never leave the machine unless an
+org admin has explicitly opted into full capture.
 """
 from __future__ import annotations
 
@@ -155,6 +165,131 @@ def _format_cef(event: Dict[str, Any]) -> str:
     return f"{header}|{ext_str}"
 
 
+def _dispatch_prismor(
+    cfg: Dict[str, Any],
+    findings: List[Dict[str, Any]],
+    raw_event: Dict[str, Any],
+    extra: Dict[str, Any],
+) -> None:
+    """First-party control-plane sink: batch-upload redacted telemetry records
+    to prismor-web using the enrolled device key.
+
+    No-op (silent) when the machine is not enrolled — the sink can be left on
+    in default policy without effect until `immunity enroll` runs.
+    """
+    import urllib.request
+    import urllib.error
+
+    from warden.enterprise import identity as _identity
+    from warden.enterprise import telemetry as _telemetry
+
+    ident = _identity.load_identity()
+    if not ident:
+        return  # not enrolled — nothing to upload
+    if _identity.revoked_backoff_active():
+        return  # device key was rejected — don't hammer a control plane that said no
+
+    full_capture = bool(cfg.get("full_capture", False))
+    scrub_patterns: List[str] = []
+    if full_capture:
+        try:
+            from warden.cloaking.patterns import all_patterns
+            scrub_patterns = all_patterns()
+        except Exception:
+            scrub_patterns = []
+
+    device_extra = {
+        **extra,
+        "device_id": ident.get("device_id"),
+    }
+    records = []
+    for finding in findings:
+        rec = _telemetry.build_record(
+            finding,
+            raw_event,
+            extra=device_extra,
+            full_capture=full_capture,
+            scrub_patterns=scrub_patterns,
+        )
+        _telemetry.assert_redacted(rec)  # fail closed if redacted path leaks
+        records.append(rec)
+
+    if not records:
+        return
+
+    upload_telemetry(
+        records,
+        timeout=float(cfg.get("timeout_seconds", 6)),
+        url_base=cfg.get("url"),
+    )
+
+
+def upload_telemetry(
+    records: List[Dict[str, Any]],
+    timeout: float = 6.0,
+    url_base: Optional[str] = None,
+) -> None:
+    """Shared control-plane uploader for telemetry records (findings AND
+    agent_activity heartbeats).
+
+    Drains previously-spooled records (offline periods, slow control plane)
+    into the batch — at-least-once delivery without a background daemon. On
+    network failure the whole batch is spooled and the error re-raised (callers
+    log it best-effort). On 401/403 the device is marked revoked and nothing is
+    spooled — uploads stay rejected until re-enrollment.
+
+    Short timeout on the hot path: a slow control plane (cold Neon/RDS) must
+    never stall a developer's tool call; records that miss the window land in
+    the spool and ride along with the next upload, so nothing is lost.
+    """
+    import urllib.request
+    import urllib.error
+
+    from warden.enterprise import identity as _identity
+    from warden.enterprise import telemetry_spool as _spool
+
+    ident = _identity.load_identity()
+    if not ident or _identity.revoked_backoff_active():
+        return
+
+    # Server caps batches at 500 events.
+    batch = _spool.drain(limit=max(0, 500 - len(records))) + records
+    if not batch:
+        return
+
+    base = str(url_base or ident.get("api_base") or _identity.api_base()).rstrip("/")
+    url = base if base.endswith("/ingest") else f"{base}/api/telemetry/ingest"
+    body = json.dumps({
+        "org_id": ident.get("org_id"),
+        "device_id": ident.get("device_id"),
+        "events": batch,
+    }).encode("utf-8")
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {ident.get('device_key')}",
+    }
+    req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            resp.read(16)  # drain
+        _identity.clear_revoked()
+    except urllib.error.HTTPError as exc:
+        if exc.code in (401, 403):
+            # The control plane rejected our device key: revoked (or deleted).
+            # Local protection continues with the last good policy.
+            _identity.mark_revoked(f"telemetry upload rejected ({exc.code})")
+            sys.stderr.write(
+                "[warden] control plane rejected this device's key "
+                f"({exc.code}) — telemetry paused. Re-enroll with: immunity enroll <token>\n"
+            )
+            return
+        _spool.append(batch)
+        raise
+    except (urllib.error.URLError, OSError):
+        _spool.append(batch)
+        raise
+
+
 _DISPATCHERS = {
     "webhook": _dispatch_webhook,
     "syslog": _dispatch_syslog,
@@ -162,14 +297,37 @@ _DISPATCHERS = {
 }
 
 
-def dispatch(findings: List[Dict[str, Any]], sinks: List[Dict[str, Any]], extra: Optional[Dict[str, Any]] = None) -> None:
+def dispatch(
+    findings: List[Dict[str, Any]],
+    sinks: List[Dict[str, Any]],
+    extra: Optional[Dict[str, Any]] = None,
+    raw_event: Optional[Dict[str, Any]] = None,
+) -> None:
     """Send each finding to each configured sink. Errors are swallowed with
-    a warning on stderr so telemetry never blocks the user."""
+    a warning on stderr so telemetry never blocks the user.
+
+    The ``prismor`` control-plane sink is batched and privacy-bounded — it
+    receives the raw event (to build a redacted record) rather than the generic
+    SIEM event the other sinks consume.
+    """
     if not findings or not sinks:
         return
+    extra = extra or {}
+
+    # First-party control-plane sinks are batched separately.
+    prismor_sinks = [s for s in sinks if str((s or {}).get("type", "")).lower() == "prismor"]
+    generic_sinks = [s for s in sinks if str((s or {}).get("type", "")).lower() != "prismor"]
+
+    for sink_cfg in prismor_sinks:
+        sink = _expand_env(sink_cfg)
+        try:
+            _dispatch_prismor(sink, findings, raw_event or {}, extra)
+        except Exception as exc:
+            sys.stderr.write(f"[warden] sink 'prismor' failed: {exc}\n")
+
     for finding in findings:
         event = _build_event(finding, extra=extra)
-        for sink_cfg in sinks:
+        for sink_cfg in generic_sinks:
             sink = _expand_env(sink_cfg)
             kind = str(sink.get("type", "")).lower()
             disp = _DISPATCHERS.get(kind)

@@ -12,7 +12,8 @@ existing engines:
 from __future__ import annotations
 
 import sys
-from typing import List, Optional
+from functools import lru_cache
+from typing import List, Optional, Set
 
 from warden import __version__
 
@@ -30,11 +31,10 @@ def _c(text: str, code: str) -> str:
 
 # ── Routing tables ──────────────────────────────────────────────────────────
 #
-# Commands that map 1:1 to a warden.cli subcommand. Listing them here both
-# (a) lets the umbrella accept them as top-level shortcuts (e.g. `immunity
-# status` -> warden.cli ['status']), and (b) drives the curated --help.
-#
-# These names match argparse subparsers declared in warden.cli:build_parser().
+# The frequently-typed warden subcommands we surface explicitly in --help under
+# "Quick start" / "Runtime shortcuts". Routing no longer depends on this list —
+# `main()` forwards ANY real warden command (see `_warden_commands()`), so this
+# is purely curation for the help text and never drifts out of sync with routing.
 _TOP_LEVEL_SHORTCUTS = {
     # Common, frequently-typed:
     "setup", "status", "audit", "info", "dashboard", "serve",
@@ -42,15 +42,37 @@ _TOP_LEVEL_SHORTCUTS = {
     "analyze", "ingest", "sessions", "session",
     "install-hooks", "uninstall-hooks", "hook-dispatch",
     "update",
+    # Enterprise control plane (device enrollment + org-managed policy):
+    "enroll", "enroll-status", "logout", "workspace", "exempt",
 }
 
-# Domains that map to a warden.cli subparser of the same name.
-# `immunity <domain> <action>` forwards as `warden.cli [<domain>, <action>]`.
+# Domains that map to a warden.cli subparser of the same name. Used only to
+# group them under "Domains" in --help; routing is introspection-driven below.
 _WARDEN_DOMAINS = {
     "cloak", "policy", "sweep", "iam", "canary", "scope", "learn",
 }
 
 _SUPPLY_DOMAIN = "supplychain"
+
+
+@lru_cache(maxsize=1)
+def _warden_commands() -> Set[str]:
+    """Authoritative set of top-level commands ``warden.cli`` accepts.
+
+    Introspected from warden.cli's argparse parser so the umbrella stays a true
+    superset automatically — every warden subcommand is reachable as
+    ``immunity <command>`` with no hand-maintained list to drift out of sync.
+    """
+    import argparse
+    try:
+        from warden.cli import build_parser
+        parser = build_parser()
+    except Exception:
+        return set()
+    for action in parser._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            return set(action.choices.keys())
+    return set()
 
 
 def main(argv: Optional[List[str]] = None) -> None:
@@ -67,28 +89,32 @@ def main(argv: Optional[List[str]] = None) -> None:
 
     cmd, rest = argv[0], argv[1:]
 
-    # `immunity warden ...` — pass through to warden.cli untouched.
-    if cmd == "warden":
-        from warden.cli import main as warden_main
-        warden_main(rest)
-        return
-
-    # `immunity <domain> ...` where <domain> matches a warden.cli subparser.
-    if cmd in _WARDEN_DOMAINS:
-        from warden.cli import main as warden_main
-        warden_main([cmd, *rest])
-        return
-
-    # `immunity <shortcut> ...` — same dispatch, just exposed at the top level.
-    if cmd in _TOP_LEVEL_SHORTCUTS:
-        from warden.cli import main as warden_main
-        warden_main([cmd, *rest])
-        return
-
     # `immunity supplychain ...` — supply-chain enforcement engine.
     if cmd == _SUPPLY_DOMAIN:
         from supplychain.cli import run_supply
         run_supply(rest)
+        return
+
+    # `immunity warden <command> ...` — DEPRECATED alias. Every warden command is
+    # now a direct immunity command, so the `warden` namespace is redundant. We
+    # keep it working (warn, then forward the remaining args) so old scripts and
+    # muscle memory don't break.
+    if cmd == "warden":
+        target = rest[0] if rest else "<command>"
+        sys.stderr.write(
+            "Warning: 'immunity warden ...' is deprecated — every warden command "
+            "is now a direct immunity command.\n"
+            f"Use 'immunity {target}' instead.\n\n"
+        )
+        from warden.cli import main as warden_main
+        warden_main(rest)
+        return
+
+    # Any genuine warden top-level command (domains, shortcuts, and any future
+    # warden subcommand) forwards straight through: `immunity <cmd> ...`.
+    if cmd in _warden_commands():
+        from warden.cli import main as warden_main
+        warden_main([cmd, *rest])
         return
 
     sys.stderr.write(
@@ -112,10 +138,12 @@ def _print_usage() -> None:
     print(f"    immunity update             {d('Check for and install the latest version')}")
     print(f"    immunity status             {d('One-shot health check: hooks, mode, cloak, latest session')}")
     print(f"    immunity audit              {d('Full security posture audit')}")
+    print(f"    immunity enroll <token>     {d('Enroll this machine into a Prismor org (central observability + policy)')}")
+    print(f"    immunity enroll-status      {d('Show this device enrollment status')}")
+    print(f"    immunity workspace          {d('Is THIS repo org-managed or personal? (scope org telemetry/policy per repo)')}")
     print(f"    immunity info               {d('Workspace summary (deprecated alias of status)')}")
     print()
     print(f"  {b('Domains')}  {d('(each takes an action; see `immunity <domain> --help`)')}")
-    print(f"    immunity warden      <action>   {d('Runtime / session security (all warden subcommands)')}")
     print(f"    immunity cloak       <action>   {d('Secret cloaking at the tool boundary')}")
     print(f"    immunity policy      <action>   {d('Manage policy rules (init/validate/show/edit/test)')}")
     print(f"    immunity sweep       [options]  {d('Scan AI tool configs for leaked secrets')}")
@@ -146,6 +174,10 @@ def _print_usage() -> None:
     print(f"    immunity --help             {d('This message')}")
     print(f"    immunity <command> --help   {d('Help for a specific command')}")
     print(f"    immunity --version          {d('Show version')}")
+    print()
+    print(f"  {b('Deprecated')}  {d('(kept working; will be removed in a future release)')}")
+    print(f"    warden <command>            {d('the standalone warden CLI — use immunity instead')}")
+    print(f"    immunity warden <command>   {d('drop the warden prefix: every warden command is a direct immunity command')}")
     print()
 
 

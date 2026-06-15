@@ -1,0 +1,130 @@
+"""Tests for signed remote (org-managed) policy distribution.
+
+Invariants:
+  * A correctly-signed remote policy is applied (can add rules / settings).
+  * A signed remote policy still CANNOT disable a non-overridable core rule.
+  * A tampered / unsigned remote policy is ignored entirely (fail-closed).
+"""
+from __future__ import annotations
+
+import base64
+import json
+import subprocess
+import time
+from pathlib import Path
+
+import pytest
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+PRIVATE_KEY = REPO_ROOT / "keys" / "private.pem"
+
+pytestmark = pytest.mark.skipif(
+    not PRIVATE_KEY.exists(),
+    reason="signing key not available in this checkout",
+)
+
+
+def _sign(payload: bytes) -> str:
+    """Detached Ed25519 signature over payload, base64-encoded (matches the
+    format remote_policy expects in the .sig file).
+
+    Ed25519 is a oneshot algorithm — openssl needs the message as a file (it
+    must know the length up front), so we write a temp file rather than piping
+    via stdin.
+    """
+    import tempfile
+    with tempfile.NamedTemporaryFile() as pf:
+        pf.write(payload)
+        pf.flush()
+        raw = subprocess.run(
+            ["openssl", "pkeyutl", "-sign", "-inkey", str(PRIVATE_KEY),
+             "-rawin", "-in", pf.name],
+            capture_output=True, check=True,
+        ).stdout
+    return base64.b64encode(raw).decode("ascii")
+
+
+def _write_remote(home: Path, yaml_text: str, sign_with: bytes | None = None):
+    home.mkdir(parents=True, exist_ok=True)
+    (home / "remote-policy.yaml").write_text(yaml_text, encoding="utf-8")
+    payload = sign_with if sign_with is not None else yaml_text.encode("utf-8")
+    (home / "remote-policy.yaml.sig").write_text(_sign(payload), encoding="utf-8")
+    (home / "remote-policy.meta.json").write_text(
+        json.dumps({"fetched_at": time.time(), "version": 7, "scope": "org"}),
+        encoding="utf-8",
+    )
+
+
+REMOTE_POLICY = """
+settings:
+  block_categories: [prompt_injection, malicious_mcp]
+  full_capture: true
+rules:
+  - id: destructive-command
+    enabled: false          # <-- attempt to DISABLE a core rule (must be refused)
+  - id: org-custom-block-curl-pipe-sh
+    enabled: true
+    severity: HIGH
+    category: tool_call_abuse
+    title: Org rule — curl piped to shell
+    event_types: [shell]
+    fields: [command]
+    action: block
+    patterns:
+      - 'curl[^\\\\n]*\\\\|[^\\\\n]*sh'
+"""
+
+
+def _enroll():
+    # Remote (org) policy only applies to org-managed workspaces, which requires
+    # an enrolled device. With no managed_repo_patterns set, every workspace is
+    # managed (default), so enrolling is enough to exercise remote-policy merge.
+    from warden.enterprise import identity
+    identity.save_identity({"device_id": "d", "org_id": "o", "user_id": "u",
+                            "device_key": "prism_dev_x", "api_base": "http://x"})
+
+
+def test_signed_remote_policy_applies_but_cannot_weaken(tmp_path, monkeypatch):
+    monkeypatch.setenv("PRISMOR_HOME", str(tmp_path / ".prismor"))
+    _write_remote(tmp_path / ".prismor", REMOTE_POLICY)
+    _enroll()
+
+    from warden.policy_engine import PolicyEngine
+    engine = PolicyEngine(workspace=tmp_path)
+
+    rule_ids = {r.id for r in engine.rules}
+    # The org's new rule was added.
+    assert "org-custom-block-curl-pipe-sh" in rule_ids
+    # The org's settings were applied (admin is authoritative for settings).
+    assert "prompt_injection" in engine.block_categories
+    assert "malicious_mcp" in engine.block_categories
+    # full_capture surfaced for the sink to read.
+    # (stored in compiled settings only if the engine tracks it; block_categories
+    #  proves the settings merge ran.)
+    # The non-overridable core rule is STILL enabled despite the disable attempt.
+    assert "destructive-command" in rule_ids, "core rule must not be disable-able by remote policy"
+    # Remote metadata is exposed.
+    assert engine.remote_policy_meta.get("version") == 7
+
+
+def test_tampered_remote_policy_is_ignored(tmp_path, monkeypatch):
+    monkeypatch.setenv("PRISMOR_HOME", str(tmp_path / ".prismor"))
+    # Sign a DIFFERENT payload than what's on disk => signature won't match.
+    _write_remote(tmp_path / ".prismor", REMOTE_POLICY, sign_with=b"a different document")
+    _enroll()
+
+    from warden.policy_engine import PolicyEngine
+    engine = PolicyEngine(workspace=tmp_path)
+    rule_ids = {r.id for r in engine.rules}
+    # The org rule must NOT have been applied — policy was rejected.
+    assert "org-custom-block-curl-pipe-sh" not in rule_ids
+    assert engine.remote_policy_meta == {}
+
+
+def test_no_remote_policy_is_inert(tmp_path, monkeypatch):
+    monkeypatch.setenv("PRISMOR_HOME", str(tmp_path / ".prismor"))
+    from warden.policy_engine import PolicyEngine
+    engine = PolicyEngine(workspace=tmp_path)
+    # Default policy still loads; core rule present; no remote meta.
+    assert any(r.id == "destructive-command" for r in engine.rules)
+    assert engine.remote_policy_meta == {}

@@ -6,7 +6,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from warden.hooks import _is_pre_action, should_block
+from warden.hooks import _is_pre_action, should_block, legacy_should_block
 
 
 class TestIsPreAction(unittest.TestCase):
@@ -68,18 +68,27 @@ class TestIsPreAction(unittest.TestCase):
 class TestShouldBlock(unittest.TestCase):
     """Test the blocking decision logic."""
 
-    def test_blocks_destructive_on_pre_action(self):
-        findings = [{"category": "destructive_command", "severity": "CRITICAL"}]
+    def test_blocks_enforce_rule_on_pre_action(self):
+        # Enforcement is per-rule via `mode`: only mode=enforce findings block.
+        findings = [{"category": "destructive_command", "severity": "CRITICAL", "mode": "enforce"}]
         event = {"agent_event": "PreToolUse", "type": "shell"}
         self.assertIsNotNone(should_block(findings, event))
 
-    def test_blocks_secret_exfil_on_pre_action(self):
-        findings = [{"category": "secret_exfiltration", "severity": "CRITICAL"}]
+    def test_blocks_enforce_rule_alt_event(self):
+        findings = [{"category": "secret_exfiltration", "severity": "CRITICAL", "mode": "enforce"}]
         event = {"agent_event": "beforeShellCommand", "type": "shell"}
         self.assertIsNotNone(should_block(findings, event))
 
+    def test_observe_finding_does_not_block(self):
+        # Default is observe — even a destructive finding only logs, never blocks.
+        findings = [{"category": "destructive_command", "severity": "CRITICAL", "mode": "observe"}]
+        event = {"agent_event": "PreToolUse", "type": "shell"}
+        self.assertIsNone(should_block(findings, event))
+        # A finding with no mode key defaults to observe too.
+        self.assertIsNone(should_block([{"category": "destructive_command"}], event))
+
     def test_no_block_on_post_action(self):
-        findings = [{"category": "destructive_command", "severity": "CRITICAL"}]
+        findings = [{"category": "destructive_command", "severity": "CRITICAL", "mode": "enforce"}]
         event = {"agent_event": "PostToolUse", "type": "shell"}
         self.assertIsNone(should_block(findings, event))
 
@@ -87,19 +96,92 @@ class TestShouldBlock(unittest.TestCase):
         event = {"agent_event": "PreToolUse", "type": "shell"}
         self.assertIsNone(should_block([], event))
 
-    def test_no_block_on_low_severity_category(self):
-        findings = [{"category": "risky_write", "severity": "MEDIUM"}]
-        event = {"agent_event": "PreToolUse", "type": "file_write"}
-        self.assertIsNone(should_block(findings, event))
-
     def test_file_read_only_blocked_for_secret_access(self):
-        findings = [{"category": "destructive_command", "severity": "CRITICAL"}]
+        # An enforce finding on a file_read is still skipped unless it's a
+        # secret_access/iam category (reads are otherwise safe).
+        findings = [{"category": "destructive_command", "severity": "CRITICAL", "mode": "enforce"}]
         event = {"agent_event": "PreToolUse", "type": "file_read"}
         self.assertIsNone(should_block(findings, event))
 
-        findings = [{"category": "secret_access", "severity": "HIGH"}]
+        findings = [{"category": "secret_access", "severity": "HIGH", "mode": "enforce"}]
         event = {"agent_event": "PreToolUse", "type": "file_read"}
         self.assertIsNotNone(should_block(findings, event))
+
+
+class TestLegacyEnforceBridge(unittest.TestCase):
+    """The backward-compat bridge: a policy that predates per-rule observe/enforce
+    (block_categories set, no default_mode/mode) keeps blocking its categories
+    when installed --mode enforce, so upgrading installs don't silently stop
+    blocking. cli.py only calls this when engine.is_legacy_policy and --mode enforce.
+    """
+
+    CATS = {"destructive_command", "secret_exfiltration", "secret_access"}
+
+    def test_blocks_block_category_on_pre_action(self):
+        findings = [{"category": "destructive_command", "severity": "CRITICAL"}]  # no mode
+        event = {"agent_event": "PreToolUse", "type": "shell"}
+        self.assertIsNotNone(legacy_should_block(findings, event, self.CATS))
+
+    def test_does_not_block_uncovered_category(self):
+        findings = [{"category": "reconnaissance", "severity": "LOW"}]
+        event = {"agent_event": "PreToolUse", "type": "shell"}
+        self.assertIsNone(legacy_should_block(findings, event, self.CATS))
+
+    def test_no_block_on_post_action(self):
+        findings = [{"category": "destructive_command", "severity": "CRITICAL"}]
+        event = {"agent_event": "PostToolUse", "type": "shell"}
+        self.assertIsNone(legacy_should_block(findings, event, self.CATS))
+
+    def test_empty_block_categories_never_blocks(self):
+        findings = [{"category": "destructive_command", "severity": "CRITICAL"}]
+        event = {"agent_event": "PreToolUse", "type": "shell"}
+        self.assertIsNone(legacy_should_block(findings, event, set()))
+
+    def test_file_read_carveout_matches_modern_path(self):
+        event = {"agent_event": "PreToolUse", "type": "file_read"}
+        # destructive on a read is skipped (reads are safe)...
+        self.assertIsNone(legacy_should_block(
+            [{"category": "destructive_command"}], event, self.CATS))
+        # ...but secret_access on a read still blocks.
+        self.assertIsNotNone(legacy_should_block(
+            [{"category": "secret_access"}], event, self.CATS))
+
+
+class TestIsLegacyPolicy(unittest.TestCase):
+    """PolicyEngine.is_legacy_policy gates the enforce bridge."""
+
+    def _engine(self, body):
+        import tempfile, pathlib
+        from warden.policy_engine import PolicyEngine
+        d = tempfile.mkdtemp()
+        p = pathlib.Path(d) / "policy.yaml"
+        p.write_text(body)
+        return PolicyEngine(policy_path=p)
+
+    def test_shipped_policy_is_legacy(self):
+        # The bundled default policy: block_categories, no default_mode, no rule modes.
+        from warden.policy_engine import PolicyEngine
+        self.assertTrue(PolicyEngine().is_legacy_policy)
+
+    def test_default_mode_opts_out_of_legacy(self):
+        eng = self._engine(
+            "settings:\n  default_mode: observe\n  block_categories: [destructive_command]\nrules: []\n")
+        self.assertFalse(eng.is_legacy_policy)
+
+    def test_rule_level_mode_opts_out_of_legacy(self):
+        # A single rule declaring its own mode means the operator has adopted the
+        # per-rule model — even with block_categories inherited from the default.
+        eng = self._engine(
+            "rules:\n"
+            "  - id: r1\n"
+            "    severity: HIGH\n"
+            "    category: destructive_command\n"
+            "    title: test rule\n"
+            "    event_types: [shell]\n"
+            "    patterns: ['rm -rf']\n"
+            "    mode: enforce\n")
+        self.assertTrue(any(r.mode for r in eng.rules))
+        self.assertFalse(eng.is_legacy_policy)
 
 
 if __name__ == "__main__":
