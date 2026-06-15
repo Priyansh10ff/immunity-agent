@@ -58,6 +58,8 @@ Standard OS-level and endpoint security tools monitor the kernel and filesystem.
 - 🪪 [IAM](docs/iam.md) gives each agent a named identity and least-privilege permission profile when several agents share a workspace
 - 🎯 [Scoped Agent](docs/scoped-agent.md) synthesizes minimal, task-specific rules per session so an injected pivot off-task gets blocked
 - 🧬 [Learning](docs/learning.md) mines session history to propose new rules, flag false positives, and detect evasion
+- ⚖️ [Layered Policy & Exemptions](docs/policy-layers-and-exemptions.md) covers per-rule observe/enforce, the non-overridable floor, and admin-granted, time-boxed exemptions across org / project / repo layers
+- 📡 [Live Telemetry](docs/live-telemetry.md) covers the optional enterprise control-plane link — device enrollment, signed remote policy, and redacted telemetry streamed to a self-hosted org dashboard
 - 📊 [Dashboard](docs/dashboard.md) covers the terminal and local web dashboards plus session forensics
 - 🐳 [Docker and Containers](docs/docker.md) covers container hardening, prerequisites, and known limitations
 
@@ -126,21 +128,36 @@ bash ~/.prismor/scripts/init.sh .
 
 Full command map: [docs/cli-reference.md](docs/cli-reference.md).
 
-### Warden Modes
+### Observe / Enforce (per-rule, policy-authoritative)
 
-Warden runs in two modes, set via the `--mode` flag or the `PRISMOR_MODE` env var:
+Enforcement is decided **per rule by your policy**, not by a single global switch. Each rule carries a `mode`, and `settings.default_mode` (default `observe`) covers any rule that doesn't set one:
 
 | Mode | Behavior |
 |---|---|
-| `observe` (default) | Logs all tool calls and findings. Never blocks. Safe for onboarding and auditing. |
-| `enforce` | Blocks dangerous actions in real time before the agent executes them. |
+| `observe` (default) | Logs the tool call and the finding. Never blocks. Safe for onboarding and auditing. |
+| `enforce` | Blocks the action in real time before the agent executes it. |
 
-Switch modes at any time by re-running the hook installer:
+Out of the box **everything observes** — nothing is blocked until you flip rules (or `default_mode`) to `enforce` in your policy:
+
+```yaml
+# .prismor-warden/policy.yaml
+settings:
+  default_mode: observe        # global default for rules without their own mode
+rules:
+  - id: destructive-rm-rf
+    mode: enforce              # this rule blocks; the rest still just observe
+```
+
+Policy is authoritative: a rule set to `enforce` blocks **regardless of how the hook was installed** (`--mode`), so an admin who flips a rule to enforce via the [control plane](docs/live-telemetry.md) blocks even on observe-installed devices. See [Layered Policy & Exemptions](docs/policy-layers-and-exemptions.md) for org / project / repo precedence and the non-overridable floor.
+
+The install flag still sets the starting posture, and an observe install combined with `PRISMOR_LOCAL_DRY_RUN=1` acts as a local dry-run kill-switch that suppresses all blocking:
 
 ```bash
-immunity install-hooks --agent all --mode observe    # log only
-immunity install-hooks --agent all --mode enforce    # block dangerous actions
+immunity install-hooks --agent all --mode observe    # start in observe everywhere
+immunity install-hooks --agent all --mode enforce    # honor policy enforce rules
 ```
+
+> **Upgrading from a pre-`mode` release?** Backward compatibility is preserved: a policy that predates per-rule modes (it sets `settings.block_categories` but no `default_mode` and no rule-level `mode`) keeps its original behavior — those categories still block when installed with `--mode enforce`. The moment your policy adopts the per-rule model (any `mode`/`default_mode`), it becomes fully policy-authoritative as described above.
 
 ---
 

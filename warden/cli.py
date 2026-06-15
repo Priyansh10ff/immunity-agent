@@ -16,6 +16,9 @@ Commands:
   uninstall-hooks Remove IDE hooks
   hook-dispatch Internal: called by IDE hooks (not for direct use)
   serve         Start a local HTTP API server for the Prismor web dashboard
+  enroll TOKEN  Enroll this machine into a Prismor org (central observability + policy)
+  enroll-status Show this machine's enrollment status
+  logout        Un-enroll this machine (remove device identity + cached remote policy)
   policy init   Generate a starter policy.yaml for your project
   policy validate  Validate a policy.yaml file
   sweep         Scan AI tool configs for leaked secrets
@@ -73,7 +76,7 @@ except ImportError:
     sys.exit(1)
 
 from warden.feed import load_feed, match_advisories
-from warden.hooks import install_hooks, normalize_payload, should_block, uninstall_hooks
+from warden.hooks import install_hooks, legacy_should_block, normalize_payload, should_block, uninstall_hooks
 from warden.policy_engine import PolicyEngine, validate_policy
 from warden.store import (
     append_session_event,
@@ -108,8 +111,12 @@ _NC = "\033[0m"
 
 
 def _color(text: str, color: str) -> str:
-    """Apply ANSI color if stdout is a terminal."""
-    if not sys.stderr.isatty():
+    """Apply ANSI color only when writing to an interactive terminal.
+
+    Checks stdout (where most colored output goes) and honors NO_COLOR, so
+    piped/redirected/CI output never leaks raw escape sequences as literal text.
+    """
+    if os.environ.get("NO_COLOR") or not sys.stdout.isatty():
         return text
     return f"{color}{text}{_NC}"
 
@@ -162,7 +169,171 @@ def main(argv: Optional[List[str]] = None) -> None:
 
     # ── info: quick workspace summary ───────────────────────────────────
     if args.command == "info":
+        sys.stderr.write("Note: 'immunity info' is a deprecated alias — use 'immunity status'.\n")
         _print_info(workspace)
+        return
+
+    # ── enroll / device identity ────────────────────────────────────────
+    if args.command == "enroll":
+        from warden.enterprise import identity as _identity
+        token = getattr(args, "token", None) or getattr(args, "token_flag", None)
+        if not token:
+            sys.stderr.write(
+                "error: enrollment token required\n"
+                "  Generate one in the Prismor dashboard (Admin → Devices → Enroll)\n"
+                "  then run:  immunity enroll <token>\n"
+            )
+            raise SystemExit(1)
+        try:
+            ident = _identity.enroll(
+                token,
+                base=getattr(args, "api_base", None),
+                label=getattr(args, "label", None),
+            )
+        except RuntimeError as exc:
+            sys.stderr.write(f"Enrollment failed: {exc}\n")
+            raise SystemExit(1)
+        # Pull the org policy immediately so enforcement reflects admin intent now.
+        try:
+            from warden.enterprise import remote_policy as _remote
+            _remote.fetch(force=True)
+        except Exception:
+            pass
+        org = ident.get("org_name") or ident.get("org_id")
+        print(f"Enrolled this machine ({ident.get('label')}) into org: {org}")
+        print(f"  device id: {ident.get('device_id')}")
+        print("  Telemetry is redacted by default. An admin can enable full capture per org.")
+        return
+
+    if args.command == "enroll-status":
+        from warden.enterprise import identity as _identity
+        ident = _identity.load_identity()
+        if not ident:
+            print("Not enrolled. Run `immunity enroll <token>` to link this machine to an org.")
+            return
+        revoked = _identity.revoked_info()
+        if revoked:
+            print("Enrolled — but the control plane REJECTED this device's key")
+            print(f"  reason:     {revoked.get('reason') or 'rejected (401/403)'}")
+            print("  This device was likely revoked by an org admin. Local protection")
+            print("  still applies (last good policy). Re-link with: immunity enroll <token>")
+        else:
+            print("Enrolled")
+        print(f"  org:        {ident.get('org_name') or ident.get('org_id')}")
+        print(f"  device id:  {ident.get('device_id')}")
+        print(f"  label:      {ident.get('label')}")
+        print(f"  api base:   {ident.get('api_base')}")
+        try:
+            from warden.enterprise import remote_policy as _remote
+            meta_path = _remote._meta_path()
+            if meta_path.exists():
+                import json as _json
+                meta = _json.loads(meta_path.read_text(encoding="utf-8"))
+                print(f"  policy:     v{meta.get('version')} (scope: {meta.get('scope')})")
+                if meta.get("full_capture"):
+                    print("  capture:    FULL — flagged events include scrubbed content (org admin opt-in)")
+                else:
+                    print("  capture:    redacted — only metadata + hashes leave this machine")
+        except Exception:
+            pass
+        try:
+            from warden.enterprise import telemetry_spool as _spool
+            pending = _spool.pending_count()
+            if pending:
+                print(f"  telemetry:  {pending} event(s) spooled for upload (control plane unreachable)")
+        except Exception:
+            pass
+        return
+
+    if args.command == "logout":
+        from warden.enterprise import identity as _identity, remote_policy as _remote
+        had = _identity.clear_identity()
+        _identity.clear_revoked()
+        try:
+            from warden.enterprise import telemetry_spool as _spool
+            _spool.spool_path().unlink(missing_ok=True)
+        except OSError:
+            pass
+        for p in (_remote.cached_policy_path(), _remote._cached_sig_path(), _remote._meta_path()):
+            try:
+                if p.exists():
+                    p.unlink()
+            except OSError:
+                pass
+        print("Un-enrolled." if had else "This machine was not enrolled.")
+        return
+
+    # ── workspace: show/set whether THIS workspace is org-managed or personal ──
+    if args.command == "workspace":
+        from warden.enterprise import workspace_scope as _scope
+        from warden.enterprise import identity as _identity
+        action = getattr(args, "action", None)
+        if action in ("managed", "personal", "auto"):
+            _scope.set_override(workspace, None if action == "auto" else action)
+            print(f"Set scope override for this workspace → {action}")
+        info = _scope.resolve_scope(workspace)
+        ident = _identity.load_identity()
+        print(f"Workspace:  {workspace}")
+        print(f"  git remote: {info.get('remote') or '(none / not a git repo)'}")
+        if not ident:
+            print("  scope:      local-only (this machine is not enrolled)")
+            print("  → Local protection is active. Nothing is reported anywhere.")
+            return
+        scope = info.get("scope")
+        reason = info.get("reason")
+        if scope == "managed":
+            why = {"org_claimed": "matches an org-claimed repo pattern (cannot be downgraded)",
+                   "opt_in": "you opted this repo in",
+                   "default_all": "your org governs all enrolled machines (no per-repo scoping set)"}.get(reason, reason)
+            print(f"  scope:      ORG-MANAGED — {why}")
+            print(f"  org:        {ident.get('org_name') or ident.get('org_id')}")
+            print("  → Org policy applies and redacted telemetry is reported to your org.")
+            if reason in ("default_all", "opt_in"):
+                print("  → Personal repo? Run `immunity scope personal` to keep it local-only.")
+        else:
+            why = {"opt_out": "you marked it personal", "personal": "not an org-claimed repo"}.get(reason, reason)
+            print(f"  scope:      personal / local-only — {why}")
+            print("  → Local protection is active, but NOTHING is reported to your org")
+            print("    and no org policy applies. Use `immunity scope managed` to opt in.")
+        pats = _scope.org_managed_patterns()
+        if pats:
+            print(f"  org claims: {', '.join(pats)}")
+        return
+
+    # ── exempt: request an admin exemption for THIS repo ───────────────
+    if args.command == "exempt":
+        from warden.enterprise import identity as _identity, workspace_scope as _scope
+        ident = _identity.load_identity()
+        if not ident:
+            print("This machine is not enrolled. Run `immunity enroll <token>` first.")
+            return
+        remote = _scope.detect_git_remote(workspace)
+        if not remote:
+            print("Not a git repo (no origin remote) — can't request an exemption here.")
+            return
+        reason = getattr(args, "reason", None)
+        if not reason:
+            print("A reason is required: immunity exempt request --reason \"why this repo needs it\"")
+            return
+        import json as _json, urllib.request, urllib.error
+        base = str(ident.get("api_base") or _identity.api_base()).rstrip("/")
+        payload = _json.dumps({"repo": remote, "reason": reason}).encode("utf-8")
+        req = urllib.request.Request(
+            f"{base}/api/devices/exemptions", data=payload, method="POST",
+            headers={"Content-Type": "application/json", "Authorization": f"Bearer {ident.get('device_key')}"},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                body = _json.loads(resp.read().decode("utf-8"))
+            print(f"Exemption requested for {remote}.")
+            print(f"  reason: {reason}")
+            print("  → An admin must approve it before any rule is relaxed. Until then,")
+            print("    this repo keeps full org policy. The request is visible in the admin console.")
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", "replace")[:200] if exc.fp else ""
+            print(f"Request failed ({exc.code}): {detail or exc.reason}")
+        except (urllib.error.URLError, ValueError, OSError) as exc:
+            print(f"Request failed: {exc}")
         return
 
     # ── check: quick pre-check a command or path ───────────────────────
@@ -299,7 +470,7 @@ def main(argv: Optional[List[str]] = None) -> None:
         summary = result["summary"]
 
         print()
-        print(f"  {_color('PRISMOR WARDEN', _BOLD)}  skill scanner")
+        print(f"  {_color('PRISMOR IMMUNITY', _BOLD)}  skill scanner")
         print(f"  {_color('─' * 50, _DIM)}")
         print()
 
@@ -364,7 +535,7 @@ def main(argv: Optional[List[str]] = None) -> None:
             return
 
         print()
-        print(f"  {_color('PRISMOR WARDEN', _BOLD)}  dependency check")
+        print(f"  {_color('PRISMOR IMMUNITY', _BOLD)}  dependency check")
         print(f"  {_color('─' * 50, _DIM)}")
         print()
 
@@ -435,7 +606,7 @@ def main(argv: Optional[List[str]] = None) -> None:
             return
 
         print()
-        print(f"  {_color('PRISMOR WARDEN', _BOLD)}  security audit")
+        print(f"  {_color('PRISMOR IMMUNITY', _BOLD)}  security audit")
         print(f"  {_color('─' * 58, _DIM)}")
         print()
 
@@ -647,6 +818,18 @@ def main(argv: Optional[List[str]] = None) -> None:
     # ── hook-dispatch (called by IDE hooks) ────────────────────────────
     if args.command == "hook-dispatch":
         register_workspace(workspace)
+
+        # Keep org-managed policy fresh on the hot path: a cheap, debounced
+        # (~30s) version check that pulls the full signed policy only when the
+        # admin has changed it. Synchronous so a changed policy takes effect on
+        # THIS call; no-op when not enrolled or within the debounce window.
+        # Best-effort — never blocks the tool call beyond a short timeout.
+        try:
+            from warden.enterprise import remote_policy as _remote
+            _remote.check_and_refresh()
+        except Exception:
+            pass
+
         payload = json.loads(sys.stdin.read() or "{}")
         normalized = normalize_payload(agent=args.agent, payload=payload, workspace=workspace)
         event = normalized["event"]
@@ -724,12 +907,35 @@ def main(argv: Optional[List[str]] = None) -> None:
             except Exception as _ev_exc:
                 sys.stderr.write(f"[warden] evasion detection error: {_ev_exc}\n")
 
+        # ── Learning: staged-execution / fetch-then-exec / exfil correlation ──
+        # Catches the cross-call bypass where a file is created in one tool call
+        # (download, redirect, Write) and executed/exfiltrated in another.
+        if not current_findings and event.get("type") == "shell":
+            try:
+                from warden.learning import detect_staged_execution as _detect_staged
+                _staged_findings = _detect_staged(workspace, normalized["sessionId"], event, current_findings)
+                if _staged_findings:
+                    current_findings.extend(_staged_findings)
+            except Exception as _staged_exc:
+                sys.stderr.write(f"[warden] staged-exec detection error: {_staged_exc}\n")
+
         # Forward findings to configured telemetry sinks (webhook/syslog/file)
         # BEFORE the blocking decision — so a SIEM sees every event, even
         # the ones that get blocked. Dispatch is best-effort.
         if _current_engine.outputs and current_findings:
             try:
                 from warden.sinks import dispatch as _sink_dispatch
+                # Tag telemetry with the repo and the policy scope so the org
+                # dashboard SHOWS when a repo is running under a granted
+                # exemption (vs full org policy) — exempted repos stay visible.
+                _exm = getattr(_current_engine, "active_exemption", None)
+                _policy_scope = f"repo_exemption:{_exm.get('id')}" if isinstance(_exm, dict) and _exm.get("id") else "org"
+                _repo = None
+                try:
+                    from warden.enterprise import workspace_scope as _ws
+                    _repo = _ws.detect_git_remote(workspace)
+                except Exception:
+                    _repo = None
                 _sink_dispatch(
                     current_findings,
                     _current_engine.outputs,
@@ -738,13 +944,46 @@ def main(argv: Optional[List[str]] = None) -> None:
                         "agent": args.agent,
                         "mode": args.mode,
                         "workspace": str(workspace),
+                        "policy_scope": _policy_scope,
+                        "repo": _repo,
                     },
+                    raw_event=event,
                 )
             except Exception as _sink_exc:
                 sys.stderr.write(f"[warden] sink dispatch error: {_sink_exc}\n")
 
-        blocking = should_block(current_findings, event, block_categories=set(result.get("blockCategories", [])))
-        if args.mode == "enforce" and blocking is not None:
+        # Per-call inspected-volume heartbeat (enterprise observability): count
+        # this tool call; flush the accumulated count at most once per minute.
+        # Carries only a number — no command/path/content. Gated on workspace
+        # scope: personal/local-only workspaces report nothing to the org.
+        if getattr(_current_engine, "workspace_managed", False):
+            try:
+                from warden.enterprise import heartbeat as _heartbeat
+                _heartbeat.record_call(agent=args.agent, session_id=normalized["sessionId"])
+                _heartbeat.maybe_flush()
+            except Exception:
+                pass
+
+        # Enforcement is per-rule and policy-authoritative: should_block() returns
+        # a finding only when its effective mode is "enforce" (the rule's mode, or
+        # the policy's default_mode — both default to "observe"). This is honored
+        # regardless of how the hook was installed (--mode), so an admin flipping a
+        # rule to enforce in the control plane blocks even on observe-installed
+        # devices. A local `--mode observe` still acts as a dry-run kill-switch.
+        blocking = should_block(current_findings, event)
+        # Backward-compat enforce bridge: a policy that predates per-rule
+        # observe/enforce (sets block_categories but no default_mode/mode) keeps
+        # its original semantics — block its block_categories when installed with
+        # --mode enforce — so upgrading an existing install doesn't silently stop
+        # blocking. Any policy that adopts the per-rule model is unaffected.
+        if (
+            blocking is None
+            and args.mode == "enforce"
+            and getattr(_current_engine, "is_legacy_policy", False)
+        ):
+            blocking = legacy_should_block(current_findings, event, _current_engine.block_categories)
+        force_observe = args.mode == "observe" and os.environ.get("PRISMOR_LOCAL_DRY_RUN", "").lower() in {"1", "true", "yes", "on"}
+        if blocking is not None and not force_observe:
             if args.agent == "copilot":
                 # Copilot CLI reads permissionDecision from stdout; exit 2 is ignored.
                 reason = f"[{blocking['severity']}] {blocking['title']}"
@@ -752,20 +991,23 @@ def main(argv: Optional[List[str]] = None) -> None:
                     reason += f"\n{blocking['evidence']}"
                 sys.stdout.write(json.dumps({"permissionDecision": "deny", "permissionDecisionReason": reason}) + "\n")
             else:
-                sys.stderr.write(f"Prismor Warden blocked this action: [{blocking['severity']}] {blocking['title']}\n")
+                sys.stderr.write(f"Prismor Immunity blocked this action: [{blocking['severity']}] {blocking['title']}\n")
                 if blocking.get("evidence"):
                     sys.stderr.write(f"{blocking['evidence']}\n")
                 raise SystemExit(2)
-        elif args.mode == "observe" and blocking is not None:
-            # Show warnings in observe mode so humans/agents see feedback.
-            sys.stderr.write(_color(f"[warden] ", _YELLOW) + f"[{blocking['severity']}] {blocking['title']}\n")
-            # Record as dismissal for learning (observe mode = user saw but continued)
+        elif current_findings:
+            # Observe: surface the most relevant finding so humans/agents see
+            # feedback without the call being blocked. Prefer a would-be-blocking
+            # finding (mode=enforce but dry-run) else the first finding.
+            top = blocking or current_findings[0]
+            sys.stderr.write(_color(f"[warden] ", _YELLOW) + f"[{top['severity']}] {top['title']}\n")
+            # Record as dismissal for learning (observe = user saw but continued).
             try:
                 from warden.learning import record_dismissal as _record_dismissal
                 _record_dismissal(
                     workspace, normalized["sessionId"],
-                    blocking.get("ruleId", "unknown"),
-                    blocking.get("evidence", ""),
+                    top.get("ruleId", "unknown"),
+                    top.get("evidence", ""),
                     "user_skip",
                 )
             except Exception:
@@ -821,7 +1063,7 @@ def main(argv: Optional[List[str]] = None) -> None:
 
         if subcmd == "list" or subcmd is None:
             active = _get_agent_id()
-            print(f"\n  {_color('Warden IAM', _BOLD)}  agent identities\n")
+            print(f"\n  {_color('PRISMOR IMMUNITY', _BOLD)}  agent identities\n")
             if not agent_ids:
                 print(f"  {_color('No agents defined.', _DIM)}")
                 print(f"  Run: immunity iam init\n")
@@ -1200,7 +1442,7 @@ def main(argv: Optional[List[str]] = None) -> None:
             if not entries:
                 print("No canaries planted. Try:  immunity canary plant ~/.aws/credentials.canary --type aws")
                 return
-            print(f"  {_color('PRISMOR WARDEN', _BOLD)}  canaries")
+            print(f"  {_color('PRISMOR IMMUNITY', _BOLD)}  canaries")
             print(f"  {_color('─' * 50, _DIM)}")
             for e in entries:
                 print(f"  {e['id']}  {e['type']:7s}  {e['path']}")
@@ -1244,6 +1486,17 @@ def main(argv: Optional[List[str]] = None) -> None:
         if args.policy_command == "test":
             _policy_test(workspace, test_file=getattr(args, "file", None))
             return
+        # No action given → print usage instead of the cryptic
+        # "Unsupported command: policy" (the command IS supported; it needs an action).
+        sys.stderr.write(
+            "Usage: immunity policy {init|validate|show|edit|test}\n"
+            "  init      Write a starter .prismor-warden/policy.yaml\n"
+            "  validate  Check a policy file against the schema + floor\n"
+            "  show      Print the effective policy for this workspace\n"
+            "  edit      Open the policy in $EDITOR\n"
+            "  test      Run policy-tests.yaml against the engine\n"
+        )
+        raise SystemExit(2)
 
     # ── scope subcommands ───────────────────────────────────────────────
     if args.command == "scope":
@@ -1261,20 +1514,23 @@ def main(argv: Optional[List[str]] = None) -> None:
                     return
                 print(format_scoped_rules_box(rules))
             else:
+                # No session id → a compact list (not a wall of full boxes for
+                # every session). Pass an id to see one session's rules in full.
                 sessions = list_scoped_sessions(workspace)
                 if not sessions:
                     print("No active scoped sessions.")
                     return
+                print("Showing all scoped sessions — pass an id for full rules: immunity scope show <session-id>")
                 for s in sessions:
-                    print(f"\n  Session: {s['session_id']}")
-                    print(format_scoped_rules_box(s["rules"]))
+                    tools = ", ".join(s["rules"].get("allowed_tools", []))
+                    print(f"  {s['session_id']}  tools: [{tools}]")
             return
         if sub == "list":
             sessions = list_scoped_sessions(workspace)
             if not sessions:
                 print("No active scoped sessions.")
                 return
-            print(f"  {_color('PRISMOR WARDEN', _BOLD)}  scoped sessions")
+            print(f"  {_color('PRISMOR IMMUNITY', _BOLD)}  scoped sessions")
             print(f"  {_color('─' * 50, _DIM)}")
             for s in sessions:
                 tools = ", ".join(s["rules"].get("allowed_tools", []))
@@ -1297,15 +1553,15 @@ def main(argv: Optional[List[str]] = None) -> None:
             else:
                 print(f"No scoped rules for session '{sid}'")
             return
-        # Default: show all
-        sessions = list_scoped_sessions(workspace)
-        if not sessions:
-            print("No active scoped sessions. Scoped rules are created automatically on session start.")
-            return
-        for s in sessions:
-            print(f"\n  Session: {s['session_id']}")
-            print(format_scoped_rules_box(s["rules"]))
-        return
+        # No action → print usage instead of dumping every session's full box.
+        sys.stderr.write(
+            "Usage: immunity scope {list|show|edit|clear} [session-id]\n"
+            "  list             List active scoped sessions (compact)\n"
+            "  show [session]   Show rules — compact for all, full for one session\n"
+            "  edit <session>   Edit a session's scoped rules in $EDITOR\n"
+            "  clear <session>  Remove a session's scoped rules\n"
+        )
+        raise SystemExit(2)
 
     # ── learn subcommand ──────────────────────────────────────────────
     if args.command == "learn":
@@ -1350,7 +1606,7 @@ def main(argv: Optional[List[str]] = None) -> None:
             if not pending:
                 print("No pending candidate rules.")
                 return
-            print(f"  {_color('PRISMOR WARDEN', _BOLD)}  candidate rules")
+            print(f"  {_color('PRISMOR IMMUNITY', _BOLD)}  candidate rules")
             print(f"  {_color('─' * 50, _DIM)}")
             for c in pending:
                 rule = c["rule"]
@@ -1425,7 +1681,11 @@ def main(argv: Optional[List[str]] = None) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Prismor Warden — local session-security utility for AI coding agents.",
+        # `immunity` is the canonical entrypoint that forwards here, so anchor
+        # usage/error strings to it instead of leaking the module filename
+        # (argparse otherwise shows "immunity_cli.py" in subcommand usage/errors).
+        prog="immunity",
+        description="Prismor Immunity — runtime security for AI coding agents.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--workspace", help="Workspace path (applies to all commands)")
@@ -1578,6 +1838,25 @@ def build_parser() -> argparse.ArgumentParser:
     policy_test = policy_sub.add_parser("test", help="Run declarative policy tests from policy-tests.yaml")
     policy_test.add_argument("--file", help="Path to policy-tests.yaml (default: .prismor-warden/policy-tests.yaml)")
     policy_test.add_argument("--workspace", help="Workspace path")
+
+    # ── enroll / device identity (enterprise control plane) ─────────────
+    enroll_parser = subparsers.add_parser(
+        "enroll",
+        help="Enroll this machine against a Prismor org for central observability + policy",
+    )
+    enroll_parser.add_argument("token", nargs="?", help="One-time enrollment token from the Prismor dashboard")
+    enroll_parser.add_argument("--token", dest="token_flag", help="Enrollment token (alternative to positional)")
+    enroll_parser.add_argument("--label", help="Human-readable device label (default: hostname)")
+    enroll_parser.add_argument("--api-base", help="Control-plane base URL (default: $PRISMOR_API_BASE)")
+
+    enroll_status = subparsers.add_parser("enroll-status", help="Show this machine's enrollment status")
+
+    subparsers.add_parser("logout", help="Un-enroll this machine (remove device identity + cached remote policy)")
+    workspace_p = subparsers.add_parser("workspace", help="Show or set whether this workspace is org-managed or personal")
+    workspace_p.add_argument("action", nargs="?", choices=["managed", "personal", "auto"], help="managed = report to org; personal = local-only; auto = let org patterns decide")
+    exempt_p = subparsers.add_parser("exempt", help="Request an admin exemption (rule relaxation) for this repo")
+    exempt_p.add_argument("action", nargs="?", choices=["request"], default="request", help="request an exemption")
+    exempt_p.add_argument("--reason", help="Why this repo needs the exemption (required)")
 
     # ── sweep ──────────────────────────────────────────────────────────
     sweep_parser = subparsers.add_parser("sweep", help="Scan AI tool configs for leaked secrets, redact with encrypted vault")
@@ -1835,7 +2114,7 @@ def _print_info(workspace: Path) -> None:
     ws_display = str(workspace).replace(home, "~")
 
     print()
-    print(f"  {_color('PRISMOR WARDEN', _BOLD)}  workspace info")
+    print(f"  {_color('PRISMOR IMMUNITY', _BOLD)}  workspace info")
     print(f"  {_color('─' * 50, _DIM)}")
     print()
 
@@ -1935,7 +2214,7 @@ def _print_dashboard() -> None:
     workspaces = list_registered_workspaces()
 
     print()
-    print(f"  {_color('PRISMOR WARDEN', _BOLD)}  dashboard")
+    print(f"  {_color('PRISMOR IMMUNITY', _BOLD)}  dashboard")
     print(f"  {_color('─' * 50, _DIM)}")
 
     if not workspaces:
@@ -1990,10 +2269,12 @@ def _print_dashboard() -> None:
         risk_str = _color(f"risk={latest_risk}/100", risk_color)
         findings_str = f"{with_findings} findings" if with_findings > 0 else _color("clean", _GREEN)
         mode_str = _color(mode, _GREEN if mode == "enforce" else _YELLOW) if mode else _color("no hooks", _DIM)
-        time_str = _color(latest_time, _DIM) if latest_time else ""
+        # Always render the time column (placeholder when unknown) so rows align
+        # and there's no trailing whitespace on session-less workspaces.
+        time_str = _color(latest_time or "—", _DIM)
 
         print(f"  {_color(ws_display, _BOLD)}")
-        print(f"    {risk_str}  {findings_str}  {mode_str}  {time_str}")
+        print(f"    {risk_str}  {findings_str}  {mode_str}  {time_str}".rstrip())
         print()
 
     total_ws = len(workspaces)
@@ -2040,11 +2321,11 @@ def _print_status(session: Dict[str, Any]) -> None:
     sid = session.get("sessionId", "?")
 
     if findings_count == 0:
-        print(_color("CLEAN", _GREEN) + f"  session={sid}  risk={risk}/100")
+        print("  " + _color("CLEAN", _GREEN) + f"  session={sid}  risk={risk}/100")
         return
 
     risk_color = _RED if risk >= 50 else _YELLOW if risk >= 20 else _GREEN
-    print(_color(f"RISK {risk}/100", risk_color) + f"  session={sid}  findings={findings_count}")
+    print("  " + _color(f"RISK {risk}/100", risk_color) + f"  session={sid}  findings={findings_count}")
     print()
     for finding in session.get("findings", []):
         sev = finding.get("severity", "?")
@@ -2066,7 +2347,7 @@ def _print_status_overview(workspace: Path) -> None:
     ws_display = str(workspace).replace(home, "~")
 
     print()
-    print(f"  {_color('PRISMOR WARDEN', _BOLD)}  status")
+    print(f"  {_color('PRISMOR IMMUNITY', _BOLD)}  status")
     print(f"  {_color('─' * 50, _DIM)}")
     print()
     print(f"  {_color('Workspace:', _GREEN)}   {ws_display}")
@@ -2232,7 +2513,7 @@ def _policy_test(workspace: Path, test_file: Optional[str] = None) -> None:
 
     result = run_cases(cases, workspace=workspace)
     print()
-    print(f"  {_color('PRISMOR WARDEN', _BOLD)}  policy tests ({path.name})")
+    print(f"  {_color('PRISMOR IMMUNITY', _BOLD)}  policy tests ({path.name})")
     print(f"  {_color('─' * 50, _DIM)}")
     print()
 
@@ -2351,7 +2632,7 @@ def _policy_edit(workspace: Path) -> None:
     while True:
         n_on = sum(1 for r in all_rules if r["on"])
         buf = "\033[H\033[J\033[?25l"  # home, clear, hide cursor
-        buf += f"\n  {_BOLD}PRISMOR WARDEN{_NC}  policy edit\n"
+        buf += f"\n  {_BOLD}PRISMOR IMMUNITY{_NC}  policy edit\n"
         buf += f"  {_DIM}Workspace: {workspace}{_NC}\n"
         buf += f"  {_DIM}{'─' * 64}{_NC}\n\n"
         buf += f"  {n_on}/{len(all_rules)} rules enabled\n\n"
@@ -2487,7 +2768,7 @@ def format_sarif(
         "runs": [{
             "tool": {
                 "driver": {
-                    "name": "Prismor Warden",
+                    "name": "Prismor Immunity",
                     "version": __version__,
                     "informationUri": "https://github.com/PrismorSec/prismor",
                     "rules": sarif_rules,
@@ -2604,7 +2885,7 @@ def _redact_evidence(evidence: str) -> str:
 
 def format_sessions(payload: Dict[str, Any]) -> str:
     sessions = payload["sessions"]
-    lines = ["Prismor Warden Sessions", "======================="]
+    lines = ["Prismor Immunity Sessions", "========================="]
     if not sessions:
         lines.append("No sessions stored.")
         return "\n".join(lines)
@@ -2632,7 +2913,7 @@ def format_sessions(payload: Dict[str, Any]) -> str:
 
 def format_analysis(result: Dict[str, Any]) -> str:
     lines = [
-        "Prismor Warden Report",
+        "Prismor Immunity Report",
         "=====================",
         f"Events: {result['summary']['totalEvents']}",
         f"Findings: {result['summary']['totalFindings']}",

@@ -311,6 +311,9 @@ def _scoped_finding(session_id: str, reason: str, event_type: str) -> Dict[str, 
         "evidence": reason,
         "ruleId": "scoped-agent",
         "action": "block",
+        # Scope denials (IAM / scoped-agent) are explicit operator intent, not
+        # observe-by-default detection — they always enforce.
+        "mode": "enforce",
     }
 
 
@@ -323,7 +326,13 @@ _DIM = "\033[37m"
 
 
 def format_scoped_rules_box(rules: Dict[str, Any]) -> str:
-    """Format scoped rules as an ASCII box for stderr display."""
+    """Format scoped rules as an ASCII box. Colors only on an interactive
+    terminal (honors NO_COLOR) so piped/redirected output doesn't leak raw
+    ANSI escape sequences as literal text."""
+    import os as _os
+    _use_color = sys.stdout.isatty() and not _os.environ.get("NO_COLOR")
+    _C = _CYAN if _use_color else ""
+    _N = _NC if _use_color else ""
     allowed = ", ".join(rules.get("allowed_tools", []))
     paths = ", ".join(rules.get("allowed_paths", []))
     denied = ", ".join(rules.get("deny_tools", []))
@@ -344,10 +353,10 @@ def format_scoped_rules_box(rules: Dict[str, Any]) -> str:
     lines = []
     header = " scoped agent rules for this session "
     pad = border - 2 - len(header)
-    lines.append(f"{_CYAN}\u250c\u2500{header}" + "\u2500" * pad + f"\u2510{_NC}")
+    lines.append(f"{_C}\u250c\u2500{header}" + "\u2500" * pad + f"\u2510{_N}")
     for cl in content_lines:
         padding = border - 2 - len(cl)
-        lines.append(f"{_CYAN}\u2502{_NC}{cl}" + " " * padding + f"{_CYAN}\u2502{_NC}")
-    lines.append(f"{_CYAN}\u2514" + "\u2500" * border + f"\u2518{_NC}")
+        lines.append(f"{_C}\u2502{_N}{cl}" + " " * padding + f"{_C}\u2502{_N}")
+    lines.append(f"{_C}\u2514" + "\u2500" * border + f"\u2518{_N}")
 
     return "\n".join(lines)

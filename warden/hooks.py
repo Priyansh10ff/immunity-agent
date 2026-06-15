@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import shutil
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -13,12 +14,31 @@ from warden.store import append_session_event
 _SUPPORTED_AGENTS = ["claude", "cursor", "windsurf", "openclaw", "hermes", "copilot"]
 
 
+def _strip_for_agent(agent: str, config: Dict[str, Any], marker: str) -> Tuple[Dict[str, Any], bool]:
+    """Remove hooks whose command contains `marker`, for the given agent's config."""
+    if agent == "claude":
+        return _strip_claude(config, marker)
+    if agent == "cursor":
+        return _strip_cursor(config, marker)
+    if agent == "openclaw":
+        return _strip_openclaw(config, marker)
+    if agent == "hermes":
+        return _strip_hermes(config, marker)
+    if agent == "copilot":
+        return _strip_copilot(config, marker)
+    return _strip_windsurf(config, marker)
+
+
 def install_hooks(*, repo_root: Path, workspace: Path, agent: str, scope: str, mode: str) -> List[Dict[str, str]]:
     agents = list(_SUPPORTED_AGENTS) if agent == "all" else [agent]
     results = []
     for current_agent in agents:
         config_path = _config_path(current_agent, scope, workspace)
         config = _read_json(config_path)
+        # Idempotent + auto-migrating: drop any prior hook-dispatch hook (this
+        # version's, or an older one that used a warden/cli.py path) before adding
+        # the current command, so re-running install never double-dispatches.
+        config, _ = _strip_for_agent(current_agent, config, "hook-dispatch")
         command = _dispatcher_command(repo_root=repo_root, workspace=workspace, agent=current_agent, mode=mode)
         if current_agent == "claude":
             config = _merge_claude(config, command, workspace)
@@ -47,19 +67,11 @@ def uninstall_hooks(*, repo_root: Path, workspace: Path, agent: str, scope: str)
         removed = False
         if config_path.exists():
             config = _read_json(config_path)
-            marker = str(repo_root / "warden" / "cli.py")
-            if current_agent == "claude":
-                config, removed = _strip_claude(config, marker)
-            elif current_agent == "cursor":
-                config, removed = _strip_cursor(config, marker)
-            elif current_agent == "openclaw":
-                config, removed = _strip_openclaw(config, marker)
-            elif current_agent == "hermes":
-                config, removed = _strip_hermes(config, marker)
-            elif current_agent == "copilot":
-                config, removed = _strip_copilot(config, marker)
-            else:
-                config, removed = _strip_windsurf(config, marker)
+            # Match the stable hook-dispatch token rather than a specific script
+            # path, so uninstall removes BOTH the current immunity-routed hooks
+            # and any installed by an older build (which used a warden/cli.py path).
+            marker = "hook-dispatch"
+            config, removed = _strip_for_agent(current_agent, config, marker)
             if removed:
                 config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
         # Also clean up internal hook directory for openclaw / hermes
@@ -143,17 +155,46 @@ def _default_block_categories() -> set:
 def should_block(
     findings: List[Dict[str, Any]],
     event: Dict[str, Any],
-    block_categories: set | None = None,
+    block_categories: set | None = None,  # legacy/no-op; kept for call-site compat
 ) -> Dict[str, Any] | None:
     if not _is_pre_action(str(event.get("agent_event", ""))):
         return None
 
-    categories = block_categories if block_categories is not None else _default_block_categories()
+    # Authoritative enforce lever is the per-finding `mode` (derived from the
+    # rule's mode, else the policy's default_mode — both default to "observe").
+    # A finding blocks only when its effective mode is "enforce". block_categories
+    # no longer gates this (every category is observe-by-default until enforced).
     for finding in findings:
-        if finding.get("category") in categories:
+        if str(finding.get("mode", "observe")).lower() == "enforce":
             # Reads are generally safe, so they only block for secret access —
             # except for IAM, where an operator has explicitly scoped which
             # paths/tools an identity may read, and that intent must be honored.
+            if (
+                event.get("type") == "file_read"
+                and finding.get("category") not in ("secret_access", "iam")
+            ):
+                continue
+            return finding
+    return None
+
+
+def legacy_should_block(
+    findings: List[Dict[str, Any]],
+    event: Dict[str, Any],
+    block_categories: set,
+) -> Dict[str, Any] | None:
+    """Backward-compat block decision for policies that predate per-rule
+    observe/enforce (see PolicyEngine.is_legacy_policy). Replicates the original
+    semantics: on a pre-action event, block a finding whose category is in the
+    policy's ``block_categories`` — with the same read carve-out as the modern
+    path. Only invoked by cli.py when installed with ``--mode enforce``.
+    """
+    if not block_categories:
+        return None
+    if not _is_pre_action(str(event.get("agent_event", ""))):
+        return None
+    for finding in findings:
+        if finding.get("category") in block_categories:
             if (
                 event.get("type") == "file_read"
                 and finding.get("category") not in ("secret_access", "iam")
@@ -192,8 +233,16 @@ def _config_path(agent: str, scope: str, workspace: Path) -> Path:
 
 
 def _dispatcher_command(*, repo_root: Path, workspace: Path, agent: str, mode: str) -> str:
-    script_path = repo_root / "warden" / "cli.py"
-    return f'python3 "{script_path}" hook-dispatch --agent {agent} --workspace "{workspace}" --mode {mode}'
+    # Route through the immunity CLI for consistency (one canonical entry point),
+    # invoked as a module with the current interpreter. Using `-m` + sys.executable
+    # — rather than a raw path to warden/cli.py — keeps the hook working across
+    # editable installs (no physical file to vanish) and avoids depending on the
+    # `immunity` console-script being on PATH inside the IDE's hook environment.
+    py = sys.executable or "python3"
+    return (
+        f'"{py}" -m warden.immunity_cli hook-dispatch '
+        f'--agent {agent} --workspace "{workspace}" --mode {mode}'
+    )
 
 
 def _merge_claude(config: Dict[str, Any], command: str, workspace: Path) -> Dict[str, Any]:
