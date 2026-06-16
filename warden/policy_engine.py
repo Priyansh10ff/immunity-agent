@@ -262,6 +262,7 @@ class PolicyEngine:
         self.egress_allowlist: List[str] = []
         self.outputs: List[Dict[str, Any]] = []
         self.semantic_guard_config: Dict[str, Any] = {}
+        self.sandbox_config: Dict[str, Any] = {}
         self._semantic_guard = None  # lazy-instantiated on first uncertain event
         self.remote_policy_meta: Dict[str, Any] = {}
         self._default_mode_explicit: bool = False
@@ -502,6 +503,10 @@ class PolicyEngine:
         if isinstance(sg, dict):
             self.semantic_guard_config = sg
 
+        sandbox = settings.get("sandbox") or {}
+        if isinstance(sandbox, dict):
+            self.sandbox_config = sandbox
+
         # Compile rules.
         for rule_data in rules_by_id.values():
             if rule_data.get("enabled", True):
@@ -574,8 +579,14 @@ class PolicyEngine:
                 "action": rule.action,
                 # Effective observe/enforce for this finding — per-rule override
                 # else the policy's default_mode. should_block() blocks only when
-                # this is "enforce".
-                "mode": rule.mode or self.default_mode,
+                # this is "enforce". EXCEPTION: the non-overridable floor (core
+                # rule IDs + core block categories) always enforces — it can't be
+                # left in observe by default_mode, nor downgraded by an overlay.
+                "mode": (
+                    "enforce"
+                    if (rule.id in _NON_OVERRIDABLE_RULE_IDS or rule.category in _CORE_BLOCK_CATEGORIES)
+                    else (rule.mode or self.default_mode)
+                ),
             })
 
         # ── Canarytoken access check ────────────────────────────────────
@@ -883,6 +894,14 @@ class PolicyEngine:
                     if _domain:
                         taint.add_domain(_domain)
 
+        # Normalize enforcement for code-authored (synthetic) findings: canary /
+        # vault / cloaked-secret-exfil / taint / html-injection carry
+        # action:"block" but no `mode`. They are intrinsic hard-floor protections
+        # and must enforce regardless of default_mode. Rule-derived findings set
+        # `mode` above, so setdefault is a no-op for them.
+        for _f in findings:
+            if "mode" not in _f:
+                _f["mode"] = "enforce" if str(_f.get("action")) == "block" else "observe"
         return findings
 
     def _get_semantic_guard(self):
