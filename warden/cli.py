@@ -254,7 +254,11 @@ def main(argv: Optional[List[str]] = None) -> None:
             _spool.spool_path().unlink(missing_ok=True)
         except OSError:
             pass
-        for p in (_remote.cached_policy_path(), _remote._cached_sig_path(), _remote._meta_path()):
+        # Clear all enrolled-state residue (audit #18): cached policy/sig/meta,
+        # plus the heartbeat counter (session metadata) and workspace-scope map.
+        _home = _identity.prismor_home()
+        for p in (_remote.cached_policy_path(), _remote._cached_sig_path(), _remote._meta_path(),
+                  _home / "heartbeat.json", _home / "workspace-scopes.json"):
             try:
                 if p.exists():
                     p.unlink()
@@ -627,6 +631,7 @@ def main(argv: Optional[List[str]] = None) -> None:
             "permissions": "Secret Permissions",
             "feed": "Threat Feed",
             "network": "Network Isolation",
+            "sandbox": "Sandbox",
             "supply_chain": "Supply Chain",
         }
 
@@ -930,12 +935,17 @@ def main(argv: Optional[List[str]] = None) -> None:
                 # exemption (vs full org policy) — exempted repos stay visible.
                 _exm = getattr(_current_engine, "active_exemption", None)
                 _policy_scope = f"repo_exemption:{_exm.get('id')}" if isinstance(_exm, dict) and _exm.get("id") else "org"
+                # Only attach the repo identifier for org-MANAGED workspaces
+                # (audit #17): a personal/local-only repo must never have its
+                # remote leaked to the org, regardless of sink configuration.
+                # Mirrors the explicit gate on the heartbeat below.
                 _repo = None
-                try:
-                    from warden.enterprise import workspace_scope as _ws
-                    _repo = _ws.detect_git_remote(workspace)
-                except Exception:
-                    _repo = None
+                if getattr(_current_engine, "workspace_managed", False):
+                    try:
+                        from warden.enterprise import workspace_scope as _ws
+                        _repo = _ws.detect_git_remote(workspace)
+                    except Exception:
+                        _repo = None
                 _sink_dispatch(
                     current_findings,
                     _current_engine.outputs,
@@ -1012,7 +1022,102 @@ def main(argv: Optional[List[str]] = None) -> None:
                 )
             except Exception:
                 pass  # best-effort, don't break the hook
+
+        # Docker sandboxing is applied after policy/IAM/scoped checks have had a
+        # chance to deny the original command. For Claude Bash hooks we can
+        # rewrite the tool input; other agents keep normal policy enforcement.
+        try:
+            from warden import sandbox as _sandbox
+            _sandbox_cfg = _sandbox.effective_config(getattr(_current_engine, "sandbox_config", {}))
+            if (
+                args.agent == "claude"
+                and event.get("agent_event") == "PreToolUse"
+                and event.get("type") == "shell"
+                and _sandbox_cfg.get("enabled")
+            ):
+                _sandbox_status = _sandbox.docker_status()
+                _sandbox_ready = bool(_sandbox_status.get("cli_found") and _sandbox_status.get("server_reachable"))
+                if not _sandbox_ready:
+                    reason = _sandbox_status.get("error") or "Docker is not reachable"
+                    if str(_sandbox_cfg.get("mode", "observe")).lower() == "enforce":
+                        sys.stderr.write(f"Prismor sandbox blocked this action: {reason}\n")
+                        raise SystemExit(2)
+                    sys.stderr.write(_color("[warden] ", _YELLOW) + f"sandbox unavailable; running without sandbox: {reason}\n")
+                else:
+                    update = _sandbox.claude_updated_input(
+                        payload=payload,
+                        workspace=workspace,
+                        mode=str(_sandbox_cfg.get("mode", "observe")),
+                    )
+                    if update:
+                        sys.stdout.write(json.dumps(update) + "\n")
+        except SystemExit:
+            raise
+        except Exception as _sandbox_exc:
+            sys.stderr.write(f"[warden] sandbox error: {_sandbox_exc}\n")
         return
+
+    # ── sandbox ────────────────────────────────────────────────────────
+    if args.command == "sandbox":
+        from warden import sandbox as _sandbox
+        engine = PolicyEngine(workspace=workspace)
+        cfg = _sandbox.effective_config(getattr(engine, "sandbox_config", {}))
+        subcmd = getattr(args, "sandbox_command", None) or "status"
+
+        if subcmd == "status":
+            report = _sandbox.status_report(cfg)
+            if getattr(args, "json", False):
+                print(json.dumps(report, indent=2))
+                return
+            print()
+            print(f"  {_color('PRISMOR IMMUNITY', _BOLD)}  sandbox status")
+            print(f"  {_color('─' * 50, _DIM)}")
+            print()
+            print(f"  {_color('Enabled:', _GREEN)}      {report['enabled']}")
+            print(f"  {_color('Mode:', _GREEN)}         {report['mode']}")
+            print(f"  {_color('Backend:', _GREEN)}      {report['backend']}")
+            print(f"  {_color('Image:', _GREEN)}        {report['image']}")
+            print(f"  {_color('Network:', _GREEN)}      {report['network']}")
+            docker = report["docker"]
+            if docker.get("cli_found") and docker.get("server_reachable"):
+                print(f"  {_color('Docker:', _GREEN)}       available ({docker.get('server_version', 'unknown')})")
+            else:
+                print(f"  {_color('Docker:', _YELLOW)}       unavailable — {docker.get('error') or 'not reachable'}")
+            print()
+            return
+
+        if subcmd == "check":
+            report = _sandbox.status_report(cfg)
+            ready = report["docker"].get("cli_found") and report["docker"].get("server_reachable")
+            if ready:
+                print(_color("PASS", _GREEN) + "  Docker sandbox backend is available")
+                return
+            print(_color("FAIL", _RED) + f"  Docker sandbox backend unavailable: {report['docker'].get('error')}")
+            raise SystemExit(1)
+
+        if subcmd == "run":
+            cmd = getattr(args, "command_string", None)
+            encoded = getattr(args, "encoded", None)
+            if encoded:
+                try:
+                    cmd = _sandbox.decode_command(encoded)
+                except Exception as exc:
+                    sys.stderr.write(f"error: invalid encoded command: {exc}\n")
+                    raise SystemExit(1)
+            elif not cmd:
+                pieces = getattr(args, "command", None) or []
+                if pieces and pieces[0] == "--":
+                    pieces = pieces[1:]
+                cmd = " ".join(pieces)
+            if not cmd:
+                sys.stderr.write("error: command required (use `immunity sandbox run -- <cmd>`)\n")
+                raise SystemExit(1)
+            if getattr(args, "mode", None):
+                cfg["mode"] = args.mode
+            exit_code = _sandbox.run(cmd, workspace=workspace, config=cfg)
+            raise SystemExit(exit_code)
+
+        raise SystemExit(f"Unsupported sandbox command: {subcmd}")
 
     # ── setup ──────────────────────────────────────────────────────────
     if args.command == "setup":
@@ -1762,6 +1867,26 @@ def build_parser() -> argparse.ArgumentParser:
     audit_parser.add_argument("--fix", action="store_true", help="Auto-remediate fixable issues")
     audit_parser.add_argument("--json", action="store_true", help="Output raw JSON")
 
+    # ── sandbox ────────────────────────────────────────────────────────
+    sandbox_parser = subparsers.add_parser(
+        "sandbox",
+        help="Docker-backed sandbox for allowed shell commands",
+        description="Docker-backed sandbox for allowed shell commands",
+    )
+    sandbox_parser.add_argument("--workspace", help="Workspace path")
+    sandbox_sub = sandbox_parser.add_subparsers(dest="sandbox_command")
+
+    sandbox_status = sandbox_sub.add_parser("status", help="Show sandbox configuration and Docker readiness")
+    sandbox_status.add_argument("--json", action="store_true", help="Output raw JSON")
+
+    sandbox_sub.add_parser("check", help="Check whether the Docker sandbox backend is available")
+
+    sandbox_run = sandbox_sub.add_parser("run", help="Run a command inside the configured sandbox")
+    sandbox_run.add_argument("--mode", choices=["observe", "enforce"], help="Override sandbox mode for this run")
+    sandbox_run.add_argument("--encoded", help="Base64url-encoded command string (used by hooks)")
+    sandbox_run.add_argument("command", nargs=argparse.REMAINDER, help="Command after --")
+    sandbox_run.add_argument("--command-string", help=argparse.SUPPRESS)
+
     # ── status ─────────────────────────────────────────────────────────
     status_parser = subparsers.add_parser(
         "status",
@@ -2465,6 +2590,16 @@ allowlists:
   #   rule_ids: ["secret-access"]
   #   patterns: ["\\.env$"]
   #   reason: ".env in this project only has non-sensitive defaults"
+
+settings:
+  # Optional Docker-backed sandbox for Claude Bash tool calls. Warden still
+  # evaluates the original command first; allowed commands are rewritten to
+  # `immunity sandbox run`.
+  # sandbox:
+  #   enabled: true
+  #   mode: enforce
+  #   network: none
+  #   image: python:3.12-slim
 '''
     target.write_text(starter, encoding="utf-8")
     print(f"Created {target}")
