@@ -21,6 +21,7 @@ Properties:
 """
 from __future__ import annotations
 
+import datetime as _dt
 import json
 import os
 from contextlib import contextmanager
@@ -30,6 +31,30 @@ from typing import Any, Dict, Iterator, List
 from warden.enterprise import identity as _identity
 
 SPOOL_MAX_RECORDS = 1000
+# Age cap (audit #20 / privacy F-7): spooled telemetry must not linger on a
+# developer's laptop beyond the org's retention window. Records older than this
+# are dropped on the next append/drain. Override via env; 0 disables.
+try:
+    SPOOL_MAX_AGE_DAYS = float(os.environ.get("PRISMOR_SPOOL_MAX_AGE_DAYS", "30") or 30)
+except ValueError:
+    SPOOL_MAX_AGE_DAYS = 30.0
+
+
+def _fresh(records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Drop records older than SPOOL_MAX_AGE_DAYS (by their ISO ``ts``)."""
+    if SPOOL_MAX_AGE_DAYS <= 0:
+        return records
+    cutoff = _dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(days=SPOOL_MAX_AGE_DAYS)
+    out: List[Dict[str, Any]] = []
+    for r in records:
+        ts = r.get("ts")
+        try:
+            t = _dt.datetime.fromisoformat(str(ts).replace("Z", "+00:00")) if ts else None
+        except ValueError:
+            t = None
+        if t is None or t >= cutoff:
+            out.append(r)
+    return out
 
 
 def spool_path() -> Path:
@@ -96,7 +121,7 @@ def append(records: List[Dict[str, Any]]) -> None:
     try:
         with _locked(path):
             existing = _read_records(path)
-            merged = (existing + records)[-SPOOL_MAX_RECORDS:]
+            merged = _fresh(existing + records)[-SPOOL_MAX_RECORDS:]
             _write_records(path, merged)
     except OSError:
         pass
@@ -114,7 +139,7 @@ def drain(limit: int) -> List[Dict[str, Any]]:
         return []
     try:
         with _locked(path):
-            records = _read_records(path)
+            records = _fresh(_read_records(path))
             if not records:
                 _write_records(path, [])
                 return []

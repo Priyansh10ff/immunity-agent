@@ -56,9 +56,13 @@ DEFAULT_TTL_SECONDS = 300
 # resolved policy settings).
 def _refresh_interval() -> float:
     try:
-        return float(os.environ.get("PRISMOR_POLICY_REFRESH_SECONDS", "30"))
+        v = float(os.environ.get("PRISMOR_POLICY_REFRESH_SECONDS", "30"))
     except ValueError:
         return 30.0
+    # Clamp (audit #11): a hand-set env must not pin a stale policy indefinitely
+    # (admin enforce changes would never reach the device) nor hammer the
+    # control plane. Bound to [5s, 600s].
+    return max(5.0, min(v, 600.0))
 
 
 def _check_marker_path() -> Path:

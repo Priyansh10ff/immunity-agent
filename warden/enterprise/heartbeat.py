@@ -60,6 +60,10 @@ def record_call(agent: Optional[str] = None, session_id: Optional[str] = None) -
                     data["session_id"] = session_id
                 data.setdefault("last_flush", time.time())
                 path.write_text(json.dumps(data), encoding="utf-8")
+                try:  # audit #18: keep session metadata 0600, not world-readable
+                    path.chmod(0o600)
+                except OSError:
+                    pass
             finally:
                 fcntl.flock(lock_f, fcntl.LOCK_UN)
     except OSError:
@@ -109,6 +113,10 @@ def maybe_flush(now: Optional[float] = None) -> bool:
                 path.write_text(
                     json.dumps({**data, "count": 0, "last_flush": t}), encoding="utf-8"
                 )
+                try:  # audit #18
+                    path.chmod(0o600)
+                except OSError:
+                    pass
             finally:
                 fcntl.flock(lock_f, fcntl.LOCK_UN)
     except (OSError, ValueError):
