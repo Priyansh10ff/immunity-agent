@@ -935,12 +935,17 @@ def main(argv: Optional[List[str]] = None) -> None:
                 # exemption (vs full org policy) — exempted repos stay visible.
                 _exm = getattr(_current_engine, "active_exemption", None)
                 _policy_scope = f"repo_exemption:{_exm.get('id')}" if isinstance(_exm, dict) and _exm.get("id") else "org"
+                # Only attach the repo identifier for org-MANAGED workspaces
+                # (audit #17): a personal/local-only repo must never have its
+                # remote leaked to the org, regardless of sink configuration.
+                # Mirrors the explicit gate on the heartbeat below.
                 _repo = None
-                try:
-                    from warden.enterprise import workspace_scope as _ws
-                    _repo = _ws.detect_git_remote(workspace)
-                except Exception:
-                    _repo = None
+                if getattr(_current_engine, "workspace_managed", False):
+                    try:
+                        from warden.enterprise import workspace_scope as _ws
+                        _repo = _ws.detect_git_remote(workspace)
+                    except Exception:
+                        _repo = None
                 _sink_dispatch(
                     current_findings,
                     _current_engine.outputs,
