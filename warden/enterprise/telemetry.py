@@ -105,6 +105,37 @@ def scrub(text: str, scrubbers: List[re.Pattern[str]]) -> str:
     return out
 
 
+# Leak-shaped substrings that must never appear in a REDACTED record's title.
+# Several findings build dynamic titles (e.g. "Canarytoken accessed: … at
+# /path", "Outbound request to domain not in egress allowlist: evil.com") that
+# embed user paths / hosts / URLs. In redacted mode those are replaced with a
+# neutral marker so only the static description survives.
+_URL_RE = re.compile(r"https?://\S+", re.I)
+_WINPATH_RE = re.compile(r"[A-Za-z]:\\[^\s\"']+")
+_UNIXPATH_RE = re.compile(r"(?:~|\.)?(?:/[\w.\-@+]+){1,}/?")
+_HOST_RE = re.compile(r"\b(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}\b")
+
+
+def _safe_title(title: Any, scrubbers: List[re.Pattern[str]]) -> Any:
+    """Strip secrets / URLs / file paths / hostnames from a title so a redacted
+    record carries only the static, non-sensitive description."""
+    if not isinstance(title, str) or not title:
+        return title
+    t = scrub(title, scrubbers)
+    t = _URL_RE.sub("[url]", t)
+    t = _WINPATH_RE.sub("[path]", t)
+    t = _UNIXPATH_RE.sub("[path]", t)
+    t = _HOST_RE.sub("[host]", t)
+    return t
+
+
+def _title_has_leak(title: Any) -> bool:
+    if not isinstance(title, str) or not title:
+        return False
+    return bool(_URL_RE.search(title) or _WINPATH_RE.search(title)
+                or _UNIXPATH_RE.search(title) or _HOST_RE.search(title))
+
+
 def build_record(
     finding: Dict[str, Any],
     event: Dict[str, Any],
@@ -121,6 +152,14 @@ def build_record(
     """
     extra = extra or {}
     event_type = str(event.get("type", "")).lower() or None
+    # Compile scrubbers up front — used to sanitize the title in redacted mode
+    # (and the detail in full mode below).
+    scrubbers = _compile_scrubbers(scrub_patterns)
+    # In redacted mode the title is sanitized to its static, non-sensitive form;
+    # in full mode the raw title is kept (full capture already ships raw data),
+    # but secret-shaped substrings are still scrubbed as defense-in-depth.
+    raw_title = finding.get("title")
+    title = _safe_title(raw_title, scrubbers) if not full_capture else scrub(raw_title, scrubbers) if isinstance(raw_title, str) else raw_title
 
     record: Dict[str, Any] = {
         "schema": SCHEMA,
@@ -145,9 +184,10 @@ def build_record(
         # is org-owned context, not the developer's private data.
         "repo": extra.get("repo"),
         "policy_scope": extra.get("policy_scope") or "org",
-        # Title is the *rule's* static description (from policy YAML), not user
-        # text. Forwarded so the dashboard is human-readable without raw evidence.
-        "title": finding.get("title"),
+        # Title: in redacted mode sanitized to its static description (paths /
+        # hosts / URLs / secrets stripped); in full mode the raw (secret-scrubbed)
+        # title. Forwarded so the dashboard is human-readable without raw evidence.
+        "title": title,
         # Hash of the matched evidence: lets the cloud count distinct hits and
         # build "top patterns" without ever seeing the underlying text.
         "evidence_hash": _hash(finding.get("evidence")),
@@ -155,7 +195,6 @@ def build_record(
     }
 
     if full_capture:
-        scrubbers = _compile_scrubbers(scrub_patterns)
         detail: Dict[str, Any] = {}
         ev = finding.get("evidence")
         if isinstance(ev, str) and ev:
@@ -188,3 +227,11 @@ def assert_redacted(record: Dict[str, Any]) -> None:
         return
     if "detail" in record:
         raise AssertionError("redacted telemetry record must not contain 'detail'")
+    # The title is the one free-text field that survives into a redacted record;
+    # guard that it carries no path / host / URL / secret leak. (repo is allowed —
+    # it's org-owned managed-repo context, not the developer's private data.)
+    if _title_has_leak(record.get("title")):
+        raise AssertionError(
+            "redacted telemetry title contains a path/host/URL leak: "
+            f"{record.get('title')!r}"
+        )
