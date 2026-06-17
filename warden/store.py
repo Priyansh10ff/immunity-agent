@@ -941,7 +941,14 @@ def get_aggregate_stats(hours: int = 24) -> Dict[str, Any]:
         if len(live_events_deduped) >= 50:
             break
 
+    now_utc = datetime.now(timezone.utc)
+    window_from = now_utc - timedelta(hours=hours)
     return {
+        "window": {
+            "from": window_from.isoformat(),
+            "to": now_utc.isoformat(),
+            "hours": hours,
+        },
         "kpis": {
             "activeSessions": active_sessions,
             "toolCallsInspected24h": tool_calls_24h,

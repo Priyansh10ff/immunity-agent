@@ -221,7 +221,7 @@ def header_lines(step=None, total=None, label=None):
     tw = term_width()
     out = [
         "",
-        f"  {w('PRISMOR WARDEN', BOLD, CYAN)}  {w('· ' + VERSION, DIM)}",
+        f"  {w('PRISMOR IMMUNITY AGENT', BOLD, CYAN)}  {w('· ' + VERSION, DIM)}",
     ]
     if step and label:
         out.append(f"  {w(f'Step {step}/{total}', DIM)}  {w(label, BOLD)}")
@@ -456,7 +456,7 @@ def do_install(target, mode, rules, agents, tokenize=False):
     sys.stdout.write(ALT_OFF)
     sys.stdout.write("\033[H\033[J" + HIDE)
     sys.stdout.flush()
-    print(w("  Installing Prismor Warden...\n", BOLD, CYAN))
+    print(w("  Installing Prismor Immunity Agent...\n", BOLD, CYAN))
 
     target = Path(target).resolve()
 
@@ -584,7 +584,7 @@ def do_install(target, mode, rules, agents, tokenize=False):
     home = str(Path.home())
     print()
     print(w("  ╭───────────────────────────────────────────╮", DIM))
-    print(w("  │", DIM) + w("  Prismor Warden installed successfully!    ", GRN, BOLD) + w("│", DIM))
+    print(w("  │", DIM) + w("  Prismor Immunity Agent installed successfully!    ", GRN, BOLD) + w("│", DIM))
     print(w("  ╰───────────────────────────────────────────╯", DIM))
     print()
     def info(k, v):

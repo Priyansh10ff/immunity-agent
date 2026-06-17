@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Warden Dashboard</title>
+<title>Prismor Immunity-agent Dashboard</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 <style>
   :root {
@@ -60,11 +60,6 @@
   .kpi-delta .down { color: var(--green-500); }
 
   /* Severity strip */
-  .sev-card { border-left: 3px solid transparent; }
-  .sev-card.critical { border-left-color: #7c3aed; }
-  .sev-card.high     { border-left-color: #db2777; }
-  .sev-card.medium   { border-left-color: #d97706; }
-  .sev-card.low      { border-left-color: #0284c7; }
   .sev-count { font-size: 22px; font-weight: 600; }
   .sev-card.critical .sev-count { color: #7c3aed; }
   .sev-card.high     .sev-count { color: #db2777; }
@@ -284,8 +279,15 @@
 <body>
 
 <div class="header">
-  <h1>Warden Dashboard</h1>
+  <h1>Prismor Immunity-agent Dashboard</h1>
   <div class="header-right">
+    <label style="font-size:10px;color:var(--gray-400)">Period</label>
+    <select id="globalDays" class="fsel">
+      <option value="7" selected>Last 7 days</option>
+      <option value="14">Last 14 days</option>
+      <option value="30">Last 30 days</option>
+      <option value="90">Last 90 days</option>
+    </select>
     <span id="lastUpdated" class="last-updated"></span>
     <span id="statusBadge" class="badge badge-demo"><span class="badge-dot"></span> loading</span>
   </div>
@@ -293,7 +295,7 @@
 
 <!-- ═══ AGENT ACTIVITY ═══════════════════════════════════════════ -->
 <div class="section">
-  <h2>Agent Activity</h2><div class="rule"></div><span class="hint">last 24h</span>
+  <h2>Agent Activity</h2><div class="rule"></div><span id="hintActivity" class="hint">last 7 days</span>
 </div>
 
 <div class="grid grid-3">
@@ -352,7 +354,7 @@
 
 <!-- ═══ SUPPLY CHAIN ═════════════════════════════════════════════ -->
 <div class="section">
-  <h2>Supply Chain</h2><div class="rule"></div><span class="hint">last 24h</span>
+  <h2>Supply Chain</h2><div class="rule"></div><span id="hintSupply" class="hint">last 7 days</span>
 </div>
 
 <div class="grid grid-4">
@@ -933,7 +935,8 @@ document.getElementById('evtLimit').addEventListener('change', e => {
 // ── Stats (charts + KPIs) ────────────────────────────────────────────────────
 async function loadStats() {
   try {
-    const res = await fetch('/api/stats');
+    const days = document.getElementById('globalDays').value;
+    const res = await fetch('/api/stats?days=' + days);
     if (!res.ok) return;
     const data = await res.json();
 
@@ -943,6 +946,14 @@ async function loadStats() {
     badge.className = 'badge ' + (hasData ? 'badge-live' : 'badge-demo');
     badge.innerHTML = '<span class="badge-dot"></span> ' + (hasData ? 'live' : 'no data');
     document.getElementById('lastUpdated').textContent = 'updated ' + new Date().toLocaleTimeString();
+
+    // Date range hint
+    if (data.window) {
+      const fmt = d => new Date(d).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+      const rangeLabel = fmt(data.window.from) + ' – ' + fmt(data.window.to);
+      document.getElementById('hintActivity').textContent = rangeLabel;
+      document.getElementById('hintSupply').textContent = rangeLabel;
+    }
 
     // KPIs
     const k = data.kpis || {};
@@ -1044,7 +1055,8 @@ async function loadStats() {
 // ── Supply Chain ─────────────────────────────────────────────────────────────
 async function loadSupplyChain() {
   try {
-    const res = await fetch('/api/supply-chain');
+    const days = document.getElementById('globalDays').value;
+    const res = await fetch('/api/supply-chain?days=' + days);
     if (!res.ok) return;
     const data = await res.json();
 
@@ -1109,6 +1121,12 @@ async function loadSupplyChain() {
     }
   } catch (e) { console.error('[warden] supply-chain fetch failed:', e); }
 }
+
+// ── Period filter ────────────────────────────────────────────────────────────
+document.getElementById('globalDays').addEventListener('change', () => {
+  loadStats();
+  loadSupplyChain();
+});
 
 // ── Boot + poll ──────────────────────────────────────────────────────────────
 initCharts();
