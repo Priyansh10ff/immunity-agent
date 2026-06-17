@@ -1860,7 +1860,7 @@ def build_parser() -> argparse.ArgumentParser:
     # ── scan ──────────────────────────────────────────────────────────
     scan_parser = subparsers.add_parser("scan", help="Scan all MCP servers and skills for security risks")
     scan_parser.add_argument("--workspace", help="Workspace path")
-    scan_parser.add_argument("--agent", choices=["claude", "cursor", "windsurf", "openclaw", "hermes", "copilot"], help="Only scan configs for this agent")
+    scan_parser.add_argument("--agent", choices=["claude", "cursor", "windsurf", "openclaw", "hermes", "codex", "copilot"], help="Only scan configs for this agent")
     scan_parser.add_argument("--json", action="store_true", help="Output raw JSON")
 
     # ── deps ──────────────────────────────────────────────────────────
@@ -1934,20 +1934,20 @@ def build_parser() -> argparse.ArgumentParser:
     # ── install-hooks ──────────────────────────────────────────────────
     install_parser = subparsers.add_parser("install-hooks", help="Install IDE hooks for real-time monitoring")
     install_parser.add_argument("--workspace", help="Workspace path")
-    install_parser.add_argument("--agent", choices=["claude", "cursor", "windsurf", "openclaw", "hermes", "copilot", "all"], required=True, help="Which agent/IDE")
+    install_parser.add_argument("--agent", choices=["claude", "cursor", "windsurf", "openclaw", "hermes", "codex", "copilot", "all"], required=True, help="Which agent/IDE")
     install_parser.add_argument("--scope", choices=["project", "user"], default="project", help="Hook scope (default: project)")
     install_parser.add_argument("--mode", choices=["observe", "enforce"], default="observe", help="observe=log only, enforce=block dangerous actions")
 
     # ── uninstall-hooks ────────────────────────────────────────────────
     uninstall_parser = subparsers.add_parser("uninstall-hooks", help="Remove IDE hooks")
     uninstall_parser.add_argument("--workspace", help="Workspace path")
-    uninstall_parser.add_argument("--agent", choices=["claude", "cursor", "windsurf", "openclaw", "hermes", "copilot", "all"], required=True, help="Which agent/IDE")
+    uninstall_parser.add_argument("--agent", choices=["claude", "cursor", "windsurf", "openclaw", "hermes", "codex", "copilot", "all"], required=True, help="Which agent/IDE")
     uninstall_parser.add_argument("--scope", choices=["project", "user"], default="project", help="Hook scope")
 
     # ── hook-dispatch (internal) ───────────────────────────────────────
     hook_dispatch = subparsers.add_parser("hook-dispatch", help="(internal) Called by IDE hooks")
     hook_dispatch.add_argument("--workspace", help="Workspace path")
-    hook_dispatch.add_argument("--agent", choices=["claude", "cursor", "windsurf", "openclaw", "hermes", "copilot"], required=True)
+    hook_dispatch.add_argument("--agent", choices=["claude", "cursor", "windsurf", "openclaw", "hermes", "codex", "copilot"], required=True)
     hook_dispatch.add_argument("--mode", choices=["observe", "enforce"], default="observe")
 
     # ── policy ─────────────────────────────────────────────────────────
@@ -2167,7 +2167,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--agents",
         default=None,
         metavar="AGENT[,AGENT…]",
-        help="Comma-separated agents to hook (non-interactive only): claude,cursor,windsurf,…",
+        help="Comma-separated agents to hook (non-interactive only): claude,cursor,windsurf,codex,…",
     )
     setup_parser.add_argument(
         "--cloak",
@@ -2286,7 +2286,7 @@ def _print_info(workspace: Path) -> None:
     # Hooks — check which agents have hooks installed
     agents_with_hooks = []
     mode = None
-    for agent_name in ("claude", "cursor", "windsurf", "openclaw", "hermes", "copilot"):
+    for agent_name in ("claude", "cursor", "windsurf", "openclaw", "hermes", "codex", "copilot"):
         hook_path = _find_hook_config(agent_name, workspace)
         if hook_path and hook_path.exists():
             try:
@@ -2335,6 +2335,8 @@ def _find_hook_config(agent: str, workspace: Path) -> Path:
         return workspace / ".openclaw" / "plugins.json"
     if agent == "hermes":
         return workspace / ".hermes" / "plugins.json"
+    if agent == "codex":
+        return workspace / ".codex" / "hooks.json"
     if agent == "copilot":
         return workspace / ".github" / "copilot" / "hooks.json"
     return workspace / ".windsurf" / "hooks.json"
@@ -2444,7 +2446,7 @@ def _print_dashboard(days: int = 7) -> None:
         risk_color = _RED if latest_risk >= 50 else _YELLOW if latest_risk >= 20 else _GREEN
 
         mode = ""
-        for agent_name in ("claude", "cursor", "windsurf", "openclaw", "hermes", "copilot"):
+        for agent_name in ("claude", "cursor", "windsurf", "openclaw", "hermes", "codex", "copilot"):
             hook_path = _find_hook_config(agent_name, ws)
             if hook_path and hook_path.exists():
                 try:
@@ -2567,7 +2569,7 @@ def _print_status_overview(workspace: Path) -> None:
     # Hooks + mode
     agents_with_hooks: List[str] = []
     mode: Optional[str] = None
-    for agent_name in ("claude", "cursor", "windsurf", "openclaw", "hermes", "copilot"):
+    for agent_name in ("claude", "cursor", "windsurf", "openclaw", "hermes", "codex", "copilot"):
         hook_path = _find_hook_config(agent_name, workspace)
         if hook_path and hook_path.exists():
             try:

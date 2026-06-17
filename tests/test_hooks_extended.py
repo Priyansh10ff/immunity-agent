@@ -12,6 +12,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from warden.hooks import (
     _is_pre_action,
     _strip_claude,
+    _strip_codex,
     _strip_cursor,
     _strip_windsurf,
     install_hooks,
@@ -105,6 +106,36 @@ class TestStripCursor(unittest.TestCase):
         self.assertFalse(removed)
 
 
+class TestStripCodex(unittest.TestCase):
+    """Test _strip_codex removes Prismor entries."""
+
+    def test_removes_prismor_hooks(self):
+        marker = "/repo/warden/cli.py"
+        config = {
+            "hooks": {
+                "PreToolUse": [
+                    {
+                        "matcher": "Bash|apply_patch|mcp__.*",
+                        "hooks": [
+                            {"type": "command", "command": f'python3 "{marker}" hook-dispatch --agent codex'},
+                            {"type": "command", "command": "other-tool --check"},
+                        ],
+                    }
+                ]
+            }
+        }
+        result, removed = _strip_codex(config, marker)
+        self.assertTrue(removed)
+        self.assertEqual(len(result["hooks"]["PreToolUse"]), 1)
+        self.assertEqual(len(result["hooks"]["PreToolUse"][0]["hooks"]), 1)
+        self.assertEqual(result["hooks"]["PreToolUse"][0]["hooks"][0]["command"], "other-tool --check")
+
+    def test_no_change(self):
+        config = {"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "unrelated"}]}]}}
+        result, removed = _strip_codex(config, "/repo/warden/cli.py")
+        self.assertFalse(removed)
+
+
 class TestStripWindsurf(unittest.TestCase):
     """Test _strip_windsurf removes Prismor entries."""
 
@@ -155,6 +186,8 @@ class TestInstallUninstallRoundtrip(unittest.TestCase):
             config_path = self.workspace / ".claude" / "settings.json"
         elif agent == "cursor":
             config_path = self.workspace / ".cursor" / "hooks.json"
+        elif agent == "codex":
+            config_path = self.workspace / ".codex" / "hooks.json"
         else:
             config_path = self.workspace / ".windsurf" / "hooks.json"
         self.assertTrue(config_path.exists())
@@ -187,6 +220,9 @@ class TestInstallUninstallRoundtrip(unittest.TestCase):
 
     def test_windsurf_roundtrip(self):
         self._roundtrip("windsurf")
+
+    def test_codex_roundtrip(self):
+        self._roundtrip("codex")
 
     def test_uninstall_nonexistent_config(self):
         results = uninstall_hooks(
@@ -349,6 +385,58 @@ class TestNormalizePayloadCursor(unittest.TestCase):
         self.assertEqual(event["command"], "git status")
 
 
+class TestNormalizePayloadCodex(unittest.TestCase):
+    """Test Codex payload normalization."""
+
+    def test_user_prompt(self):
+        payload = {
+            "hook_event_name": "UserPromptSubmit",
+            "session_id": "codex-1",
+            "prompt": "Review this change",
+        }
+        result = normalize_payload(agent="codex", payload=payload, workspace=Path("/tmp"))
+        event = result["event"]
+        self.assertEqual(event["type"], "prompt")
+        self.assertEqual(event["prompt"], "Review this change")
+        self.assertEqual(event["agent"], "codex")
+
+    def test_bash_tool(self):
+        payload = {
+            "hook_event_name": "PreToolUse",
+            "session_id": "codex-2",
+            "tool_name": "Bash",
+            "tool_input": {"command": "git status"},
+        }
+        result = normalize_payload(agent="codex", payload=payload, workspace=Path("/tmp"))
+        event = result["event"]
+        self.assertEqual(event["type"], "shell")
+        self.assertEqual(event["command"], "git status")
+
+    def test_apply_patch_maps_to_file_write(self):
+        payload = {
+            "hook_event_name": "PreToolUse",
+            "session_id": "codex-3",
+            "tool_name": "apply_patch",
+            "tool_input": {"command": "*** Begin Patch\n*** End Patch\n"},
+        }
+        result = normalize_payload(agent="codex", payload=payload, workspace=Path("/tmp"))
+        event = result["event"]
+        self.assertEqual(event["type"], "file_write")
+        self.assertIn("*** Begin Patch", event["content"])
+
+    def test_permission_request_is_shell_when_bash(self):
+        payload = {
+            "hook_event_name": "PermissionRequest",
+            "session_id": "codex-4",
+            "tool_name": "Bash",
+            "tool_input": {"command": "rm -rf /"},
+        }
+        result = normalize_payload(agent="codex", payload=payload, workspace=Path("/tmp"))
+        event = result["event"]
+        self.assertEqual(event["type"], "shell")
+        self.assertEqual(event["command"], "rm -rf /")
+
+
 class TestNormalizePayloadWindsurf(unittest.TestCase):
     """Test Windsurf payload normalization."""
 
@@ -416,6 +504,9 @@ class TestIsPreActionExtended(unittest.TestCase):
 
     def test_cursor_before_submit_prompt(self):
         self.assertTrue(_is_pre_action("beforeSubmitPrompt"))
+
+    def test_codex_permission_request(self):
+        self.assertTrue(_is_pre_action("PermissionRequest"))
 
 
 if __name__ == "__main__":

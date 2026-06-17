@@ -2,7 +2,7 @@
 
 How Prismor Warden integrates with each major AI coding agent — what ships today, what's planned, and what mechanism each agent exposes for runtime security monitoring.
 
-_Last updated: 2026-06-05._
+_Last updated: 2026-06-17._
 
 ---
 
@@ -15,7 +15,7 @@ _Last updated: 2026-06-05._
 | Windsurf | ✅ | ✅ | ✅ | `.windsurf/hooks.json` |
 | OpenClaw | ✅ | — | ✅ | JS plugin at `~/.openclaw/hooks/` |
 | Hermes | ✅ | — | ✅ | JS plugin at `~/.hermes/hooks/` |
-| Codex (OpenAI) | 🟡 partial | ✅ | — | `~/.codex/hooks.json` (experimental, Bash-only) |
+| Codex (OpenAI) | ✅* | ✅ | ✅ | `~/.codex/hooks.json` + `.codex/config.toml` |
 | Gemini CLI | 🟡 roadmap | — | — | `settings.json` hooks block (stable) |
 | OpenCode | 🟡 roadmap | — | — | JS plugin `tool.execute.before` |
 | Kiro | 🟡 roadmap | — | — | `preToolUse` hooks (exit-2 blocks) |
@@ -27,6 +27,8 @@ _Last updated: 2026-06-05._
 | Kilocode | soft only | ✅ | — | `session.chat.before` injects guardrail prompt, can't veto |
 
 ✅ shipped · 🟡 planned (adapter not implemented) · — not applicable
+
+\* Codex requires `codex-cli` ≥ `0.141.0-alpha.1`. Earlier versions (including the `0.140.0` stable release) have an upstream bug where `codex exec` never dispatches any hook at all — see the Codex section below.
 
 ---
 
@@ -89,21 +91,21 @@ Immunity Agent integrates with Hermes at two complementary layers:
 - **Payload note:** `toolArgs` arrives as a JSON-encoded string; `_normalize_copilot()` parses it before evaluation.
 - **Code:** `warden/hooks.py` `_merge_copilot()`, `_strip_copilot()`, `_normalize_copilot()`.
 
+### Codex (OpenAI)
+
+- **Config:** `~/.codex/hooks.json` (user) or `<repo>/.codex/hooks.json` (project). MCP/skill scan also reads `~/.codex/config.toml` and `<repo>/.codex/config.toml` — both `hooks.json` and inline `[[hooks.PreToolUse]]`-style TOML hook declarations work identically.
+- **Events hooked:** `UserPromptSubmit`, `PreToolUse`, `PermissionRequest`, `PostToolUse`.
+- **Matchers installed:** `Bash|apply_patch|mcp__.*`. Verified against a real `codex exec` session: `Bash` is the actual tool name Codex reports to `PreToolUse`/`PostToolUse`.
+- **Blocking:** exit 2 from hook → block; stderr → rejection reason. Verified end to end — a policy-blocked command (`rm package-lock.json`, matched by the `lockfile-deletion` rule) was actually denied by Codex's tool router before execution, with the file left untouched.
+- **Sweep target:** `~/.codex/`.
+- **Minimum version: `codex-cli` ≥ `0.141.0-alpha.1`.** Earlier versions, including the `0.140.0` stable release, have an upstream bug ([openai/codex#26383](https://github.com/openai/codex/issues/26383), [#26452](https://github.com/openai/codex/issues/26452)) where `codex exec` never dispatches *any* hook — not because of config shape, matcher syntax, or hook trust, but because `--dangerously-bypass-hook-trust` silently failed to propagate to the exec thread, so hooks (which require persisted trust) were dropped before dispatch even without `exec` printing an error. Fixed in [openai/codex#26434](https://github.com/openai/codex/pull/26434), merged 2026-06-16, first shipped in `rust-v0.141.0-alpha.1`. As of this writing that fix has not yet reached a stable release tag — pin to an alpha ≥ that build if you need working Codex hooks today, and watch for the next `0.141.x` (or later) stable release.
+- **Code:** `warden/hooks.py` `_merge_codex()`, `_strip_codex()`, `_normalize_codex()`.
+
 ---
 
 ## Roadmap — hook adapters planned
 
 Each agent below exposes a blocking pre-tool hook. An adapter requires (1) config-merge in `warden/hooks.py`, (2) `_normalize_*` function, (3) registration in `_SUPPORTED_AGENTS` and `warden/store.py`, (4) sweep target in `warden/sweep.py` if applicable.
-
-### Codex (OpenAI) — partial
-
-- **Why partial:** hooks are experimental, opt-in via `[features] codex_hooks = true` in `~/.codex/config.toml`. `PreToolUse`/`PostToolUse` currently fire only for Bash/shell — `apply_patch` file writes are **not** hooked ([openai/codex#16732](https://github.com/openai/codex/issues/16732)).
-- **Config:** `~/.codex/hooks.json` (user) or `<repo>/.codex/hooks.json` (project). All matching layers run additively.
-- **Events:** `SessionStart`, `PreToolUse`, `PermissionRequest`, `PostToolUse`, `UserPromptSubmit`, `Stop`.
-- **Payload:** JSON on stdin — shared `session_id`, `transcript_path`, `cwd`, `hook_event_name`, `model`, plus event-specific fields (`tool_input.command`, etc.). Default timeout 600s.
-- **Blocking:** exit 2 → block, stderr → reason. `PreToolUse` and `PermissionRequest` support `systemMessage` output.
-- **Sweep target:** `~/.codex/` (already covered).
-- **Adapter work:** payload shape mirrors Claude Code — `_normalize_claude` can be reused with minor field renames. Document the `apply_patch` blind spot to users.
 
 ### Gemini CLI (Google)
 
