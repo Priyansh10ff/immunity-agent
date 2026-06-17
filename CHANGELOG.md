@@ -1,3 +1,39 @@
+## [1.7.1] — 2026-06-17
+
+Enterprise audit hardening and branding rename.
+
+### Fixed
+
+- **Non-overridable enforcement floor (audit #1/#3/#12)** — floor rules (core IDs and core block categories) get `mode: enforce` regardless of `default_mode` and can no longer be downgraded by a policy overlay. Synthetic `action: block` findings (canary, vault, secret-exfil, taint, HTML-injection) are normalized to `mode: enforce`, restoring block intent that per-rule modes had dropped.
+- **Telemetry title redaction (audit #5)** — redacted-mode records no longer forward raw paths/hosts/URLs/secrets via the dynamic title; `assert_redacted` now also rejects path/host/URL leaks in the title.
+- **Control-plane refresh clamp, heartbeat permissions, logout cleanup, spool age-cap (audit #11/#18/#20)** — `PRISMOR_POLICY_REFRESH_SECONDS` is clamped to `[5s, 600s]`; `heartbeat.json` is now `chmod 0600`; logout clears `heartbeat.json` and `workspace-scopes.json`; telemetry spool drops records older than 30 days (`PRISMOR_SPOOL_MAX_AGE_DAYS`).
+- **Telemetry repo identifier gating (audit #17)** — personal/local-only workspaces never attach their git remote to telemetry, mirroring the existing heartbeat gate.
+
+### Changed
+
+- **Rebrand to "Prismor Immunity Agent"** — replaces "Prismor Warden" / "PRISMOR IMMUNITY" labels across the CLI, setup wizard, hooks, dashboard, and tests; `--version` string updated.
+- **Dashboard `--days` window + sparklines** — `immunity dashboard` accepts `--days N` (default 7) to filter session data; adds per-workspace and global sparkline bars showing the daily findings trend. Web dashboard gains a Period dropdown (7/14/30/90 days).
+
+### Docs
+
+- README: new "Disabling Immunity Agent" section covering hook uninstall, observe+dry-run soft-disable, and clearing per-session scoped-agent rules.
+
+## [1.7.0] — 2026-06-16
+
+Enterprise control-plane and policy hardening release.
+
+### Added
+
+- **Enterprise control-plane** — signed remote policy pulls, device identity and enrollment, layered workspace scoping, admin-granted exemptions, offline telemetry spool, and heartbeat / telemetry ingest hardening.
+- **Per-rule enforcement** — policy-authoritative observe/enforce modes now gate on each rule's effective mode instead of the global install mode alone.
+- **Pattern customization** — add/disable pattern overrides with compile isolation and a non-weakening floor for core rules.
+- **Prompt-injection coverage** — deterministic regex and heuristic coverage expanded to close benchmark false negatives without adding LLM cost.
+- **Supply-chain hardening** — gitleaks version gating, cross-platform install hints, AI-key ruleset, and graceful fallback scanning when the binary is absent.
+
+### Fixed
+
+- **Session-report follow-ups** — closes the remaining v1.6.0 report issues, including claude transcript scoping, exfiltration-directive detection, SCM-domain false positives, and shell-level PII detection.
+
 ## [1.6.0] — 2026-06-05
 
 Hermes Agent secret cloaking plugin. Secret prevention now works natively inside Hermes Agent (Nous Research's AI agent platform), with dual-discovery via pip entry point or filesystem install.

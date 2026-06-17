@@ -161,6 +161,65 @@ immunity install-hooks --agent all --mode enforce    # honor policy enforce rule
 
 ---
 
+## Disabling Immunity Agent
+
+There are three independent layers that can each restrict an agent session. Disabling one does not disable the others — pick the layer that matches what you're actually trying to turn off.
+
+### 1. Uninstall hooks entirely
+
+Removes the `hook-dispatch` entries from the agent's hooks config, so Warden stops receiving `PreToolUse`/`PostToolUse`/`UserPromptSubmit` events altogether.
+
+```bash
+immunity uninstall-hooks --agent claude --scope project   # this workspace only
+immunity uninstall-hooks --agent claude --scope user      # global (all workspaces)
+immunity uninstall-hooks --agent all --scope project      # every supported agent, this workspace
+```
+
+`--scope` defaults to `project`. **Project and user scope edit different files** — running only `--scope user` does *not* touch a workspace's local hooks, and vice versa:
+
+| Agent | Project scope | User scope |
+|---|---|---|
+| Claude Code | `<workspace>/.claude/settings.json` | `~/.claude/settings.json` |
+| Cursor | `<workspace>/.cursor/hooks.json` | `~/.cursor/hooks.json` |
+| Windsurf | `<workspace>/.windsurf/hooks.json` | `~/.codeium/windsurf/hooks.json` |
+| OpenClaw | `<workspace>/.openclaw/plugins.json` | `~/.openclaw/config.json` |
+| Hermes | `<workspace>/.hermes/plugins.json` | `~/.hermes/config.json` |
+| Copilot | `<workspace>/.github/copilot/hooks.json` | `~/.copilot/hooks.json` |
+
+If you only run one scope, the other one's hooks (if installed) keep firing. Run both if you want Warden fully out of the picture for an agent.
+
+A running session has already loaded its hook config — uninstalling mid-session won't take effect until you start a new session.
+
+If `immunity uninstall-hooks` reports success but hooks are still firing, you're likely running a stale install — e.g. a `pipx`-installed copy that's an out-of-date snapshot of a dev checkout. Check `which immunity` and, if it resolves into a `pipx` venv, reinstall from the current source (`pipx install --force <path-or-package>`) before re-running the uninstall. As a last resort, hand-edit the hooks config file directly.
+
+### 2. Soft-disable: observe mode + dry-run
+
+Keep hooks installed but stop them from blocking:
+
+```bash
+immunity install-hooks --agent all --scope project --mode observe
+PRISMOR_LOCAL_DRY_RUN=1   # set in your shell/session env
+```
+
+`--mode observe` logs findings without blocking. `PRISMOR_LOCAL_DRY_RUN=1` additionally suppresses blocking for any finding that would otherwise block under observe-installed hooks (`warden/cli.py`, checked when `args.mode == "observe"`). This is the right lever if you want Warden's telemetry/logging to keep working while you temporarily stop enforcement.
+
+This does **not** affect policy rules set to `mode: enforce` in `.prismor-warden/policy.yaml` — those remain policy-authoritative regardless of how the hook was installed (see [Observe / Enforce](#observe--enforce-per-rule-policy-authoritative) above).
+
+### 3. Clear a session's scoped-agent rules
+
+[Scoped Agent](docs/scoped-agent.md) synthesizes a per-session `allowed_tools`/`deny_tools` list at `.prismor-warden/scoped/{session_id}.json`. **This check is independent of hook `--mode`** — a tool in `deny_tools` is hardcoded to `action: block` / `mode: enforce` in `warden/scoped_agent.py`, so it blocks even when hooks are installed with `--mode observe`. Uninstalling hooks or switching to observe mode will not lift a scoped denial.
+
+```bash
+immunity scope list                    # find the session ID
+immunity scope show --session-id ID    # inspect its allowed_tools / deny_tools
+immunity scope clear ID                # remove the scoped rules for that session
+immunity scope edit ID                 # or hand-edit deny_tools in $EDITOR
+```
+
+There's no bulk-clear — each session is cleared by ID individually. If a session was scoped before you ran `scope clear`, the cleanest fix is usually to start a fresh session rather than chase the existing one's cached state.
+
+---
+
 ## Benchmarks
 
 Measured overhead is 0.8 ms per tool call across 10,000 simulated agent sessions, below the 1 ms threshold for every task category tested.
