@@ -184,6 +184,7 @@ immunity uninstall-hooks --agent all --scope project      # every supported agen
 | Windsurf | `<workspace>/.windsurf/hooks.json` | `~/.codeium/windsurf/hooks.json` |
 | OpenClaw | `<workspace>/.openclaw/plugins.json` | `~/.openclaw/config.json` |
 | Hermes | `<workspace>/.hermes/plugins.json` | `~/.hermes/config.json` |
+| Codex | `<workspace>/.codex/hooks.json` | `~/.codex/hooks.json` |
 | Copilot | `<workspace>/.github/copilot/hooks.json` | `~/.copilot/hooks.json` |
 
 If you only run one scope, the other one's hooks (if installed) keep firing. Run both if you want Warden fully out of the picture for an agent.
@@ -271,7 +272,7 @@ Sessions, findings, threat categories, agent breakdowns, and a live event feed �
 
 ```mermaid
 flowchart TD
-    IDE["Your IDE / Agent\n(Claude Code · Cursor · Windsurf)"]
+    IDE["Your IDE / Agent\n(Claude Code · Cursor · Windsurf · Codex)"]
 
     IDE -->|"PreToolUse / PostToolUse hooks"| Warden
 

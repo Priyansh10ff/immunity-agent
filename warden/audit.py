@@ -108,6 +108,7 @@ def _check_hooks(workspace: Path, repo_root: Path) -> List[AuditFinding]:
         "windsurf": workspace / ".windsurf" / "hooks.json",
         "openclaw": workspace / ".openclaw" / "plugins.json",
         "hermes": workspace / ".hermes" / "plugins.json",
+        "codex": workspace / ".codex" / "hooks.json",
     }
 
     installed_agents: List[str] = []

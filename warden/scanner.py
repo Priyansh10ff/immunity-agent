@@ -1,7 +1,7 @@
 """Skill / MCP server scanner for Prismor Warden.
 
 Discovers MCP server and skill configurations across supported agents
-(Claude Code, Cursor, Windsurf, OpenClaw, Hermes), synthesizes skill_manifest
+(Claude Code, Cursor, Windsurf, OpenClaw, Hermes, Codex), synthesizes skill_manifest
 events from each entry, and evaluates them through the PolicyEngine.
 
 Usage (from CLI):
@@ -15,6 +15,7 @@ import ast
 import json
 import re
 import shlex
+import tomllib
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
@@ -246,6 +247,17 @@ def _hermes_configs(workspace: Path) -> List[Path]:
     return [p for p in _dedupe(candidates) if p.exists()]
 
 
+def _codex_configs(workspace: Path) -> List[Path]:
+    home = Path.home()
+    candidates = [
+        home / ".codex" / "config.toml",
+        home / ".codex" / "hooks.json",
+        workspace / ".codex" / "config.toml",
+        workspace / ".codex" / "hooks.json",
+    ]
+    return [p for p in _dedupe(candidates) if p.exists()]
+
+
 def _dedupe(paths: List[Path]) -> List[Path]:
     """De-duplicate paths (preserves order). Resolves each path first so
     symlinks and workspace-that-equals-HOME don't produce duplicates."""
@@ -268,6 +280,7 @@ _AGENT_DISCOVERERS = {
     "windsurf": _windsurf_configs,
     "openclaw": _openclaw_configs,
     "hermes": _hermes_configs,
+    "codex": _codex_configs,
 }
 
 
@@ -330,8 +343,11 @@ def parse_config(config_path: Path) -> List[Dict[str, Any]]:
     """Parse a single config file and return extracted skill/server entries."""
     try:
         text = config_path.read_text(encoding="utf-8")
-        data = json.loads(text)
-    except (json.JSONDecodeError, OSError):
+        if config_path.suffix == ".toml":
+            data = tomllib.loads(text)
+        else:
+            data = json.loads(text)
+    except (json.JSONDecodeError, tomllib.TOMLDecodeError, OSError):
         return []
 
     agent = "unknown"

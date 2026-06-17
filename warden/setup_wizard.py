@@ -231,6 +231,7 @@ def _detect_agents(target: Path) -> dict:
         "windsurf": (target / ".windsurf").exists() or (home / ".codeium").exists(),
         "openclaw": shutil.which("openclaw") is not None or (target / ".openclaw").exists(),
         "hermes":   shutil.which("hermes") is not None or (target / ".hermes").exists(),
+        "codex":    shutil.which("codex") is not None or (target / ".codex").exists() or (home / ".codex").exists(),
     }
 
 
@@ -340,6 +341,7 @@ def _step_agents(target: Path) -> list:
         {"name": "windsurf", "label": "Windsurf",    "on": detected.get("windsurf", False)},
         {"name": "openclaw", "label": "OpenClaw",    "on": detected.get("openclaw", False)},
         {"name": "hermes",   "label": "Hermes",      "on": detected.get("hermes", False)},
+        {"name": "codex",    "label": "Codex",       "on": detected.get("codex", False)},
     ]
     if not any(a["on"] for a in agents):
         agents[0]["on"] = True
