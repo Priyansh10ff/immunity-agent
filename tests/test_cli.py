@@ -41,17 +41,17 @@ class TestCliExitCodes(unittest.TestCase):
     def test_help_exits_zero(self):
         r = run_cli("--help")
         self.assertEqual(r.returncode, 0)
-        self.assertIn("Prismor Immunity", r.stdout)
+        self.assertIn("Prismor Immunity Agent", r.stdout)
 
     def test_version_exits_zero(self):
         r = run_cli("--version")
         self.assertEqual(r.returncode, 0)
-        self.assertIn("prismor-warden", r.stdout)
+        self.assertIn("immunity-agent", r.stdout)
 
     def test_bare_invocation_exits_zero(self):
         r = run_cli()
         self.assertEqual(r.returncode, 0)
-        self.assertIn("Prismor Immunity", r.stdout)
+        self.assertIn("Prismor Immunity Agent", r.stdout)
 
     def test_analyze_help(self):
         r = run_cli("analyze", "--help")
@@ -75,7 +75,7 @@ class TestCliAnalyze(unittest.TestCase):
     def test_analyze_text_output(self):
         r = run_cli("analyze", "--input", SAMPLE)
         self.assertEqual(r.returncode, 0)
-        self.assertIn("Prismor Immunity Report", r.stdout)
+        self.assertIn("Prismor Immunity Agent Report", r.stdout)
         self.assertIn("Findings:", r.stdout)
         self.assertIn("CRITICAL", r.stdout)
 

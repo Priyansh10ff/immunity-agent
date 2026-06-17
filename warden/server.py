@@ -105,7 +105,8 @@ class WardenRequestHandler(BaseHTTPRequestHandler):
 
         if path == "/api/stats":
             try:
-                stats = get_aggregate_stats()
+                days = max(1, qint("days", 7))
+                stats = get_aggregate_stats(hours=days * 24)
             except Exception as exc:
                 self._send_json({"error": str(exc)}, status=500)
                 return
@@ -158,7 +159,8 @@ class WardenRequestHandler(BaseHTTPRequestHandler):
 
         if path == "/api/supply-chain":
             try:
-                data = get_supply_chain_stats()
+                days = max(1, qint("days", 7))
+                data = get_supply_chain_stats(hours=days * 24)
             except Exception as exc:
                 self._send_json({"error": str(exc)}, status=500)
                 return

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prismor Warden CLI — local session-security utility for AI coding agents.
+"""Prismor Immunity Agent CLI — local session-security utility for AI coding agents.
 
 Commands:
   check         Quick pre-check a command or file path against policy rules
@@ -49,7 +49,7 @@ import re
 import shutil
 import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -152,7 +152,7 @@ def main(argv: Optional[List[str]] = None) -> None:
 
     # ── dashboard: global overview ───────────────────────────────────────
     if args.command == "dashboard":
-        _print_dashboard()
+        _print_dashboard(days=getattr(args, "days", 7))
         return
 
     # ── serve: local HTTP API server for web dashboard ───────────────────
@@ -474,7 +474,7 @@ def main(argv: Optional[List[str]] = None) -> None:
         summary = result["summary"]
 
         print()
-        print(f"  {_color('PRISMOR IMMUNITY', _BOLD)}  skill scanner")
+        print(f"  {_color('PRISMOR IMMUNITY AGENT', _BOLD)}  skill scanner")
         print(f"  {_color('─' * 50, _DIM)}")
         print()
 
@@ -539,7 +539,7 @@ def main(argv: Optional[List[str]] = None) -> None:
             return
 
         print()
-        print(f"  {_color('PRISMOR IMMUNITY', _BOLD)}  dependency check")
+        print(f"  {_color('PRISMOR IMMUNITY AGENT', _BOLD)}  dependency check")
         print(f"  {_color('─' * 50, _DIM)}")
         print()
 
@@ -610,7 +610,7 @@ def main(argv: Optional[List[str]] = None) -> None:
             return
 
         print()
-        print(f"  {_color('PRISMOR IMMUNITY', _BOLD)}  security audit")
+        print(f"  {_color('PRISMOR IMMUNITY AGENT', _BOLD)}  security audit")
         print(f"  {_color('─' * 58, _DIM)}")
         print()
 
@@ -1001,7 +1001,7 @@ def main(argv: Optional[List[str]] = None) -> None:
                     reason += f"\n{blocking['evidence']}"
                 sys.stdout.write(json.dumps({"permissionDecision": "deny", "permissionDecisionReason": reason}) + "\n")
             else:
-                sys.stderr.write(f"Prismor Immunity blocked this action: [{blocking['severity']}] {blocking['title']}\n")
+                sys.stderr.write(f"Prismor Immunity Agent blocked this action: [{blocking['severity']}] {blocking['title']}\n")
                 if blocking.get("evidence"):
                     sys.stderr.write(f"{blocking['evidence']}\n")
                 raise SystemExit(2)
@@ -1070,7 +1070,7 @@ def main(argv: Optional[List[str]] = None) -> None:
                 print(json.dumps(report, indent=2))
                 return
             print()
-            print(f"  {_color('PRISMOR IMMUNITY', _BOLD)}  sandbox status")
+            print(f"  {_color('PRISMOR IMMUNITY AGENT', _BOLD)}  sandbox status")
             print(f"  {_color('─' * 50, _DIM)}")
             print()
             print(f"  {_color('Enabled:', _GREEN)}      {report['enabled']}")
@@ -1168,7 +1168,7 @@ def main(argv: Optional[List[str]] = None) -> None:
 
         if subcmd == "list" or subcmd is None:
             active = _get_agent_id()
-            print(f"\n  {_color('PRISMOR IMMUNITY', _BOLD)}  agent identities\n")
+            print(f"\n  {_color('PRISMOR IMMUNITY AGENT', _BOLD)}  agent identities\n")
             if not agent_ids:
                 print(f"  {_color('No agents defined.', _DIM)}")
                 print(f"  Run: immunity iam init\n")
@@ -1547,7 +1547,7 @@ def main(argv: Optional[List[str]] = None) -> None:
             if not entries:
                 print("No canaries planted. Try:  immunity canary plant ~/.aws/credentials.canary --type aws")
                 return
-            print(f"  {_color('PRISMOR IMMUNITY', _BOLD)}  canaries")
+            print(f"  {_color('PRISMOR IMMUNITY AGENT', _BOLD)}  canaries")
             print(f"  {_color('─' * 50, _DIM)}")
             for e in entries:
                 print(f"  {e['id']}  {e['type']:7s}  {e['path']}")
@@ -1635,7 +1635,7 @@ def main(argv: Optional[List[str]] = None) -> None:
             if not sessions:
                 print("No active scoped sessions.")
                 return
-            print(f"  {_color('PRISMOR IMMUNITY', _BOLD)}  scoped sessions")
+            print(f"  {_color('PRISMOR IMMUNITY AGENT', _BOLD)}  scoped sessions")
             print(f"  {_color('─' * 50, _DIM)}")
             for s in sessions:
                 tools = ", ".join(s["rules"].get("allowed_tools", []))
@@ -1711,7 +1711,7 @@ def main(argv: Optional[List[str]] = None) -> None:
             if not pending:
                 print("No pending candidate rules.")
                 return
-            print(f"  {_color('PRISMOR IMMUNITY', _BOLD)}  candidate rules")
+            print(f"  {_color('PRISMOR IMMUNITY AGENT', _BOLD)}  candidate rules")
             print(f"  {_color('─' * 50, _DIM)}")
             for c in pending:
                 rule = c["rule"]
@@ -1790,18 +1790,25 @@ def build_parser() -> argparse.ArgumentParser:
         # usage/error strings to it instead of leaking the module filename
         # (argparse otherwise shows "immunity_cli.py" in subcommand usage/errors).
         prog="immunity",
-        description="Prismor Immunity — runtime security for AI coding agents.",
+        description="Prismor Immunity Agent — runtime security for AI coding agents.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--workspace", help="Workspace path (applies to all commands)")
-    parser.add_argument("--version", action="version", version=f"prismor-warden {__version__}")
+    parser.add_argument("--version", action="version", version=f"immunity-agent {__version__}")
     subparsers = parser.add_subparsers(dest="command")
 
     # ── info ───────────────────────────────────────────────────────────
     subparsers.add_parser("info", help="Show workspace, mode, rules, and hook status")
 
     # ── dashboard ─────────────────────────────────────────────────────
-    subparsers.add_parser("dashboard", help="Global overview of all registered workspaces")
+    dashboard_parser = subparsers.add_parser("dashboard", help="Global overview of all registered workspaces")
+    dashboard_parser.add_argument(
+        "--days",
+        type=int,
+        default=7,
+        metavar="N",
+        help="Show activity for the last N days (default: 7)",
+    )
 
     # ── serve ──────────────────────────────────────────────────────────
     serve_parser = subparsers.add_parser(
@@ -2239,7 +2246,7 @@ def _print_info(workspace: Path) -> None:
     ws_display = str(workspace).replace(home, "~")
 
     print()
-    print(f"  {_color('PRISMOR IMMUNITY', _BOLD)}  workspace info")
+    print(f"  {_color('PRISMOR IMMUNITY AGENT', _BOLD)}  workspace info")
     print(f"  {_color('─' * 50, _DIM)}")
     print()
 
@@ -2333,48 +2340,109 @@ def _find_hook_config(agent: str, workspace: Path) -> Path:
     return workspace / ".windsurf" / "hooks.json"
 
 
-def _print_dashboard() -> None:
-    """Global overview across all registered workspaces."""
+def _dashboard_sparkline(day_counts: List[int]) -> str:
+    """Return a 1-line bar sparkline for a list of per-day counts (oldest→newest)."""
+    _BARS = " ▁▂▃▄▅▆▇█"
+    if not day_counts or max(day_counts) == 0:
+        return "─" * len(day_counts)
+    peak = max(day_counts)
+    return "".join(_BARS[min(int(c / peak * 8 + 0.5), 8)] for c in day_counts)
+
+
+def _sessions_in_window(
+    workspace: Path, days: int
+) -> List[Dict[str, Any]]:
+    """Return sessions whose updatedAt/startedAt falls within the last `days` days."""
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    all_sessions = list_sessions(workspace, 500)
+    result = []
+    for s in all_sessions:
+        ts = s.get("updatedAt") or s.get("startedAt") or ""
+        if not ts:
+            continue
+        try:
+            if ts.endswith("Z"):
+                ts = ts[:-1] + "+00:00"
+            dt = datetime.fromisoformat(ts)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            if dt >= cutoff:
+                result.append(s)
+        except Exception:
+            pass
+    return result
+
+
+def _print_dashboard(days: int = 7) -> None:
+    """Global overview across all registered workspaces filtered to the last N days."""
     home = str(Path.home())
     workspaces = list_registered_workspaces()
+    now = datetime.now(timezone.utc)
 
+    # ── Header ────────────────────────────────────────────────────────────
     print()
-    print(f"  {_color('PRISMOR IMMUNITY', _BOLD)}  dashboard")
-    print(f"  {_color('─' * 50, _DIM)}")
+    print(f"  {_color('Prismor Immunity-agent dashboard', _BOLD)}")
+    print(f"  {'─' * 50}")
+    print()
+
+    # ── Period filter bar ─────────────────────────────────────────────────
+    period_label = f"last {days} day{'s' if days != 1 else ''}"
+    day_labels = [(now - timedelta(days=days - 1 - i)).strftime("%a %-d") for i in range(days)]
+    print(f"  {_color('Period:', _CYAN)}  {period_label}  {_color('(--days N to change)', _DIM)}")
+    print(f"  {_color('  '.join(day_labels), _DIM)}")
+
+    # Global per-day findings count (all workspaces combined) for sparkline
+    global_day_counts: List[int] = [0] * days
+    for ws in workspaces:
+        for s in _sessions_in_window(ws, days):
+            ts = s.get("updatedAt") or s.get("startedAt") or ""
+            if not ts:
+                continue
+            try:
+                if ts.endswith("Z"):
+                    ts = ts[:-1] + "+00:00"
+                dt = datetime.fromisoformat(ts)
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                age_days = (now - dt).days
+                bucket = days - 1 - age_days
+                if 0 <= bucket < days:
+                    global_day_counts[bucket] += s.get("findingsCount", 0)
+            except Exception:
+                pass
+
+    spark = _dashboard_sparkline(global_day_counts)
+    # Pad each bar character to align under the 5-char day labels
+    spaced_spark = "  ".join(spark)
+    print(f"  {_color(spaced_spark, _YELLOW)}")
+    print()
 
     if not workspaces:
-        print()
         print(f"  {_color('No registered workspaces found.', _DIM)}")
         print(f"  Run {_color('immunity install-hooks --agent all --mode enforce', _CYAN)} in a project to register it.")
         print()
         return
 
-    print()
-
+    # ── Per-workspace tiles ───────────────────────────────────────────────
     for ws in workspaces:
         ws_display = str(ws).replace(home, "~")
+        sessions = _sessions_in_window(ws, days)
+        all_sessions = list_sessions(ws, 1)
 
-        # Get sessions
-        sessions = list_sessions(ws, 50)
-        total = len(sessions)
         with_findings = sum(1 for s in sessions if s.get("findingsCount", 0) > 0)
 
-        # Latest session
+        # Latest session risk (always from the most recent session, not filtered)
         latest_risk = 0
-        latest_agent = ""
         latest_time = ""
-        if sessions:
-            latest = sessions[0]
+        if all_sessions:
+            latest = all_sessions[0]
             latest_risk = latest.get("riskScore", 0)
-            latest_agent = latest.get("agent", "")
             ts = latest.get("updatedAt") or latest.get("startedAt") or ""
             if ts:
                 latest_time = _relative_time(ts)
 
-        # Risk color
         risk_color = _RED if latest_risk >= 50 else _YELLOW if latest_risk >= 20 else _GREEN
 
-        # Mode detection
         mode = ""
         for agent_name in ("claude", "cursor", "windsurf", "openclaw", "hermes", "copilot"):
             hook_path = _find_hook_config(agent_name, ws)
@@ -2390,25 +2458,44 @@ def _print_dashboard() -> None:
                 except Exception:
                     pass
 
-        # Status line
+        # Per-workspace sparkline for the days window
+        ws_day_counts: List[int] = [0] * days
+        for s in sessions:
+            ts = s.get("updatedAt") or s.get("startedAt") or ""
+            if not ts:
+                continue
+            try:
+                if ts.endswith("Z"):
+                    ts = ts[:-1] + "+00:00"
+                dt = datetime.fromisoformat(ts)
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                age_days = (now - dt).days
+                bucket = days - 1 - age_days
+                if 0 <= bucket < days:
+                    ws_day_counts[bucket] += s.get("findingsCount", 0)
+            except Exception:
+                pass
+        ws_spark = _dashboard_sparkline(ws_day_counts)
+
         risk_str = _color(f"risk={latest_risk}/100", risk_color)
-        findings_str = f"{with_findings} findings" if with_findings > 0 else _color("clean", _GREEN)
+        findings_str = f"{with_findings} session{'s' if with_findings != 1 else ''} with findings" if with_findings > 0 else _color("clean", _GREEN)
         mode_str = _color(mode, _GREEN if mode == "enforce" else _YELLOW) if mode else _color("no hooks", _DIM)
-        # Always render the time column (placeholder when unknown) so rows align
-        # and there's no trailing whitespace on session-less workspaces.
         time_str = _color(latest_time or "—", _DIM)
 
         print(f"  {_color(ws_display, _BOLD)}")
-        print(f"    {risk_str}  {findings_str}  {mode_str}  {time_str}".rstrip())
+        print(f"    {risk_str}  {findings_str}  {mode_str}  {time_str}")
+        print(f"    {_color(ws_spark, _YELLOW)}")
         print()
 
+    # ── Footer ────────────────────────────────────────────────────────────
     total_ws = len(workspaces)
-    total_findings = sum(
-        sum(1 for s in list_sessions(ws, 999) if s.get("findingsCount", 0) > 0)
+    total_findings_window = sum(
+        sum(1 for s in _sessions_in_window(ws, days) if s.get("findingsCount", 0) > 0)
         for ws in workspaces
     )
-    print(f"  {_color('─' * 50, _DIM)}")
-    print(f"  {total_ws} workspace{'s' if total_ws != 1 else ''}  |  {total_findings} session{'s' if total_findings != 1 else ''} with findings")
+    print(f"  {'─' * 50}")
+    print(f"  {total_ws} workspace{'s' if total_ws != 1 else ''}  |  {total_findings_window} session{'s' if total_findings_window != 1 else ''} with findings  ({period_label})")
     print()
 
 
@@ -2472,7 +2559,7 @@ def _print_status_overview(workspace: Path) -> None:
     ws_display = str(workspace).replace(home, "~")
 
     print()
-    print(f"  {_color('PRISMOR IMMUNITY', _BOLD)}  status")
+    print(f"  {_color('PRISMOR IMMUNITY AGENT', _BOLD)}  status")
     print(f"  {_color('─' * 50, _DIM)}")
     print()
     print(f"  {_color('Workspace:', _GREEN)}   {ws_display}")
@@ -2648,7 +2735,7 @@ def _policy_test(workspace: Path, test_file: Optional[str] = None) -> None:
 
     result = run_cases(cases, workspace=workspace)
     print()
-    print(f"  {_color('PRISMOR IMMUNITY', _BOLD)}  policy tests ({path.name})")
+    print(f"  {_color('PRISMOR IMMUNITY AGENT', _BOLD)}  policy tests ({path.name})")
     print(f"  {_color('─' * 50, _DIM)}")
     print()
 
@@ -2767,7 +2854,7 @@ def _policy_edit(workspace: Path) -> None:
     while True:
         n_on = sum(1 for r in all_rules if r["on"])
         buf = "\033[H\033[J\033[?25l"  # home, clear, hide cursor
-        buf += f"\n  {_BOLD}PRISMOR IMMUNITY{_NC}  policy edit\n"
+        buf += f"\n  {_BOLD}PRISMOR IMMUNITY AGENT{_NC}  policy edit\n"
         buf += f"  {_DIM}Workspace: {workspace}{_NC}\n"
         buf += f"  {_DIM}{'─' * 64}{_NC}\n\n"
         buf += f"  {n_on}/{len(all_rules)} rules enabled\n\n"
@@ -2903,7 +2990,7 @@ def format_sarif(
         "runs": [{
             "tool": {
                 "driver": {
-                    "name": "Prismor Immunity",
+                    "name": "Prismor Immunity Agent",
                     "version": __version__,
                     "informationUri": "https://github.com/PrismorSec/prismor",
                     "rules": sarif_rules,
@@ -3020,7 +3107,7 @@ def _redact_evidence(evidence: str) -> str:
 
 def format_sessions(payload: Dict[str, Any]) -> str:
     sessions = payload["sessions"]
-    lines = ["Prismor Immunity Sessions", "========================="]
+    lines = ["Prismor Immunity Agent Sessions", "======================"]
     if not sessions:
         lines.append("No sessions stored.")
         return "\n".join(lines)
@@ -3048,7 +3135,7 @@ def format_sessions(payload: Dict[str, Any]) -> str:
 
 def format_analysis(result: Dict[str, Any]) -> str:
     lines = [
-        "Prismor Immunity Report",
+        "Prismor Immunity Agent Report",
         "=====================",
         f"Events: {result['summary']['totalEvents']}",
         f"Findings: {result['summary']['totalFindings']}",
