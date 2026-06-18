@@ -16,10 +16,19 @@ import json
 import time
 import urllib.error
 import urllib.request
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 OSV_QUERY_URL = "https://api.osv.dev/v1/query"
 OSV_BATCH_URL = "https://api.osv.dev/v1/querybatch"
+OSV_VULN_URL_TEMPLATE = "https://api.osv.dev/v1/vulns/{id}"
+
+# querybatch returns id+modified only (no severity/summary) by OSV design,
+# to keep batch responses small — see fetch_vulns_batch. This caps how
+# many *distinct* vulnerability IDs we'll fetch full details for in one
+# scan, bounding worst-case latency independent of how many packages a
+# lockfile lists (a tree of 250 packages sharing a handful of CVEs costs
+# a handful of detail fetches, not 250).
+_BATCH_DETAIL_FETCH_CAP = 60
 
 # Map our internal ecosystem labels to OSV's ecosystem identifiers.
 # See https://ossf.github.io/osv-schema/#defined-ecosystems
@@ -55,6 +64,19 @@ def _cache_set(key: str, result: List[Dict[str, Any]]) -> None:
 
 def _osv_ecosystem(ecosystem: str) -> Optional[str]:
     return _ECOSYSTEM_MAP.get(ecosystem)
+
+
+def _get_json(url: str, timeout: int = 4) -> Optional[dict]:
+    """GET JSON from OSV; return parsed response or None on any failure."""
+    try:
+        req = urllib.request.Request(
+            url,
+            headers={"Accept": "application/json", "User-Agent": "immunity-agent/1.0"},
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except Exception:
+        return None
 
 
 def _post_json(url: str, body: Dict[str, Any], timeout: int = 4) -> Optional[dict]:
@@ -211,4 +233,97 @@ def batch_has_vulns(
     # Anything missing from the response stays marked as vulnerable.
     for v in versions:
         out.setdefault(v, True)
+    return out
+
+
+def fetch_vulns_batch(
+    packages: List[Tuple[str, str, str]],
+) -> Dict[Tuple[str, str, str], List[Dict[str, Any]]]:
+    """Query OSV for vulnerabilities affecting many (name, ecosystem,
+    version) tuples at once — built for scanning a whole resolved
+    dependency tree (hundreds of packages) without one round trip per
+    package, as `fetch_vulns()` would require.
+
+    Two-phase by necessity: OSV's /v1/querybatch endpoint deliberately
+    returns only {id, modified} per vuln (no severity/summary/malicious
+    flag) to keep batch responses small. Phase 1 batches the presence
+    check across all packages. Phase 2 fetches full details via
+    /v1/vulns/{id} — but only once per *distinct* vuln ID found, capped
+    at `_BATCH_DETAIL_FETCH_CAP`, so cost scales with how many different
+    CVEs actually showed up, not with the package count. IDs beyond the
+    cap still appear in the result (so a caller never silently loses a
+    package), just with a default-medium synthetic entry instead of a
+    fetched title/severity.
+
+    Returns {(name, ecosystem, version): [vuln dicts]} in the same shape
+    `fetch_vulns()` returns. Fails open: a key whose ecosystem isn't
+    OSV-mapped, or whose batch sub-request fails entirely, maps to [].
+    """
+    out: Dict[Tuple[str, str, str], List[Dict[str, Any]]] = {}
+    to_query: List[Tuple[str, str, str, str, str]] = []  # name, eco, version, osv_eco, cache_key
+    for name, ecosystem, version in packages:
+        key = (name, ecosystem, version)
+        osv_eco = _osv_ecosystem(ecosystem)
+        if not osv_eco or not name:
+            out[key] = []
+            continue
+        cache_key = f"{osv_eco}:{name}:{version}"
+        cached = _cache_get(cache_key)
+        if cached is not None:
+            out[key] = cached
+            continue
+        to_query.append((name, ecosystem, version, osv_eco, cache_key))
+
+    if not to_query:
+        return out
+
+    # Phase 1: batch-query IDs only.
+    id_map: Dict[Tuple[str, str, str], List[str]] = {}
+    all_ids: set = set()
+    chunk_size = 100
+    for start in range(0, len(to_query), chunk_size):
+        chunk = to_query[start:start + chunk_size]
+        body = {
+            "queries": [
+                {"package": {"name": n, "ecosystem": e}, "version": v}
+                for n, _eco, v, e, _ck in chunk
+            ]
+        }
+        data = _post_json(OSV_BATCH_URL, body, timeout=10)
+        results = (data or {}).get("results") or []
+        for (n, eco, v, _e, _ck), result in zip(chunk, results):
+            ids = [vv["id"] for vv in (result or {}).get("vulns") or [] if vv.get("id")]
+            id_map[(n, eco, v)] = ids
+            all_ids.update(ids)
+        if not data:
+            for (n, eco, v, _e, _ck) in chunk:
+                id_map.setdefault((n, eco, v), [])
+
+    # Phase 2: full details for each distinct ID, capped.
+    ids_to_fetch = sorted(all_ids)[:_BATCH_DETAIL_FETCH_CAP]
+    detail_cache: Dict[str, Optional[dict]] = {}
+    for vid in ids_to_fetch:
+        detail_cache[vid] = _get_json(OSV_VULN_URL_TEMPLATE.format(id=vid), timeout=4)
+
+    # Phase 3: assemble per-package results.
+    for (name, ecosystem, version, _osv_eco, cache_key) in to_query:
+        key = (name, ecosystem, version)
+        parsed: List[Dict[str, Any]] = []
+        for vid in id_map.get(key, []):
+            if vid not in detail_cache:
+                # Beyond the detail-fetch cap — still report the package
+                # as affected rather than silently dropping it.
+                parsed.append({"id": vid, "severity": "medium", "title": vid, "malicious": False})
+                continue
+            vuln = detail_cache[vid]
+            if not vuln or vuln.get("withdrawn"):
+                continue
+            parsed.append({
+                "id": vid,
+                "severity": _classify_severity(vuln),
+                "title": _format_title(vuln),
+                "malicious": _is_malicious(vuln),
+            })
+        _cache_set(cache_key, parsed)
+        out[key] = parsed
     return out

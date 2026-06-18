@@ -9,9 +9,10 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
 try:
@@ -492,6 +493,26 @@ class PolicyEngine:
 
         self.egress_allowlist = list(settings.get("egress_allowlist", []) or [])
 
+        # Automatic OSV/typosquat/IOC scoring of package-manager install
+        # commands found in shell events — see settings comment in
+        # default_policy.yaml. On by default; an org can disable it in
+        # .prismor-warden/policy.yaml if the extra network round-trips are
+        # unacceptable latency.
+        self.supply_chain_install_check: bool = bool(
+            settings.get("supply_chain_install_check", True)
+        )
+
+        # Detective (not preventive) scan of the FULL resolved npm
+        # dependency tree — including transitive sub-dependencies — run
+        # once an `npm install` completes. Subordinate to
+        # supply_chain_install_check: disabling that disables this too.
+        # Heavier than the per-command/manifest checks (can touch
+        # hundreds of packages), so it's independently toggleable. See
+        # settings comment in default_policy.yaml.
+        self.supply_chain_transitive_scan: bool = bool(
+            settings.get("supply_chain_transitive_scan", True)
+        )
+
         # Action for MCP remote-transport static findings (cleartext transport,
         # raw-IP endpoints, off-allowlist endpoints, hardcoded secrets in
         # headers/env). Either "warn" (default) or "block".
@@ -588,6 +609,62 @@ class PolicyEngine:
                     else (rule.mode or self.default_mode)
                 ),
             })
+
+        # ── Supply-chain install risk (OSV CVEs, typosquat, IOC) ────────
+        # Wires the same scoring `immunity supplychain npm install <pkg>`
+        # runs explicitly into the automatic hook path, so a plain
+        # `npm install lodash@4.17.4` an agent runs on its own — without
+        # being told to route through that wrapper — gets checked too.
+        if event_type == "shell" and self.supply_chain_install_check:
+            _cmd = field_values.get("command", "")
+            if _cmd:
+                try:
+                    findings.extend(self._check_supply_chain(_cmd, index, session_id))
+                except Exception as exc:
+                    sys.stderr.write(f"[warden] supply chain check error: {exc}\n")
+
+        # ── Supply-chain risk from a manifest edit (not just the install
+        # command) ───────────────────────────────────────────────────
+        # An agent commonly pins a vulnerable version by editing the
+        # manifest directly, then runs a bare install with no package
+        # arguments — which the command-based check above cannot see,
+        # since a bare install resolves from the manifest, not argv.
+        # Scan the text being written for pinned dependency entries and
+        # score those too. Covers npm/pnpm/yarn (package.json), pip
+        # (requirements*.txt, pyproject.toml), go (go.mod), and cargo
+        # (Cargo.toml). See _manifest_ecosystem for what's intentionally
+        # out of scope (maven).
+        if event_type == "file_write" and self.supply_chain_install_check:
+            _path = field_values.get("path", "")
+            _content = str(event.get("content", ""))
+            _eco = _manifest_ecosystem(_path)
+            if _content and _eco:
+                try:
+                    findings.extend(
+                        self._check_manifest_write(_content, _eco, index, session_id)
+                    )
+                except Exception as exc:
+                    sys.stderr.write(f"[warden] supply chain manifest check error: {exc}\n")
+
+        # ── Transitive lockfile-tree scan (post-install, detective) ─────
+        # The resolved dependency tree (including sub-dependencies a
+        # direct command/manifest check never sees) only exists once an
+        # install has actually completed, so this fires on a post-action
+        # event and only ever warns — should_block() only blocks on
+        # pre-action events, so there is no pre-action path through which
+        # this finding could block anything even if mis-tagged.
+        if (
+            event_type == "shell"
+            and self.supply_chain_install_check
+            and self.supply_chain_transitive_scan
+            and str(event.get("agent_event", "")).lower().startswith("post")
+        ):
+            _cmd = field_values.get("command", "")
+            if _cmd and _is_completed_npm_install(_cmd):
+                try:
+                    findings.extend(self._check_transitive_postinstall(index, session_id))
+                except Exception as exc:
+                    sys.stderr.write(f"[warden] transitive supply chain check error: {exc}\n")
 
         # ── Canarytoken access check ────────────────────────────────────
         # If the agent is reading a registered canarytoken path, raise a
@@ -981,6 +1058,271 @@ class PolicyEngine:
             "action": action,
         }
 
+    def _score_package(
+        self,
+        spec: Any,
+        ecosystem: str,
+        install_event: Any,
+        scorer: Any,
+        index: int,
+        session_id: str,
+    ) -> Optional[Dict[str, Any]]:
+        """Score one package spec and build a finding dict, or None on an
+        "allow" verdict or lookup failure. Shared by the command-line and
+        manifest-write supply-chain checks below.
+        """
+        from supplychain.ecosystems.metadata import fetch_metadata
+
+        try:
+            meta = fetch_metadata(spec, ecosystem)
+            verdict = scorer.score(spec, meta, install_event)
+        except Exception:
+            return None
+        if verdict.verdict == "allow":
+            return None
+
+        has_ioc = any(s.id.startswith("ioc_") for s in verdict.signals)
+        severity = (
+            "CRITICAL" if has_ioc or verdict.score >= 80
+            else "HIGH" if verdict.verdict == "block"
+            else "MEDIUM"
+        )
+        top_signals = "; ".join(
+            f"{s.description} (+{s.points})" for s in verdict.signals[:3]
+        )
+        evidence = f"{spec.raw} [{ecosystem}]"
+        if top_signals:
+            evidence += f": {top_signals}"
+
+        finding_id = f"pkg-install-vulnerable-version-{index}-{spec.name}"
+        prefixed_id = f"{session_id}:{finding_id}" if session_id else finding_id
+        return {
+            "id": prefixed_id,
+            "severity": severity,
+            "category": "dependency_risk",
+            "title": (
+                f"Risky {ecosystem} install: {spec.raw} "
+                f"(score {verdict.score}/100, {verdict.verdict})"
+            ),
+            "evidence": _truncate(evidence),
+            "eventIndex": index,
+            "ruleId": "pkg-install-vulnerable-version",
+            "action": "block" if verdict.verdict == "block" else "warn",
+            # Same default as every other dependency_risk rule: no per-rule
+            # override exists here, so inherit the policy's default_mode
+            # exactly as a YAML rule without an explicit `mode` would.
+            "mode": self.default_mode,
+        }
+
+    def _check_supply_chain(
+        self,
+        command: str,
+        index: int,
+        session_id: str,
+    ) -> List[Dict[str, Any]]:
+        """Score package installs found in ``command`` via the supplychain
+        engine (OSV CVEs, typosquatting, IOC/malicious-package matches,
+        registry metadata). Returns one finding per package that isn't a
+        clean "allow" verdict. Fails open: any import or lookup error
+        yields no findings rather than blocking the command.
+
+        Only catches installs with an explicit package@version on the
+        command line. An agent that pins a version by editing the manifest
+        directly and then runs a bare `npm install` is caught instead by
+        ``_check_manifest_write`` below.
+        """
+        findings: List[Dict[str, Any]] = []
+        try:
+            from supplychain.ecosystems.detector import detect_install
+            from supplychain.scoring.engine import RiskScorer, load_allowlist
+        except Exception:
+            return findings
+
+        allowlist = load_allowlist(self.workspace) if self.workspace else set()
+        scorer = RiskScorer(allowlist=allowlist)
+
+        checked = 0
+        for argv in _iter_install_argvs(command):
+            if checked >= _SUPPLY_CHAIN_MAX_PACKAGES_PER_COMMAND:
+                break
+            try:
+                install_event = detect_install(argv)
+            except Exception:
+                continue
+            if install_event is None or not install_event.packages:
+                continue
+
+            for spec in install_event.packages:
+                if checked >= _SUPPLY_CHAIN_MAX_PACKAGES_PER_COMMAND:
+                    break
+                checked += 1
+                finding = self._score_package(
+                    spec, install_event.ecosystem, install_event, scorer, index, session_id
+                )
+                if finding is not None:
+                    findings.append(finding)
+        return findings
+
+    def _extract_manifest_pins(self, content: str, ecosystem: str) -> List[Tuple[str, str]]:
+        """Return [(name, version), ...] of exact-pinned dependencies for
+        `ecosystem` found anywhere in `content`. Range-specified versions
+        (^, ~, >=, caret-implied, ...) are skipped — they don't resolve to
+        a single OSV-queryable version.
+        """
+        if ecosystem == "npm":
+            return [(m.group(1), m.group(2)) for m in _NPM_MANIFEST_PIN_RE.finditer(content)]
+        if ecosystem == "pip":
+            return [(m.group(1), m.group(2)) for m in _PIP_MANIFEST_PIN_RE.finditer(content)]
+        if ecosystem == "go":
+            return [(m.group(1), m.group(2)) for m in _GO_MANIFEST_PIN_RE.finditer(content)]
+        if ecosystem == "cargo":
+            out: List[Tuple[str, str]] = []
+            for m in _CARGO_MANIFEST_PIN_RE.finditer(content):
+                name = m.group(1)
+                if name in _CARGO_NON_DEP_KEYS:
+                    continue
+                version = m.group(2) or m.group(3)
+                out.append((name, version))
+            return out
+        return []
+
+    def _check_manifest_write(
+        self,
+        content: str,
+        ecosystem: str,
+        index: int,
+        session_id: str,
+    ) -> List[Dict[str, Any]]:
+        """Score exact-pinned dependency versions found in text being
+        written to a manifest (covers both a full ``Write`` and an
+        ``Edit`` snippet, since pin detection only needs to see the new
+        pinned-dependency line, not the whole file).
+
+        Cargo.toml note: a bare `dep = "1.2.3"` is technically a caret
+        (^1.2.3) requirement by Cargo's default semantics, not a hard pin
+        — we score the written version anyway as a best-effort signal,
+        since that's what `cargo add` just wrote and what will resolve
+        today.
+        """
+        findings: List[Dict[str, Any]] = []
+        pins = self._extract_manifest_pins(content, ecosystem)
+        if not pins:
+            return findings
+        try:
+            from supplychain.ecosystems.detector import InstallEvent, PackageSpec
+            from supplychain.scoring.engine import RiskScorer, load_allowlist
+        except Exception:
+            return findings
+
+        allowlist = load_allowlist(self.workspace) if self.workspace else set()
+        scorer = RiskScorer(allowlist=allowlist)
+        install_event = InstallEvent(ecosystem=ecosystem, argv=[], packages=[])
+
+        checked = 0
+        seen: set = set()
+        for name, version in pins:
+            if checked >= _SUPPLY_CHAIN_MAX_PACKAGES_PER_COMMAND:
+                break
+            if name in seen:
+                continue
+            seen.add(name)
+            checked += 1
+            spec = PackageSpec(raw=f"{name}@{version}", name=name, source="registry", version=version)
+            finding = self._score_package(spec, ecosystem, install_event, scorer, index, session_id)
+            if finding is not None:
+                findings.append(finding)
+        return findings
+
+    def _check_transitive_postinstall(self, index: int, session_id: str) -> List[Dict[str, Any]]:
+        """Scan the FULL resolved npm dependency tree (including
+        transitive sub-dependencies a direct command/manifest check never
+        sees) against OSV once an install has completed.
+
+        Detective, not preventive: the tree only exists after `npm
+        install` has already run, so this only ever produces a `warn`
+        finding with `mode: observe` — never `block`. Only reports names
+        that AREN'T already top-level/direct (those are covered by the
+        pre-action checks above); this is purely the additive,
+        transitive-only signal.
+        """
+        findings: List[Dict[str, Any]] = []
+        if self.workspace is None:
+            return findings
+        try:
+            from warden.deps import _read_npm_lockfile, read_npm_lockfile_full
+            from supplychain.scoring.osv_lookup import fetch_vulns_batch
+        except Exception:
+            return findings
+
+        full_tree = read_npm_lockfile_full(self.workspace)
+        if not full_tree:
+            return findings
+        top_level = _read_npm_lockfile(self.workspace)
+        transitive_only = {n: v for n, v in full_tree.items() if n not in top_level}
+        if not transitive_only:
+            return findings
+
+        items = sorted(transitive_only.items())
+        truncated = len(items) > _TRANSITIVE_SCAN_MAX_PACKAGES
+        if truncated:
+            items = items[:_TRANSITIVE_SCAN_MAX_PACKAGES]
+
+        try:
+            results = fetch_vulns_batch([(name, "npm", version) for name, version in items])
+        except Exception:
+            return findings
+
+        flagged = [
+            (name, version, vulns)
+            for (name, _eco, version), vulns in results.items()
+            if vulns
+        ]
+        if not flagged:
+            return findings
+
+        flagged.sort(
+            key=lambda f: max((_SEVERITY_RANK.get(v["severity"], 0) for v in f[2]), default=0),
+            reverse=True,
+        )
+        has_ioc = any(v.get("malicious") for _n, _v, vs in flagged for v in vs)
+        top_severity = max(
+            (v["severity"] for _n, _v, vs in flagged for v in vs),
+            key=lambda s: _SEVERITY_RANK.get(s, 0),
+            default="medium",
+        )
+        severity = "CRITICAL" if has_ioc else top_severity.upper()
+
+        summary = "; ".join(f"{n}@{v} ({vs[0]['id']})" for n, v, vs in flagged[:5])
+        if len(flagged) > 5:
+            summary += f"; +{len(flagged) - 5} more"
+        if truncated:
+            summary += (
+                f" [scan capped at {_TRANSITIVE_SCAN_MAX_PACKAGES} of "
+                f"{len(transitive_only)} transitive packages]"
+            )
+
+        finding_id = f"transitive-dependency-vulnerable-{index}"
+        prefixed_id = f"{session_id}:{finding_id}" if session_id else finding_id
+        findings.append({
+            "id": prefixed_id,
+            "severity": severity,
+            "category": "dependency_risk",
+            "title": (
+                f"{len(flagged)} transitive npm "
+                f"dependenc{'y' if len(flagged) == 1 else 'ies'} with known vulnerabilities"
+            ),
+            "evidence": _truncate(summary, max_length=400),
+            "eventIndex": index,
+            "ruleId": "transitive-dependency-vulnerable",
+            "action": "warn",
+            # Always observe, never enforce — this finding describes a
+            # tree that has already been installed; should_block() only
+            # acts on pre-action events, but mode is set explicitly here
+            # too so the intent reads correctly from the finding alone.
+            "mode": "observe",
+        })
+        return findings
+
     def check_command(self, command: str) -> List[Dict[str, Any]]:
         """Quick check: evaluate a shell command string. Returns findings."""
         event = {"type": "shell", "command": command}
@@ -1177,6 +1519,140 @@ def _extract_domain(url: str) -> str:
 
 # Regex to find URLs in shell commands.
 _URL_IN_COMMAND_RE = re.compile(r'https?://([a-zA-Z0-9][-a-zA-Z0-9.]*[a-zA-Z0-9])')
+
+# Splits a (possibly compound) shell command into independent sub-commands
+# so an install hidden after `&&`/`;`/`|` (e.g. `cd app && npm install x`)
+# is still found.
+_SHELL_SEP_RE = re.compile(r'&&|\|\||[;|\n]')
+_ENV_ASSIGNMENT_RE = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*=')
+
+# Bounds worst-case latency of the supply-chain check below: each package
+# can cost up to one registry fetch (3s timeout) + one OSV query (4s
+# timeout), so an unbounded package list could stall the hook for a long
+# time on a slow/unreachable network.
+_SUPPLY_CHAIN_MAX_PACKAGES_PER_COMMAND = 8
+
+# Matches an exact-pinned npm/pnpm/yarn manifest dependency entry, e.g.
+# `"lodash": "4.17.4"`. Deliberately excludes range specifiers (^, ~, >=,
+# *, workspace:, etc.) — those don't resolve to a single OSV-queryable
+# version, so they're left to the existing pkg-* regex rules instead.
+_NPM_MANIFEST_PIN_RE = re.compile(
+    r'"(@?[A-Za-z0-9_][A-Za-z0-9_.\/-]*)"\s*:\s*"(\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?)"'
+)
+
+# Context-free pin regexes for non-npm manifests, mirroring the npm one
+# above. Deliberately snippet-robust — none of these require the
+# surrounding structural context (a `dependencies = [...]` array, a
+# `require (...)` block, a `[dependencies]` table header) to be present
+# in the same chunk of text. A single Edit tool call's `new_string` is
+# often just the one inserted line, not the structure around it — exactly
+# the gap that let a manifest edit bypass the npm-only version of this
+# check (see policy_engine tests for the regression case). A stateful
+# parser keyed off seeing the section header first (as warden/deps.py's
+# manifest parsers are, for the unrelated `immunity deps` static scan)
+# would silently miss that case again.
+_PIP_MANIFEST_PIN_RE = re.compile(
+    r'(?<![\w.-])([A-Za-z][A-Za-z0-9_.-]*)\s*==\s*([0-9][A-Za-z0-9_.\-]*)'
+)
+_GO_MANIFEST_PIN_RE = re.compile(
+    r'([A-Za-z0-9.\-]+(?:/[A-Za-z0-9._~\-]+)+)\s+(v\d+\.\d+\.\d+[\w.\-+]*)'
+)
+_CARGO_MANIFEST_PIN_RE = re.compile(
+    r'([A-Za-z][A-Za-z0-9_-]*)\s*=\s*(?:"(\d[0-9A-Za-z.\-+]*)"'
+    r'|\{[^}]*?version\s*=\s*"(\d[0-9A-Za-z.\-+]*)"[^}]*?\})'
+)
+# Cargo.toml [package] metadata keys that look like `key = "value"` but
+# aren't dependencies — most importantly the crate's own `version =
+# "x.y.z"` field, which is present in nearly every Cargo.toml and would
+# otherwise be misread as a dependency named "version" on every write.
+_CARGO_NON_DEP_KEYS = frozenset({
+    "name", "version", "edition", "rust-version", "resolver", "authors",
+    "license", "license-file", "description", "repository", "readme",
+    "publish", "keywords", "categories", "homepage", "documentation",
+})
+
+# Manifest filename -> ecosystem, for routing a file_write event to the
+# right pin regex. Mirrors warden/deps.py's _MANIFEST_GLOBS (kept in sync
+# with default_policy.yaml's manifest_patterns) but matches a basename
+# directly rather than globbing a workspace, since here we only have the
+# path string from the event, not a directory to scan. Maven (pom.xml)
+# is intentionally absent: there is no exact-pin string parser for it and
+# its OSV metadata is stub-only — see Limitations.
+_MANIFEST_ECOSYSTEM_BY_NAME = {
+    "package.json": "npm",
+    "pyproject.toml": "pip",
+    "go.mod": "go",
+    "Cargo.toml": "cargo",
+}
+_REQUIREMENTS_TXT_RE = re.compile(r'^requirements([-_].*)?\.txt$', re.IGNORECASE)
+
+
+def _manifest_ecosystem(path: str) -> Optional[str]:
+    """Return the ecosystem for a manifest file path, or None if `path`
+    isn't a manifest this check covers."""
+    name = os.path.basename(path.split("\n", 1)[0]) if path else ""
+    eco = _MANIFEST_ECOSYSTEM_BY_NAME.get(name)
+    if eco:
+        return eco
+    if _REQUIREMENTS_TXT_RE.match(name):
+        return "pip"
+    return None
+
+
+def _iter_install_argvs(command: str) -> List[List[str]]:
+    """Split a shell command into argv lists, one per sub-command.
+
+    Strips leading ``VAR=value`` env assignments so the package-manager
+    binary lands at argv[0], where ``supplychain.ecosystems.detector.
+    detect_install`` expects it.
+    """
+    argvs: List[List[str]] = []
+    for segment in _SHELL_SEP_RE.split(command):
+        segment = segment.strip()
+        if not segment:
+            continue
+        try:
+            tokens = shlex.split(segment)
+        except ValueError:
+            continue
+        while tokens and _ENV_ASSIGNMENT_RE.match(tokens[0]):
+            tokens.pop(0)
+        if tokens:
+            argvs.append(tokens)
+    return argvs
+
+
+# Bounds the transitive post-install scan: a lockfile can list hundreds
+# of resolved packages, but OSV's batch+detail round trips (see
+# fetch_vulns_batch) should stay bounded regardless of tree size.
+_TRANSITIVE_SCAN_MAX_PACKAGES = 250
+
+_SEVERITY_RANK = {"low": 0, "medium": 1, "high": 2, "critical": 3}
+
+
+def _is_completed_npm_install(command: str) -> bool:
+    """True if `command` contains an `npm install`/`i`/`add` sub-command
+    — used to trigger the post-install transitive scan regardless of
+    whether explicit packages were given on the command line (a bare
+    `npm install` is exactly the case that scan exists for).
+
+    Deliberately npm-only, not pnpm/yarn/bun: `detect_install` maps those
+    to their own ecosystem strings, and the transitive lockfile reader
+    below only parses `package-lock.json` — pnpm/yarn ship a different
+    lockfile format this round doesn't cover (see Limitations).
+    """
+    try:
+        from supplychain.ecosystems.detector import detect_install
+    except Exception:
+        return False
+    for argv in _iter_install_argvs(command):
+        try:
+            install_event = detect_install(argv)
+        except Exception:
+            continue
+        if install_event is not None and install_event.ecosystem == "npm":
+            return True
+    return False
 
 
 def _extract_domains_from_command(command: str) -> List[str]:
