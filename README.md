@@ -21,12 +21,6 @@
 
 ---
 
-<p align="center">
-  <img src="assets/prismor-cli-demo.gif" alt="Prismor CLI Demo" width="820" />
-</p>
-
----
-
 ## The Problem
 
 AI coding agents execute shell commands, read and write files, access credentials, and call external APIs. They do this autonomously, often across many steps, with limited checkpoints.
