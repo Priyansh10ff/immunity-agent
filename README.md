@@ -38,8 +38,9 @@ This creates risks that traditional security tooling isn't designed for:
 - **Secret exfiltration** - an agent reads `.env` or credential files as part of a debugging task and sends the content outbound
 - **Privilege escalation** - an agent modifies sudoers, CI pipelines, or file permissions to resolve a permission error
 - **Dependency manipulation** - an agent installs or rewrites a package at the direction of injected input
+- **Supply chain risk** - an agent installs a vulnerable or 0-day package while optimizing for code velocity
 
-Standard OS-level and endpoint security tools monitor the kernel and filesystem. By the time they see an action, the agent has already decided to take it. The gap is at the agent layer.
+Standard OS-level and endpoint security tools monitor the kernel and filesystem. By the time they see an action, the agent has already decided to take it. The gap is at the agent layer for avoiding the attack
 
 ---
 
