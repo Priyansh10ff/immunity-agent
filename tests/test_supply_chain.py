@@ -534,3 +534,93 @@ class TestExtractAdvisoryIds:
         from warden.store import _extract_advisory_ids
         assert _extract_advisory_ids("") == []
         assert _extract_advisory_ids("[]") == []
+
+
+class TestFetchVulnsBatch:
+    """fetch_vulns_batch is two-phase: OSV's /v1/querybatch returns only
+    {id, modified} per vuln by design, so phase 1 batches presence across
+    all packages and phase 2 fetches full details once per *distinct*
+    vuln ID (not once per package) via /v1/vulns/{id}.
+    """
+
+    def setup_method(self):
+        from supplychain.scoring import osv_lookup as osv
+        osv._CACHE.clear()
+
+    def test_batches_presence_then_fetches_distinct_details(self):
+        from supplychain.scoring import osv_lookup as osv
+
+        batch_response = {
+            "results": [
+                {"vulns": [{"id": "GHSA-aaaa"}]},
+                {"vulns": [{"id": "GHSA-aaaa"}]},  # same CVE, different package
+                {"vulns": []},
+            ]
+        }
+        detail = {"id": "GHSA-aaaa", "summary": "bad thing", "database_specific": {"severity": "high"}}
+
+        with patch.object(osv, "_post_json", return_value=batch_response) as mock_post, \
+             patch.object(osv, "_get_json", return_value=detail) as mock_get:
+            result = osv.fetch_vulns_batch([
+                ("pkg-a", "npm", "1.0.0"),
+                ("pkg-b", "npm", "1.0.0"),
+                ("pkg-c", "npm", "1.0.0"),
+            ])
+
+        mock_post.assert_called_once()  # one batch round trip for all 3 packages
+        mock_get.assert_called_once()   # GHSA-aaaa fetched once, not twice
+        assert len(result[("pkg-a", "npm", "1.0.0")]) == 1
+        assert result[("pkg-a", "npm", "1.0.0")][0]["severity"] == "high"
+        assert result[("pkg-b", "npm", "1.0.0")][0]["id"] == "GHSA-aaaa"
+        assert result[("pkg-c", "npm", "1.0.0")] == []
+
+    def test_unmapped_ecosystem_returns_empty_without_network(self):
+        from supplychain.scoring import osv_lookup as osv
+
+        with patch.object(osv, "_post_json") as mock_post:
+            result = osv.fetch_vulns_batch([("pkg", "maven-but-typo'd", "1.0.0")])
+
+        mock_post.assert_not_called()
+        assert result[("pkg", "maven-but-typo'd", "1.0.0")] == []
+
+    def test_failed_batch_request_fails_open(self):
+        from supplychain.scoring import osv_lookup as osv
+
+        with patch.object(osv, "_post_json", return_value=None):
+            result = osv.fetch_vulns_batch([("pkg-a", "npm", "1.0.0")])
+
+        assert result[("pkg-a", "npm", "1.0.0")] == []
+
+    def test_detail_fetch_cap_still_reports_package_with_synthetic_entry(self):
+        from supplychain.scoring import osv_lookup as osv
+
+        with patch.object(osv, "_BATCH_DETAIL_FETCH_CAP", 1):
+            batch_response = {
+                "results": [
+                    {"vulns": [{"id": "GHSA-one"}]},
+                    {"vulns": [{"id": "GHSA-two"}]},
+                ]
+            }
+            with patch.object(osv, "_post_json", return_value=batch_response), \
+                 patch.object(osv, "_get_json", return_value={"id": "GHSA-one", "summary": "x"}) as mock_get:
+                result = osv.fetch_vulns_batch([
+                    ("pkg-a", "npm", "1.0.0"),
+                    ("pkg-b", "npm", "1.0.0"),
+                ])
+
+            mock_get.assert_called_once()  # cap=1 -> only one detail fetch
+            # pkg-b's GHSA-two is beyond the cap but must still appear,
+            # not be silently dropped.
+            assert len(result[("pkg-b", "npm", "1.0.0")]) == 1
+            assert result[("pkg-b", "npm", "1.0.0")][0]["id"] == "GHSA-two"
+            assert result[("pkg-b", "npm", "1.0.0")][0]["severity"] == "medium"
+
+    def test_uses_cache_to_avoid_requerying(self):
+        from supplychain.scoring import osv_lookup as osv
+
+        osv._cache_set("npm:cached-pkg:1.0.0", [{"id": "GHSA-cached", "severity": "low", "title": "t", "malicious": False}])
+        with patch.object(osv, "_post_json") as mock_post:
+            result = osv.fetch_vulns_batch([("cached-pkg", "npm", "1.0.0")])
+
+        mock_post.assert_not_called()
+        assert result[("cached-pkg", "npm", "1.0.0")][0]["id"] == "GHSA-cached"

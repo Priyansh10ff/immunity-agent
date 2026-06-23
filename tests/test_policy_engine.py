@@ -5,6 +5,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -136,6 +137,18 @@ class TestSupplyChainRules(unittest.TestCase):
     """Test supply chain security rules."""
 
     def setUp(self):
+        # These tests exercise the regex-based dependency_risk rules, not
+        # live vulnerability data — block every real network call the
+        # automatic supply-chain install check (policy_engine._check_supply_
+        # chain) would otherwise make for the install-shaped commands below,
+        # so the suite stays deterministic, fast, and offline-safe.
+        self._net_patchers = [
+            patch("supplychain.ecosystems.metadata._http_get", return_value=None),
+            patch("supplychain.scoring.osv_lookup._post_json", return_value=None),
+        ]
+        for p in self._net_patchers:
+            p.start()
+        self.addCleanup(lambda: [p.stop() for p in self._net_patchers])
         self.engine = PolicyEngine()
 
     # ── Package install interception ──────────────────────────────────
@@ -269,6 +282,398 @@ class TestSupplyChainRules(unittest.TestCase):
     def test_dependency_risk_in_block_categories(self):
         """Verify dependency_risk is in block_categories."""
         self.assertIn("dependency_risk", self.engine.block_categories)
+
+
+class TestSupplyChainAutomaticHookCheck(unittest.TestCase):
+    """The OSV/typosquat/IOC scoring engine (the same one `immunity
+    supplychain npm install <pkg>` runs explicitly) must also fire on a
+    plain `npm install pkg@version` an agent runs without using that
+    wrapper — this is the gap a supply-chain efficacy test found: hooks
+    installed in enforce mode did not block known-CVE pinned versions
+    because nothing wired the scoring engine into evaluate().
+    """
+
+    def setUp(self):
+        self._http_patcher = patch(
+            "supplychain.ecosystems.metadata._http_get", return_value=None
+        )
+        self._http_patcher.start()
+        self.addCleanup(self._http_patcher.stop)
+
+    def _mock_osv(self, vulns):
+        return patch("supplychain.scoring.engine.fetch_vulns", return_value=vulns)
+
+    def test_known_cve_pinned_version_blocks(self):
+        engine = PolicyEngine()
+        # Real lodash@4.17.4 carries 10 OSV-tracked CVEs; mock the top two
+        # by severity (critical 50 + high 30 = 80, capped at 100) to match
+        # what an actually-pinned vulnerable version would score in
+        # production rather than asserting on a single contrived CVE.
+        cves = [
+            {
+                "id": "CVE-2019-10744", "severity": "critical",
+                "title": "CVE-2019-10744: prototype pollution", "malicious": False,
+            },
+            {
+                "id": "CVE-2018-16487", "severity": "high",
+                "title": "CVE-2018-16487: prototype pollution", "malicious": False,
+            },
+        ]
+        with self._mock_osv(cves):
+            findings = engine.check_command("npm install lodash@4.17.4")
+
+        dep = [f for f in findings if f["category"] == "dependency_risk"]
+        self.assertTrue(dep, "expected a dependency_risk finding for a known-CVE version")
+        self.assertEqual(dep[0]["ruleId"], "pkg-install-vulnerable-version")
+        self.assertEqual(dep[0]["action"], "block")
+
+    def test_clean_version_not_flagged(self):
+        engine = PolicyEngine()
+        with self._mock_osv([]):
+            findings = engine.check_command("npm install lodash@4.17.21")
+
+        dep = [f for f in findings if f["ruleId"] == "pkg-install-vulnerable-version"]
+        self.assertEqual(dep, [])
+
+    def test_compound_command_finds_install_after_separator(self):
+        engine = PolicyEngine()
+        cves = [{
+            "id": "CVE-2017-18214", "severity": "high",
+            "title": "CVE-2017-18214: ReDoS", "malicious": False,
+        }]
+        with self._mock_osv(cves):
+            findings = engine.check_command(
+                "cd app && npm install moment@2.18.1 && npm run build"
+            )
+
+        rule_ids = [f["ruleId"] for f in findings]
+        self.assertIn("pkg-install-vulnerable-version", rule_ids)
+
+    def test_malicious_osv_match_is_critical_and_blocks(self):
+        engine = PolicyEngine()
+        vulns = [{
+            "id": "MAL-2024-9999", "severity": "critical",
+            "title": "MAL-2024-9999: backdoored postinstall", "malicious": True,
+        }]
+        with self._mock_osv(vulns):
+            findings = engine.check_command("npm install evil-pkg@1.0.0")
+
+        dep = [f for f in findings if f["ruleId"] == "pkg-install-vulnerable-version"]
+        self.assertEqual(len(dep), 1)
+        self.assertEqual(dep[0]["severity"], "CRITICAL")
+        self.assertEqual(dep[0]["action"], "block")
+
+    def test_settings_flag_disables_check(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workspace = Path(tmpdir)
+            policy_dir = workspace / ".prismor-warden"
+            policy_dir.mkdir()
+            (policy_dir / "policy.yaml").write_text(
+                "settings:\n  supply_chain_install_check: false\n"
+            )
+            engine = PolicyEngine(workspace=workspace)
+            cves = [{
+                "id": "CVE-2019-10744", "severity": "critical",
+                "title": "CVE-2019-10744", "malicious": False,
+            }]
+            with self._mock_osv(cves):
+                findings = engine.check_command("npm install lodash@4.17.4")
+
+        dep = [f for f in findings if f["ruleId"] == "pkg-install-vulnerable-version"]
+        self.assertEqual(dep, [])
+
+    def test_enabled_by_default(self):
+        self.assertTrue(PolicyEngine().supply_chain_install_check)
+
+    def test_manifest_write_catches_pinned_vulnerable_version(self):
+        """The exact gap a real agent run exposed: it edited package.json
+        directly (not a command-line `npm install pkg@version`) and then
+        ran a bare `npm install`, which the command-based check can't see.
+        """
+        engine = PolicyEngine()
+        cves = [
+            {"id": "CVE-2019-10744", "severity": "critical", "title": "x", "malicious": False},
+            {"id": "CVE-2018-16487", "severity": "high", "title": "y", "malicious": False},
+        ]
+        content = (
+            '{"name":"app","dependencies":{"lodash":"4.17.4","moment":"2.18.1",'
+            '"next":"16.2.9"}}'
+        )
+        with self._mock_osv(cves):
+            findings = engine.evaluate(
+                {"type": "file_write", "path": "package.json", "content": content}, 0
+            )
+
+        dep = [f for f in findings if f["ruleId"] == "pkg-install-vulnerable-version"]
+        self.assertTrue(dep, "expected a finding for the pinned vulnerable version in the manifest")
+        self.assertEqual(dep[0]["action"], "block")
+
+    def test_manifest_write_then_bare_install_end_to_end(self):
+        """check_command alone must NOT see a vulnerable version that only
+        exists in the manifest, not on the install command line — this is
+        what the file_write check above exists to cover."""
+        engine = PolicyEngine()
+        with self._mock_osv([{"id": "CVE-x", "severity": "critical", "title": "t", "malicious": False}]):
+            findings = engine.check_command("npm install")
+        dep = [f for f in findings if f["ruleId"] == "pkg-install-vulnerable-version"]
+        self.assertEqual(dep, [], "a bare `npm install` has no packages on the command line to score")
+
+    def test_manifest_write_ignores_range_specifiers(self):
+        engine = PolicyEngine()
+        content = '{"dependencies":{"react":"^18.2.0","lodash":"~4.17.4"}}'
+        with self._mock_osv([{"id": "CVE-x", "severity": "critical", "title": "t", "malicious": False}]):
+            findings = engine.evaluate(
+                {"type": "file_write", "path": "package.json", "content": content}, 0
+            )
+        dep = [f for f in findings if f["ruleId"] == "pkg-install-vulnerable-version"]
+        self.assertEqual(dep, [], "range specifiers don't resolve to one OSV-queryable version")
+
+    def test_manifest_write_unsupported_path_ignored(self):
+        """pom.xml (maven) is intentionally out of scope — no exact-pin
+        string parser and OSV metadata is stub-only for it today."""
+        engine = PolicyEngine()
+        with self._mock_osv([{"id": "CVE-x", "severity": "critical", "title": "t", "malicious": False}]):
+            findings = engine.evaluate(
+                {"type": "file_write", "path": "pom.xml", "content": '<version>0.12</version>'}, 0
+            )
+        dep = [f for f in findings if f["ruleId"] == "pkg-install-vulnerable-version"]
+        self.assertEqual(dep, [])
+
+    def test_manifest_write_pip_requirements_txt(self):
+        engine = PolicyEngine()
+        cves = [{"id": "CVE-x", "severity": "critical", "title": "t", "malicious": False}]
+        with self._mock_osv(cves):
+            findings = engine.evaluate(
+                {"type": "file_write", "path": "requirements.txt", "content": "flask==0.12\nrequests>=2.0\n"}, 0
+            )
+        dep = [f for f in findings if f["ruleId"] == "pkg-install-vulnerable-version"]
+        self.assertEqual(len(dep), 1, "only the exact-pinned flask==0.12 should score, not the floating requests>=2.0")
+        self.assertIn("flask", dep[0]["title"])
+
+    def test_manifest_write_pip_pyproject_toml(self):
+        """pyproject.toml dependency entries are quoted like
+        `"flask==0.12"` inside an array — the regex must find them even
+        without the surrounding `dependencies = [...]` structure, since a
+        single-Edit snippet is often just the one inserted line."""
+        engine = PolicyEngine()
+        cves = [{"id": "CVE-x", "severity": "critical", "title": "t", "malicious": False}]
+        snippet = '+    "flask==0.12",'
+        with self._mock_osv(cves):
+            findings = engine.evaluate(
+                {"type": "file_write", "path": "pyproject.toml", "content": snippet}, 0
+            )
+        dep = [f for f in findings if f["ruleId"] == "pkg-install-vulnerable-version"]
+        self.assertEqual(len(dep), 1)
+
+    def test_manifest_write_go_mod(self):
+        engine = PolicyEngine()
+        cves = [{"id": "CVE-x", "severity": "critical", "title": "t", "malicious": False}]
+        content = "require github.com/gin-gonic/gin v1.7.0\n"
+        with self._mock_osv(cves):
+            findings = engine.evaluate(
+                {"type": "file_write", "path": "go.mod", "content": content}, 0
+            )
+        dep = [f for f in findings if f["ruleId"] == "pkg-install-vulnerable-version"]
+        self.assertEqual(len(dep), 1)
+        self.assertIn("github.com/gin-gonic/gin", dep[0]["title"])
+
+    def test_manifest_write_cargo_toml(self):
+        engine = PolicyEngine()
+        cves = [{"id": "CVE-x", "severity": "critical", "title": "t", "malicious": False}]
+        content = '[dependencies]\nserde = "1.0.130"\n'
+        with self._mock_osv(cves):
+            findings = engine.evaluate(
+                {"type": "file_write", "path": "Cargo.toml", "content": content}, 0
+            )
+        dep = [f for f in findings if f["ruleId"] == "pkg-install-vulnerable-version"]
+        self.assertEqual(len(dep), 1)
+        self.assertIn("serde", dep[0]["title"])
+
+    def test_manifest_write_cargo_toml_ignores_package_metadata(self):
+        """The crate's own `version = "x.y.z"` field (and other [package]
+        metadata) must not be misread as a dependency."""
+        engine = PolicyEngine()
+        cves = [{"id": "CVE-x", "severity": "critical", "title": "t", "malicious": False}]
+        content = '[package]\nname = "my-crate"\nversion = "0.1.0"\nedition = "2021"\n'
+        with self._mock_osv(cves):
+            findings = engine.evaluate(
+                {"type": "file_write", "path": "Cargo.toml", "content": content}, 0
+            )
+        dep = [f for f in findings if f["ruleId"] == "pkg-install-vulnerable-version"]
+        self.assertEqual(dep, [])
+
+    def test_manifest_write_cargo_toml_object_form(self):
+        engine = PolicyEngine()
+        cves = [{"id": "CVE-x", "severity": "critical", "title": "t", "malicious": False}]
+        content = '[dependencies]\ntokio = { version = "1.28.0", features = ["full"] }\n'
+        with self._mock_osv(cves):
+            findings = engine.evaluate(
+                {"type": "file_write", "path": "Cargo.toml", "content": content}, 0
+            )
+        dep = [f for f in findings if f["ruleId"] == "pkg-install-vulnerable-version"]
+        self.assertEqual(len(dep), 1)
+        self.assertIn("tokio", dep[0]["title"])
+
+    def test_edit_snippet_without_full_json_still_scores(self):
+        """An Edit tool call's joined snippet isn't valid standalone JSON —
+        the regex must still find the pinned entry inside it."""
+        engine = PolicyEngine()
+        cves = [{"id": "CVE-x", "severity": "critical", "title": "t", "malicious": False}]
+        snippet = '+  "lodash": "4.17.4",\n+  "moment": "2.18.1",'
+        with self._mock_osv(cves):
+            findings = engine.evaluate(
+                {"type": "file_write", "path": "package.json", "content": snippet}, 0
+            )
+        rule_ids = {f["ruleId"] for f in findings}
+        self.assertIn("pkg-install-vulnerable-version", rule_ids)
+
+    def test_package_cap_bounds_checked_count(self):
+        """A command listing more packages than the cap should still return
+        quickly and only score up to the cap, not hang scoring every one."""
+        from warden.policy_engine import _SUPPLY_CHAIN_MAX_PACKAGES_PER_COMMAND
+        engine = PolicyEngine()
+        packages = " ".join(f"pkg{i}" for i in range(_SUPPLY_CHAIN_MAX_PACKAGES_PER_COMMAND + 5))
+        with self._mock_osv([]):
+            findings = engine.check_command(f"npm install {packages}")
+        # All allow (no vulns mocked) -> no findings, but this must not
+        # raise or hang regardless of the package count.
+        self.assertEqual(findings, [])
+
+
+class TestTransitivePostinstallScan(unittest.TestCase):
+    """The full resolved dependency tree (transitive sub-dependencies a
+    direct command/manifest check never sees) is scanned once an install
+    completes. Detective only: must never block, only warn, and only on
+    a post-action event.
+    """
+
+    def _write_lockfile(self, workspace: Path, packages: dict) -> None:
+        import json
+        (workspace / "package-lock.json").write_text(json.dumps({
+            "name": "test-app", "lockfileVersion": 3, "packages": packages,
+        }))
+
+    def _mock_batch(self, vulns_by_key):
+        return patch(
+            "supplychain.scoring.osv_lookup.fetch_vulns_batch",
+            return_value={k: v for k, v in vulns_by_key.items()},
+        )
+
+    def test_transitive_vulnerable_dep_warns_not_blocks(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workspace = Path(tmpdir)
+            self._write_lockfile(workspace, {
+                "": {"name": "test-app"},
+                "node_modules/express": {"version": "4.18.2"},
+                "node_modules/express/node_modules/lodash": {"version": "4.17.4"},
+            })
+            engine = PolicyEngine(workspace=workspace)
+            cve = {"id": "CVE-x", "severity": "critical", "title": "t", "malicious": False}
+            with self._mock_batch({("lodash", "npm", "4.17.4"): [cve], ("express", "npm", "4.18.2"): []}):
+                findings = engine.evaluate(
+                    {"type": "shell", "command": "npm install", "agent_event": "PostToolUse"}, 0
+                )
+
+        trans = [f for f in findings if f["ruleId"] == "transitive-dependency-vulnerable"]
+        self.assertEqual(len(trans), 1)
+        self.assertEqual(trans[0]["action"], "warn")
+        self.assertEqual(trans[0]["mode"], "observe")
+        self.assertIn("lodash", trans[0]["evidence"])
+
+    def test_direct_dependency_excluded_from_transitive_report(self):
+        """express is top-level/direct — already covered by the
+        command/manifest checks — so it must not also appear here even
+        though it's vulnerable in this lockfile."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workspace = Path(tmpdir)
+            self._write_lockfile(workspace, {
+                "": {"name": "test-app"},
+                "node_modules/express": {"version": "4.18.2"},
+            })
+            engine = PolicyEngine(workspace=workspace)
+            cve = {"id": "CVE-x", "severity": "critical", "title": "t", "malicious": False}
+            with self._mock_batch({("express", "npm", "4.18.2"): [cve]}):
+                findings = engine.evaluate(
+                    {"type": "shell", "command": "npm install", "agent_event": "PostToolUse"}, 0
+                )
+
+        trans = [f for f in findings if f["ruleId"] == "transitive-dependency-vulnerable"]
+        self.assertEqual(trans, [], "express is direct, not transitive — covered by a different check")
+
+    def test_pre_action_event_does_not_trigger_scan(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workspace = Path(tmpdir)
+            self._write_lockfile(workspace, {
+                "": {"name": "test-app"},
+                "node_modules/express/node_modules/lodash": {"version": "4.17.4"},
+            })
+            engine = PolicyEngine(workspace=workspace)
+            with self._mock_batch({("lodash", "npm", "4.17.4"): [{"id": "x", "severity": "critical", "title": "t", "malicious": False}]}) as mock_batch:
+                findings = engine.evaluate(
+                    {"type": "shell", "command": "npm install", "agent_event": "PreToolUse"}, 0
+                )
+
+        mock_batch.assert_not_called()
+        self.assertEqual([f for f in findings if f["ruleId"] == "transitive-dependency-vulnerable"], [])
+
+    def test_non_install_command_does_not_trigger_scan(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workspace = Path(tmpdir)
+            self._write_lockfile(workspace, {
+                "": {"name": "test-app"},
+                "node_modules/express/node_modules/lodash": {"version": "4.17.4"},
+            })
+            engine = PolicyEngine(workspace=workspace)
+            with self._mock_batch({}) as mock_batch:
+                findings = engine.evaluate(
+                    {"type": "shell", "command": "npm run build", "agent_event": "PostToolUse"}, 0
+                )
+
+        mock_batch.assert_not_called()
+        self.assertEqual(findings, [])
+
+    def test_settings_flag_disables_transitive_scan_independently(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workspace = Path(tmpdir)
+            self._write_lockfile(workspace, {
+                "": {"name": "test-app"},
+                "node_modules/express/node_modules/lodash": {"version": "4.17.4"},
+            })
+            policy_dir = workspace / ".prismor-warden"
+            policy_dir.mkdir()
+            (policy_dir / "policy.yaml").write_text("settings:\n  supply_chain_transitive_scan: false\n")
+            engine = PolicyEngine(workspace=workspace)
+            self.assertFalse(engine.supply_chain_transitive_scan)
+            self.assertTrue(engine.supply_chain_install_check)  # the master switch stays on
+            with self._mock_batch({("lodash", "npm", "4.17.4"): [{"id": "x", "severity": "critical", "title": "t", "malicious": False}]}) as mock_batch:
+                findings = engine.evaluate(
+                    {"type": "shell", "command": "npm install", "agent_event": "PostToolUse"}, 0
+                )
+
+        mock_batch.assert_not_called()
+        self.assertEqual([f for f in findings if f["ruleId"] == "transitive-dependency-vulnerable"], [])
+
+    def test_no_lockfile_no_crash(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            engine = PolicyEngine(workspace=Path(tmpdir))
+            findings = engine.evaluate(
+                {"type": "shell", "command": "npm install", "agent_event": "PostToolUse"}, 0
+            )
+        self.assertEqual([f for f in findings if f["ruleId"] == "transitive-dependency-vulnerable"], [])
+
+    def test_clean_transitive_tree_produces_no_finding(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workspace = Path(tmpdir)
+            self._write_lockfile(workspace, {
+                "": {"name": "test-app"},
+                "node_modules/express/node_modules/lodash": {"version": "4.17.21"},
+            })
+            engine = PolicyEngine(workspace=workspace)
+            with self._mock_batch({("lodash", "npm", "4.17.21"): []}):
+                findings = engine.evaluate(
+                    {"type": "shell", "command": "npm install", "agent_event": "PostToolUse"}, 0
+                )
+        self.assertEqual([f for f in findings if f["ruleId"] == "transitive-dependency-vulnerable"], [])
 
 
 class TestPolicyEngineAllowlist(unittest.TestCase):

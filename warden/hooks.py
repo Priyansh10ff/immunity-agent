@@ -749,7 +749,16 @@ def _normalize_codex(payload: Dict[str, Any], session_id: str, workspace: Path) 
             **base,
             "type": "file_write",
             "path": tool_input.get("file_path") or tool_input.get("path", ""),
-            "content": _join_edits(tool_input.get("edits", [])) or tool_input.get("content", "") or tool_input.get("command", ""),
+            # A plain single Edit call (as opposed to MultiEdit) has shape
+            # {file_path, old_string, new_string} — no "edits" list and no
+            # "content" key — so new_string must be its own fallback or the
+            # written text is invisible to every content-based check.
+            "content": (
+                _join_edits(tool_input.get("edits", []))
+                or tool_input.get("content", "")
+                or tool_input.get("new_string", "")
+                or tool_input.get("command", "")
+            ),
         }
     if tool_name in {"WebFetch", "WebSearch"}:
         return {**base, "type": "network", "url": tool_input.get("url", ""), "response": payload.get("response", "")}
@@ -977,7 +986,15 @@ def _normalize_claude(payload: Dict[str, Any], session_id: str, workspace: Path)
             **base,
             "type": "file_write",
             "path": tool_input.get("file_path") or tool_input.get("path", ""),
-            "content": _join_edits(tool_input.get("edits", [])) or tool_input.get("content", ""),
+            # A plain single Edit call (as opposed to MultiEdit) has shape
+            # {file_path, old_string, new_string} — no "edits" list and no
+            # "content" key — so new_string must be its own fallback or the
+            # written text is invisible to every content-based check.
+            "content": (
+                _join_edits(tool_input.get("edits", []))
+                or tool_input.get("content", "")
+                or tool_input.get("new_string", "")
+            ),
         }
     if tool_name in {"WebFetch", "WebSearch"}:
         return {**base, "type": "network", "url": tool_input.get("url", ""), "response": payload.get("response", "")}

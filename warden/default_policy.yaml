@@ -49,6 +49,33 @@ settings:
   # .prismor-warden/policy.yaml.
   mcp_transport_action: warn
 
+  # Score every package-manager install command (npm/pnpm/yarn/bun/pip/uv/
+  # cargo/go) against OSV.dev (CVEs + malicious-package IOCs), typosquat
+  # heuristics, and registry metadata (age, maintainer count, install
+  # scripts) — the same checks `immunity supplychain npm install <pkg>`
+  # runs explicitly, applied automatically to every shell command an agent
+  # runs so a plain `npm install lodash@4.17.4` gets checked too, not just
+  # installs routed through that wrapper. Also scans manifest edits
+  # directly (package.json, requirements*.txt, pyproject.toml, go.mod,
+  # Cargo.toml — not pom.xml) so pinning a vulnerable version by editing
+  # the manifest and running a bare install is caught the same way.
+  # Findings land in category "dependency_risk" (see block_categories
+  # above). Disable if the extra registry/OSV network round-trips are
+  # unacceptable latency for your environment.
+  supply_chain_install_check: true
+
+  # Detective (not preventive) follow-up: after an `npm install` finishes,
+  # scan the FULL resolved dependency tree — including transitive
+  # sub-dependencies, which the checks above never see since they only
+  # look at directly-named or directly-pinned packages — against OSV.
+  # Always produces a `warn`, never a `block` (the tree only exists once
+  # the install already happened). Subordinate to
+  # supply_chain_install_check: disabling that disables this too. npm
+  # (package-lock.json) only today; pnpm/yarn/pip/cargo/go lockfile
+  # formats are not yet read by this scan. Independently toggleable
+  # since it can touch hundreds of packages per install.
+  supply_chain_transitive_scan: true
+
   # ── Hybrid semantic prompt-injection layer ──────────────────────────────
   # Opt-in companion to the deterministic regex rules. The heuristic pass
   # runs a weighted signal scoring (<1ms, no network). If the score lands

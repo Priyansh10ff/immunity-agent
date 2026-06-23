@@ -498,7 +498,20 @@ def _check_lockfile_presence(workspace: Path) -> List[AuditFinding]:
             findings.append(AuditFinding(
                 severity="PASS",
                 category="supply_chain",
-                message="All dependency manifests have corresponding lockfiles",
+                # Scoped deliberately: this only verifies lockfiles exist
+                # (version pins are locked), not that those pinned
+                # versions are CVE-free — that live OSV/typosquat/IOC
+                # scoring happens at hook time (the
+                # supply_chain_install_check / supply_chain_transitive_
+                # scan settings), not in this static audit. An earlier
+                # version of this message ("All dependency manifests have
+                # corresponding lockfiles") was easy to misread as a
+                # vulnerability-free verdict.
+                message=(
+                    "Lockfile presence: all dependency manifests have lockfiles "
+                    "(does not mean dependencies are CVE-free — that's checked "
+                    "live at install/edit time, not by this audit)"
+                ),
             ))
 
     return findings

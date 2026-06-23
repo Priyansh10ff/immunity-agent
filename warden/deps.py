@@ -169,6 +169,43 @@ def _read_npm_lockfile(workspace: Path) -> Dict[str, str]:
     return pins
 
 
+def read_npm_lockfile_full(workspace: Path) -> Dict[str, str]:
+    """Read package-lock.json (v2/v3) and return the FULL resolved
+    dependency tree as {name: version} — including transitive (nested
+    node_modules) entries, unlike `_read_npm_lockfile` above which
+    intentionally keeps only top-level pins for the static `immunity
+    deps` scan. Used by the live transitive post-install CVE check
+    (warden/policy_engine.py), where a vulnerable package several levels
+    deep is exactly the case a direct command/manifest check can't see.
+
+    If the same package name resolves to more than one version in the
+    tree (common in npm), the last one encountered wins — adequate for
+    "does any resolved version of this name have a known CVE" scanning;
+    we are not trying to enumerate every duplicate's exact path.
+    """
+    pins: Dict[str, str] = {}
+    for lock in workspace.glob("**/package-lock.json"):
+        if ".git" in lock.parts or "node_modules" in lock.parts:
+            continue
+        try:
+            data = json.loads(lock.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            continue
+        packages = data.get("packages") or {}
+        if not isinstance(packages, dict):
+            continue
+        for path, meta in packages.items():
+            if not path.startswith("node_modules/") or not isinstance(meta, dict):
+                continue
+            # "node_modules/a/node_modules/b" (transitive) -> "b": take
+            # everything after the LAST "node_modules/" segment.
+            name = path.rsplit("node_modules/", 1)[-1]
+            version = meta.get("version")
+            if name and isinstance(version, str):
+                pins[name] = version
+    return pins
+
+
 def _parse_requirements_txt(text: str) -> List[Dict[str, str]]:
     """Parse requirements.txt (simple format)."""
     deps: List[Dict[str, str]] = []
@@ -384,14 +421,63 @@ def check_floating_ranges(
     return findings
 
 
+def _reachable_lockfile_names(declared: set, packages: Dict[str, Any]) -> Optional[set]:
+    """BFS the lockfile's per-package `dependencies` edges starting from
+    the manifest's declared dependency names, returning every package
+    name reachable through the real dependency graph.
+
+    npm hoists resolvable transitive dependencies to flat top-level
+    `node_modules/<name>` entries whenever there's no version conflict —
+    so a package that is NOT a direct dependency commonly still has a
+    flat, non-nested lockfile path identical in shape to a real direct
+    dependency. Without this reachability check, that hoisting pattern
+    is indistinguishable from genuine lockfile injection (an entry npm
+    will install that nothing in the actual dependency graph requires).
+
+    Returns None if the root entry's own `dependencies` can't be read
+    (a lockfile whose `packages["node_modules/<name>"]` records don't
+    carry per-package `dependencies` — older or non-standard lockfile
+    shapes) — callers should fall back to a softer signal rather than
+    assert injection without being able to verify it.
+    """
+    if not declared:
+        return None
+    own_deps: Dict[str, List[str]] = {}
+    for path, meta in packages.items():
+        if not path.startswith("node_modules/") or not isinstance(meta, dict):
+            continue
+        if "/node_modules/" in path[len("node_modules/"):]:
+            continue  # nested entry — BFS only needs the flat frontier
+        deps = meta.get("dependencies")
+        if isinstance(deps, dict):
+            own_deps[path[len("node_modules/"):]] = list(deps.keys())
+    if not own_deps:
+        return None
+
+    reachable: set = set()
+    frontier = list(declared)
+    while frontier:
+        name = frontier.pop()
+        if name in reachable:
+            continue
+        reachable.add(name)
+        frontier.extend(own_deps.get(name, []))
+    return reachable
+
+
 def check_lockfile_integrity(workspace: Path) -> List[Dict[str, Any]]:
     """Detect lockfile issues that indicate tampering or supply-chain risk.
 
     Specifically:
       1. ``file:`` or ``git+`` deps in lockfiles (supply-chain bypass).
       2. package-lock.json entries without ``integrity:`` hashes.
-      3. Deps that appear in the lockfile but NOT in package.json
-         (lockfile injection — npm will install them anyway).
+      3. Lockfile entries that are not a declared direct dependency AND
+         not reachable from one through the real dependency graph
+         (genuine lockfile injection — npm will install them anyway).
+         A hoisted *transitive* dependency (npm's normal flat
+         node_modules layout) looks identical in lockfile shape to a
+         direct dependency but IS reachable, so it's correctly excluded
+         here rather than flagged — see `_reachable_lockfile_names`.
 
     Returns list of {manifest, lockfile, issue, severity, message}.
     """
@@ -450,21 +536,48 @@ def check_lockfile_integrity(workspace: Path) -> List[Dict[str, Any]]:
                     "message": f"{pkg_name!r} in lockfile has no integrity hash",
                 })
 
-        # Lockfile deps not declared in package.json (top-level only —
-        # transitive deps legitimately aren't in package.json)
+        # Lockfile entries not declared AND not reachable from a declared
+        # dependency through the real graph. Nested transitive entries
+        # are skipped outright (legitimate by construction); flat/hoisted
+        # entries are checked against reachability before being flagged.
+        reachable = _reachable_lockfile_names(declared, packages)
         for pkg_path in packages:
             if not pkg_path.startswith("node_modules/"):
                 continue
             pkg_name = pkg_path[len("node_modules/"):]
             if "/node_modules/" in pkg_name:
-                continue  # transitive
-            if pkg_name not in declared:
+                continue  # transitive (nested) — legitimate by construction
+            if pkg_name in declared:
+                continue
+            if reachable is not None:
+                if pkg_name in reachable:
+                    continue  # hoisted transitive dep — not injection
                 findings.append({
                     "manifest": str(pkg_json),
                     "lockfile": str(lock_path),
                     "issue": "lockfile-injection",
                     "severity": "HIGH",
-                    "message": f"{pkg_name!r} is a direct dep in lockfile but not declared in package.json",
+                    "message": (
+                        f"{pkg_name!r} is not declared in package.json and not "
+                        f"reachable from any declared dependency — possible "
+                        f"lockfile injection"
+                    ),
+                })
+            else:
+                # Reachability couldn't be computed for this lockfile
+                # shape — report as a softer, unverified signal instead
+                # of asserting injection.
+                findings.append({
+                    "manifest": str(pkg_json),
+                    "lockfile": str(lock_path),
+                    "issue": "undeclared-direct-entry",
+                    "severity": "INFO",
+                    "message": (
+                        f"{pkg_name!r} is a direct lockfile entry not declared in "
+                        f"package.json (may be a legitimately hoisted transitive "
+                        f"dependency — reachability could not be verified for "
+                        f"this lockfile's format)"
+                    ),
                 })
 
     return findings
