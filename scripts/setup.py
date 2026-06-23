@@ -538,6 +538,29 @@ def do_install(target, mode, rules, agents, tokenize=False):
         return True, "created"
     spinner_run("Updating CLAUDE.md", update_claude)
 
+    # 4b. Install the immunity-agent Claude skill (Claude Code only).
+    if "claude" in agents:
+        def install_skill():
+            skill_md = PRISMOR_DIR / "SKILL.md"
+            docs_src = PRISMOR_DIR / "docs"
+            if not skill_md.exists():
+                return True, "skipped (skill not found)"
+            dest = target / ".claude" / "skills" / "immunity-agent"
+            if (dest / "SKILL.md").exists():
+                return True, "already present"
+            try:
+                dest.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(skill_md, dest / "SKILL.md")
+                if docs_src.is_dir():
+                    docs_dest = dest / "docs"
+                    docs_dest.mkdir(exist_ok=True)
+                    for md in docs_src.glob("*.md"):
+                        shutil.copy2(md, docs_dest / md.name)
+                return True, "installed"
+            except OSError as e:
+                return False, str(e)[:40]
+        spinner_run("Installing immunity-agent skill", install_skill)
+
     # 5. Verify feed
     def verify():
         vsh = PRISMOR_DIR / "scripts" / "verify_feed.sh"
@@ -589,14 +612,17 @@ def do_install(target, mode, rules, agents, tokenize=False):
     print()
     def info(k, v):
         print(f"  {w(k + ':', GRN)}  {w(v, DIM)}")
-    info("Skills",  "https://github.com/PrismorSec/security-playbook")
-    info("Feed",    str(PRISMOR_DIR / "advisories/immunity-feed.json").replace(home, "~"))
-    info("Warden",  f"hooks installed (mode: {mode})")
-    info("Config",  str(target / "CLAUDE.md").replace(home, "~"))
-    info("Command", "immunity (restart shell if not found)")
+    info("Hooks",      f"installed (mode: {mode})")
+    if "claude" in agents:
+        info("Skill",  str(target / ".claude" / "skills" / "immunity-agent").replace(home, "~"))
+    info("Guardrails", "https://github.com/PrismorSec/security-playbook")
+    info("Feed",       str(PRISMOR_DIR / "advisories/immunity-feed.json").replace(home, "~"))
+    info("Config",     str(target / "CLAUDE.md").replace(home, "~"))
+    info("Command",    "immunity (restart shell if not found)")
     print()
     print(w("  Quick commands:", GRN))
-    print(f"    immunity status                      {w('most recent session', DIM)}")
+    print(f"    immunity status                      {w('this workspace health check', DIM)}")
+    print(f"    immunity status --all                {w('overview across all workspaces', DIM)}")
     print(f"    immunity sessions --findings-only     {w('all flagged sessions by risk', DIM)}")
     print(f"    immunity check \"rm -rf /\"             {w('pre-check a command', DIM)}")
     print()

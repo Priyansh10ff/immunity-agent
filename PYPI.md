@@ -71,7 +71,7 @@ immunity sweep
 **Launch the self-hosted dashboard** (reads from local SQLite, no cloud):
 
 ```bash
-immunity serve   # http://127.0.0.1:7070
+immunity dashboard   # opens http://127.0.0.1:7070 in your browser
 ```
 
 ---

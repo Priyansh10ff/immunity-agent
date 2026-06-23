@@ -7,7 +7,7 @@ Commands:
   deps          Check workspace dependencies against threat feed
   audit         Full security posture check across all Warden subsystems
   audit --fix   Auto-remediate fixable issues
-  status        Show findings from the most recent session
+  status        One-shot health check for this workspace (--all for every workspace)
   analyze       Analyze a JSONL session file
   ingest        Analyze and store a session
   sessions      List stored sessions
@@ -15,7 +15,7 @@ Commands:
   install-hooks Install IDE hooks for real-time monitoring
   uninstall-hooks Remove IDE hooks
   hook-dispatch Internal: called by IDE hooks (not for direct use)
-  serve         Start a local HTTP API server for the Prismor web dashboard
+  dashboard     Open the Prismor web dashboard (local server + browser)
   enroll TOKEN  Enroll this machine into a Prismor org (central observability + policy)
   enroll-status Show this machine's enrollment status
   logout        Un-enroll this machine (remove device identity + cached remote policy)
@@ -150,27 +150,31 @@ def main(argv: Optional[List[str]] = None) -> None:
         ws_value = os.environ.get("PRISMOR_WARDEN_WORKSPACE")
     workspace = Path(ws_value).resolve() if ws_value else infer_default_workspace(Path.cwd())
 
-    # ── dashboard: global overview ───────────────────────────────────────
-    if args.command == "dashboard":
-        _print_dashboard(days=getattr(args, "days", 7))
-        return
-
-    # ── serve: local HTTP API server for web dashboard ───────────────────
-    if args.command == "serve":
+    # ── dashboard / serve: local web dashboard (HTTP server) ─────────────
+    # `dashboard` starts the server and opens a browser tab. `serve` is the
+    # deprecated alias that defaults to headless (no browser).
+    if args.command in ("dashboard", "serve"):
         from warden.server import run_server
+        if args.command == "serve":
+            sys.stderr.write(
+                "Note: 'immunity serve' is a deprecated alias — use 'immunity dashboard --no-open'.\n"
+            )
         registered = list_registered_workspaces()
         if not registered:
             sys.stderr.write(
                 "[warden] Warning: no registered workspaces found.\n"
                 "         Run 'immunity install-hooks' in a project first to collect data.\n"
             )
-        run_server(host=args.host, port=args.port)
+        # dashboard opens a browser by default; serve stays headless. --no-open
+        # forces headless for dashboard too.
+        open_browser = args.command == "dashboard" and not getattr(args, "no_open", False)
+        run_server(host=args.host, port=args.port, open_browser=open_browser)
         return
 
-    # ── info: quick workspace summary ───────────────────────────────────
+    # ── info: deprecated alias of status ────────────────────────────────
     if args.command == "info":
         sys.stderr.write("Note: 'immunity info' is a deprecated alias — use 'immunity status'.\n")
-        _print_info(workspace)
+        _print_status_overview(workspace)
         return
 
     # ── enroll / device identity ────────────────────────────────────────
@@ -709,7 +713,10 @@ def main(argv: Optional[List[str]] = None) -> None:
 
     # ── status: one-shot health check (mode, hooks, cloak, latest session) ──
     if args.command == "status":
-        _print_status_overview(workspace)
+        if getattr(args, "all", False):
+            _print_dashboard(days=getattr(args, "days", 7))
+        else:
+            _print_status_overview(workspace)
         return
 
     # ── analyze ────────────────────────────────────────────────────────
@@ -1797,32 +1804,29 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"immunity-agent {__version__}")
     subparsers = parser.add_subparsers(dest="command")
 
-    # ── info ───────────────────────────────────────────────────────────
-    subparsers.add_parser("info", help="Show workspace, mode, rules, and hook status")
+    # ── info (deprecated alias of status) ───────────────────────────────
+    subparsers.add_parser("info", help="(deprecated) alias of `status`")
 
-    # ── dashboard ─────────────────────────────────────────────────────
-    dashboard_parser = subparsers.add_parser("dashboard", help="Global overview of all registered workspaces")
-    dashboard_parser.add_argument(
-        "--days",
-        type=int,
-        default=7,
-        metavar="N",
-        help="Show activity for the last N days (default: 7)",
-    )
-
-    # ── serve ──────────────────────────────────────────────────────────
-    serve_parser = subparsers.add_parser(
-        "serve",
-        help="Start a local HTTP API server for the Prismor web dashboard",
-    )
-    serve_parser.add_argument(
-        "--port", type=int, default=7070,
-        help="Port to listen on (default: 7070)",
-    )
-    serve_parser.add_argument(
-        "--host", default="127.0.0.1",
-        help="Host to bind to (default: 127.0.0.1)",
-    )
+    # ── dashboard / serve: local web dashboard ──────────────────────────
+    # `dashboard` opens the browser-based web dashboard. `serve` is a
+    # deprecated alias that stays headless (no browser).
+    for _name, _help in (
+        ("dashboard", "Open the Prismor web dashboard (starts a local server + browser)"),
+        ("serve", "(deprecated) alias of `dashboard --no-open` — headless server only"),
+    ):
+        _dp = subparsers.add_parser(_name, help=_help)
+        _dp.add_argument(
+            "--port", type=int, default=7070,
+            help="Port to listen on (default: 7070)",
+        )
+        _dp.add_argument(
+            "--host", default="127.0.0.1",
+            help="Host to bind to (default: 127.0.0.1)",
+        )
+        _dp.add_argument(
+            "--no-open", action="store_true",
+            help="Don't open a browser tab (headless server only)",
+        )
 
     # ── check ──────────────────────────────────────────────────────────
     check_parser = subparsers.add_parser("check", help="Quick pre-check a command or file path")
@@ -1900,6 +1904,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="One-shot health check: workspace, mode, hooks, cloak, latest session",
     )
     status_parser.add_argument("--workspace", help="Workspace path")
+    status_parser.add_argument(
+        "--all", action="store_true",
+        help="Show all registered workspaces (global overview) instead of just this one",
+    )
+    status_parser.add_argument(
+        "--days", type=int, default=7, metavar="N",
+        help="With --all: show activity for the last N days (default: 7)",
+    )
 
     # ── analyze ────────────────────────────────────────────────────────
     analyze = subparsers.add_parser("analyze", help="Analyze a session (or current session if no --input)")
@@ -2240,91 +2252,6 @@ def _truncate_str(s: str, n: int) -> str:
     return s if len(s) <= n else s[: n - 1] + "…"
 
 
-def _print_info(workspace: Path) -> None:
-    """Show a quick summary of the workspace config."""
-    home = str(Path.home())
-    ws_display = str(workspace).replace(home, "~")
-
-    print()
-    print(f"  {_color('PRISMOR IMMUNITY AGENT', _BOLD)}  workspace info")
-    print(f"  {_color('─' * 50, _DIM)}")
-    print()
-
-    # Workspace
-    print(f"  {_color('Workspace:', _GREEN)}    {ws_display}")
-
-    # Policy
-    policy_path = workspace / ".prismor-warden" / "policy.yaml"
-    if policy_path.exists():
-        print(f"  {_color('Policy:', _GREEN)}       {str(policy_path).replace(home, '~')}")
-    else:
-        print(f"  {_color('Policy:', _GREEN)}       {_color('defaults only (no project overrides)', _DIM)}")
-
-    # Rules
-    engine = PolicyEngine(workspace=workspace)
-    # Count how many rules come from defaults vs how many are disabled
-    default_path = Path(__file__).resolve().parent / "default_policy.yaml"
-    total_default = 0
-    try:
-        from warden.policy_engine import _load_yaml
-        data = _load_yaml(default_path)
-        if data:
-            total_default = len(data.get("rules", []))
-    except Exception:
-        total_default = len(engine.rules)
-    n_active = len(engine.rules)
-    n_disabled = total_default - n_active
-    rules_str = f"{n_active} active"
-    if n_disabled > 0:
-        rules_str += f", {_color(f'{n_disabled} disabled', _YELLOW)}"
-    print(f"  {_color('Rules:', _GREEN)}        {rules_str}")
-
-    # Allowlists
-    if engine.allowlists:
-        print(f"  {_color('Allowlists:', _GREEN)}   {len(engine.allowlists)}")
-
-    # Hooks — check which agents have hooks installed
-    agents_with_hooks = []
-    mode = None
-    for agent_name in ("claude", "cursor", "windsurf", "openclaw", "hermes", "codex", "copilot"):
-        hook_path = _find_hook_config(agent_name, workspace)
-        if hook_path and hook_path.exists():
-            try:
-                content = hook_path.read_text()
-                if "warden" in content.lower() or "prismor" in content.lower():
-                    agents_with_hooks.append(agent_name)
-                    # Try to detect mode from hook config
-                    if mode is None:
-                        if "--mode enforce" in content:
-                            mode = "enforce"
-                        elif "--mode observe" in content:
-                            mode = "observe"
-            except Exception:
-                pass
-
-    if agents_with_hooks:
-        mode_color = _GREEN if mode == "enforce" else _YELLOW
-        mode_str = _color(mode or "unknown", mode_color)
-        print(f"  {_color('Hooks:', _GREEN)}       {', '.join(agents_with_hooks)}  ({mode_str})")
-    else:
-        print(f"  {_color('Hooks:', _GREEN)}       {_color('not installed', _YELLOW)}")
-
-    # Sessions
-    sessions = list_sessions(workspace, 5)
-    sessions_with_findings = [s for s in sessions if s.get("findingsCount", 0) > 0]
-    total_sessions = len(list_sessions(workspace, 999))
-    print(f"  {_color('Sessions:', _GREEN)}     {total_sessions} total, {len(sessions_with_findings)} with findings")
-
-    # Latest risk
-    if sessions:
-        latest = sessions[0]
-        risk = latest.get("riskScore", 0)
-        risk_color = _RED if risk >= 50 else _YELLOW if risk >= 20 else _GREEN
-        print(f"  {_color('Latest risk:', _GREEN)}  {_color(f'{risk}/100', risk_color)}  ({latest['sessionId'][:20]})")
-
-    print()
-
-
 def _find_hook_config(agent: str, workspace: Path) -> Path:
     """Find the hook config file for an agent."""
     if agent == "claude":
@@ -2383,7 +2310,7 @@ def _print_dashboard(days: int = 7) -> None:
 
     # ── Header ────────────────────────────────────────────────────────────
     print()
-    print(f"  {_color('Prismor Immunity-agent dashboard', _BOLD)}")
+    print(f"  {_color('PRISMOR IMMUNITY AGENT', _BOLD)}  all workspaces")
     print(f"  {'─' * 50}")
     print()
 

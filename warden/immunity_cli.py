@@ -29,29 +29,11 @@ def _c(text: str, code: str) -> str:
     return text
 
 
-# ── Routing tables ──────────────────────────────────────────────────────────
+# ── Routing ───────────────────────────────────────────────────────────────────
 #
-# The frequently-typed warden subcommands we surface explicitly in --help under
-# "Quick start" / "Runtime shortcuts". Routing no longer depends on this list —
-# `main()` forwards ANY real warden command (see `_warden_commands()`), so this
-# is purely curation for the help text and never drifts out of sync with routing.
-_TOP_LEVEL_SHORTCUTS = {
-    # Common, frequently-typed:
-    "setup", "status", "audit", "info", "dashboard", "serve",
-    "check", "scan", "deps", "semantic-check",
-    "analyze", "ingest", "sessions", "session",
-    "install-hooks", "uninstall-hooks", "hook-dispatch",
-    "update",
-    # Enterprise control plane (device enrollment + org-managed policy):
-    "enroll", "enroll-status", "logout", "workspace", "exempt",
-}
-
-# Domains that map to a warden.cli subparser of the same name. Used only to
-# group them under "Domains" in --help; routing is introspection-driven below.
-_WARDEN_DOMAINS = {
-    "cloak", "policy", "sweep", "iam", "canary", "scope", "learn",
-}
-
+# Routing is fully introspection-driven: `main()` forwards ANY real warden
+# command (see `_warden_commands()`), and `_print_usage()` builds the help from
+# the live parser (see `_command_table()`), so neither can drift out of sync.
 _SUPPLY_DOMAIN = "supplychain"
 
 
@@ -96,15 +78,22 @@ def main(argv: Optional[List[str]] = None) -> None:
         return
 
     # `immunity warden <command> ...` — DEPRECATED alias. Every warden command is
-    # now a direct immunity command, so the `warden` namespace is redundant. We
-    # keep it working (warn, then forward the remaining args) so old scripts and
-    # muscle memory don't break.
+    # now a direct immunity command, so the `warden` namespace is redundant.
     if cmd == "warden":
-        target = rest[0] if rest else "<command>"
+        # Bare `immunity warden` with no subcommand: don't dump warden's noisy
+        # argparse usage — point at the unified help instead.
+        if not rest:
+            sys.stderr.write(
+                "'warden' is deprecated — every warden command is now a direct "
+                "immunity command.\n"
+                "Run 'immunity help' to see all commands.\n"
+            )
+            return
+        # With a subcommand: warn once, then forward so old scripts keep working.
         sys.stderr.write(
             "Warning: 'immunity warden ...' is deprecated — every warden command "
             "is now a direct immunity command.\n"
-            f"Use 'immunity {target}' instead.\n\n"
+            f"Use 'immunity {rest[0]}' instead.\n\n"
         )
         from warden.cli import main as warden_main
         warden_main(rest)
@@ -124,60 +113,111 @@ def main(argv: Optional[List[str]] = None) -> None:
     sys.exit(2)
 
 
+# Ordered grouping for `immunity help`. Every group lists the commands it
+# owns; any introspected command NOT named here lands in the "More" catch-all,
+# so a new warden.cli subcommand can never silently vanish from help.
+_HELP_GROUPS = [
+    ("Quick start",          ["setup", "status", "dashboard", "audit", "update"]),
+    ("Runtime protection",   ["check", "semantic-check", "scan", "deps", "sandbox", "policy"]),
+    ("Sessions & forensics", ["analyze", "ingest", "sessions", "session"]),
+    ("Hooks",                ["install-hooks", "uninstall-hooks"]),
+    ("Secret prevention",    ["cloak", "sweep", "canary"]),
+    ("Identity & scoping",   ["iam", "scope", "learn"]),
+    ("Enterprise / org",     ["enroll", "enroll-status", "workspace", "exempt", "logout"]),
+    ("Supply chain",         ["supplychain"]),
+]
+
+# Commands handled elsewhere in the help (deprecated section) or never shown.
+_HELP_HIDDEN = {"hook-dispatch", "info", "serve", "warden"}
+
+# supplychain is dispatched by this umbrella, not a warden.cli subcommand, so it
+# is injected manually with its own help + sub-actions.
+_SUPPLY_HELP = ("Supply-chain install gating + project hardening", "supplychain")
+_SUPPLY_ACTIONS = ["npm", "pip", "pnpm", "yarn", "uv", "cargo", "go", "harden"]
+
+
+def _command_table():
+    """Introspect build_parser() → {name: (help, sub_actions, mode_flags)}.
+
+    Generated from the live parser so help can never drift from the real CLI.
+    """
+    import argparse
+    table = {}
+    try:
+        from warden.cli import build_parser
+        parser = build_parser()
+    except Exception:
+        return table
+    for action in parser._actions:
+        if not isinstance(action, argparse._SubParsersAction):
+            continue
+        helps = {ca.dest: (ca.help or "") for ca in action._get_subactions()}
+        for name, sub in action.choices.items():
+            nested, flags = [], []
+            for sa in sub._actions:
+                if isinstance(sa, argparse._SubParsersAction):
+                    nested = list(sa.choices.keys())
+                elif isinstance(sa, argparse._StoreTrueAction):
+                    flags += [o for o in sa.option_strings if o.startswith("--")]
+            table[name] = (helps.get(name, ""), nested, flags)
+        break
+    # supplychain isn't in warden.cli — add it so help is complete.
+    table["supplychain"] = (_SUPPLY_HELP[0], _SUPPLY_ACTIONS, [])
+    return table
+
+
 def _print_usage() -> None:
     def b(t: str) -> str: return _c(t, _BOLD)
     def d(t: str) -> str: return _c(t, _DIM)
+
+    table = _command_table()
+    pad = 16
+
+    def _emit(name: str) -> None:
+        if name not in table:
+            return
+        help_text, nested, flags = table[name]
+        print(f"    {name.ljust(pad)}{d(help_text)}")
+        if nested:
+            print(f"    {' ' * pad}{d('· ' + ' · '.join(nested))}")
+        elif flags:
+            print(f"    {' ' * pad}{d('modes:  ' + '  '.join(flags))}")
 
     print()
     print(f"  {b('immunity')} — runtime security for AI coding agents")
     print()
     print(f"  Usage: {b('immunity')} <command> [options...]")
-    print()
-    print(f"  {b('Quick start')}")
-    print(f"    immunity setup              {d('Interactive onboarding wizard')}")
-    print(f"    immunity update             {d('Check for and install the latest version')}")
-    print(f"    immunity status             {d('One-shot health check: hooks, mode, cloak, latest session')}")
-    print(f"    immunity audit              {d('Full security posture audit')}")
-    print(f"    immunity enroll <token>     {d('Enroll this machine into a Prismor org (central observability + policy)')}")
-    print(f"    immunity enroll-status      {d('Show this device enrollment status')}")
-    print(f"    immunity workspace          {d('Is THIS repo org-managed or personal? (scope org telemetry/policy per repo)')}")
-    print(f"    immunity info               {d('Workspace summary (deprecated alias of status)')}")
-    print()
-    print(f"  {b('Domains')}  {d('(each takes an action; see `immunity <domain> --help`)')}")
-    print(f"    immunity cloak       <action>   {d('Secret cloaking at the tool boundary')}")
-    print(f"    immunity policy      <action>   {d('Manage policy rules (init/validate/show/edit/test)')}")
-    print(f"    immunity sweep       [options]  {d('Scan AI tool configs for leaked secrets')}")
-    print(f"    immunity iam         <action>   {d('Agent identities and permission profiles')}")
-    print(f"    immunity canary      <action>   {d('Plant and manage canarytokens')}")
-    print(f"    immunity scope       <action>   {d('Session-scoped policy rules')}")
-    print(f"    immunity learn       [options]  {d('Mine session history for new rules')}")
-    print(f"    immunity supplychain <action>   {d('Supply chain (npm/pip/pnpm/uv/cargo/go + harden)')}")
-    print()
-    print(f"  {b('Runtime shortcuts')}")
-    print(f"    immunity check <cmd>        {d('Pre-check a command against policy')}")
-    print(f"    immunity scan               {d('Scan MCP servers and skills for security risks')}")
-    print(f"    immunity deps               {d('Check workspace dependencies vs. threat feed')}")
-    print(f"    immunity sessions           {d('List stored sessions')}")
-    print(f"    immunity session <id>       {d('Show a specific session')}")
-    print(f"    immunity analyze <file>     {d('Analyze a JSONL session file')}")
-    print(f"    immunity install-hooks      {d('Install IDE hooks for real-time monitoring')}")
-    print(f"    immunity uninstall-hooks    {d('Remove IDE hooks')}")
-    print(f"    immunity dashboard          {d('Global overview of all registered workspaces')}")
-    print(f"    immunity serve              {d('Start the local HTTP API server (web dashboard)')}")
-    print()
-    print(f"  {b('Supply-chain interception')}  {d('(also: pip3, pnpm, yarn, uv, cargo, go)')}")
-    print(f"    immunity supplychain npm install <pkg>")
-    print(f"    immunity supplychain pip install <pkg>")
-    print(f"    immunity supplychain harden [--dry-run] [PATH]")
+    print(f"         {b('immunity')} <command> --help   {d('flags + sub-actions for one command')}")
+
+    grouped = set(_HELP_HIDDEN)
+    for title, names in _HELP_GROUPS:
+        present = [n for n in names if n in table]
+        if not present:
+            continue
+        print()
+        print(f"  {b(title)}")
+        for n in present:
+            _emit(n)
+            grouped.add(n)
+
+    # Catch-all: any real command not placed in a group above.
+    leftover = [n for n in table if n not in grouped]
+    if leftover:
+        print()
+        print(f"  {b('More')}")
+        for n in sorted(leftover):
+            _emit(n)
+
     print()
     print(f"  {b('Help & version')}")
-    print(f"    immunity --help             {d('This message')}")
-    print(f"    immunity <command> --help   {d('Help for a specific command')}")
-    print(f"    immunity --version          {d('Show version')}")
+    print(f"    {'--help'.ljust(pad)}{d('This message')}")
+    print(f"    {'<cmd> --help'.ljust(pad)}{d('Flags + sub-actions for one command')}")
+    print(f"    {'--version'.ljust(pad)}{d('Show version')}")
     print()
     print(f"  {b('Deprecated')}  {d('(kept working; will be removed in a future release)')}")
-    print(f"    warden <command>            {d('the standalone warden CLI — use immunity instead')}")
-    print(f"    immunity warden <command>   {d('drop the warden prefix: every warden command is a direct immunity command')}")
+    print(f"    {'warden <cmd>'.ljust(pad)}{d('the standalone warden CLI — use immunity directly')}")
+    print(f"    {'info'.ljust(pad)}{d('use `immunity status`')}")
+    print(f"    {'serve'.ljust(pad)}{d('use `immunity dashboard --no-open`')}")
     print()
 
 

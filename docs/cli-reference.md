@@ -41,7 +41,7 @@ immunity
 │   ├─ setup                  Interactive onboarding wizard (5-step TUI)
 │   ├─ install-hooks          Wire Warden hooks into an agent/IDE
 │   ├─ uninstall-hooks        Remove hooks
-│   └─ status / info          Health check / workspace summary
+│   └─ status [--all]         Health check (this workspace / all workspaces)
 │
 ├─ Runtime protection (policy engine)
 │   ├─ check                  Pre-check a command or path against policy
@@ -54,8 +54,8 @@ immunity
 │   ├─ deps                   Check project deps vs. threat feed
 │   ├─ analyze / ingest       Run the engine over a JSONL session
 │   ├─ sessions / session     List / show stored sessions
-│   ├─ dashboard              Terminal overview of all workspaces
-│   └─ serve                  Local web dashboard (127.0.0.1:7070)
+│   ├─ status --all           Terminal overview of all workspaces
+│   └─ dashboard              Local web dashboard (127.0.0.1:7070, opens browser)
 │
 ├─ Secret prevention
 │   ├─ cloak <action>         install · add · list · remove · status · pattern
@@ -82,8 +82,8 @@ immunity
 | `immunity setup [DIR]` | `--non-interactive`, `--mode`, `--agents`, `--cloak/--no-cloak` | Interactive wizard (or scripted with flags / `PRISMOR_MODE`, `PRISMOR_CLOAK` env vars). Picks mode, toggles rules, selects agents, enables cloaking. |
 | `immunity install-hooks` | `--agent <name\|all>` (required), `--mode <observe\|enforce>`, `--scope <project\|user>` | Writes hook config for the chosen agent so Warden sees tool calls. Without hooks, nothing is monitored. |
 | `immunity uninstall-hooks` | `--agent <name\|all>`, `--scope` | Removes Prismor hooks for an agent. Clean rollback. |
-| `immunity status` | `--workspace` | Health check: hooks, mode, cloak state, latest session, and the single next action. Run this first every session. |
-| `immunity info` | `--workspace` | Workspace summary (deprecated alias of `status`). |
+| `immunity status` | `--workspace`, `--all`, `--days N` | Health check: hooks, mode, cloak state, latest session, and the single next action. Run this first every session. `--all` shows every registered workspace. |
+| `immunity info` | `--workspace` | _Deprecated_ alias of `status`. |
 
 Agent → config matrix and per-agent details: [AGENT_INTEGRATIONS.md](../AGENT_INTEGRATIONS.md).
 Modes (`observe` vs `enforce`): [Warden](warden.md).
@@ -117,8 +117,9 @@ Full policy model, rule schema, and the default rule list: [Warden](warden.md).
 | `immunity ingest --input <file>` | `--session-id`, `--agent` | Analyze a session and store it in the local DB. |
 | `immunity sessions` | `--findings-only`, `--global`, `--limit`, `--json` | List stored sessions, optionally only flagged ones, optionally across all workspaces. |
 | `immunity session <id>` | `--json` | Drill into one session's tool-call trace + findings. |
-| `immunity dashboard` | — | Terminal overview of every registered workspace. See [Dashboard](dashboard.md). |
-| `immunity serve` | `--port`, `--host` | Local web dashboard at `http://127.0.0.1:7070`. See [Dashboard](dashboard.md). |
+| `immunity status --all` | `--days N` | Terminal overview of every registered workspace. See [Dashboard](dashboard.md). |
+| `immunity dashboard` | `--port`, `--host`, `--no-open` | Local web dashboard at `http://127.0.0.1:7070` (opens a browser tab). See [Dashboard](dashboard.md). |
+| `immunity serve` | `--port`, `--host`, `--no-open` | _Deprecated_ alias of `dashboard --no-open` (headless server only). |
 
 ---
 
