@@ -69,6 +69,10 @@ pip install immunity-agent
 immunity setup            # interactive 5-step TUI
 ```
 
+For Claude Code, `immunity setup` also drops this skill into
+`<workspace>/.claude/skills/immunity-agent/` so it travels with the project —
+that's where this file came from if you're reading it locally.
+
 Non-interactive / CI / piped:
 
 ```bash
@@ -201,8 +205,8 @@ pick the smallest tool that answers the question:
 | "Full security posture, fix what you can" | `immunity audit --fix` |
 | "Run this command in a safe sandbox" | `immunity sandbox <cmd>` |
 | "Recurring blocked patterns I should accept?" | `immunity learn` |
-| "Show all registered workspaces" | `immunity dashboard` (terminal overview across every workspace where hooks are installed) |
-| "Open the dashboard" | `immunity serve` → http://127.0.0.1:7070 |
+| "Show all registered workspaces" | `immunity status --all` (terminal overview across every workspace where hooks are installed) |
+| "Open the dashboard" | `immunity dashboard` → http://127.0.0.1:7070 (opens a browser; `--no-open` for headless) |
 | "Am I on the latest version?" | `immunity update --check` (install with `immunity update`) |
 
 ---

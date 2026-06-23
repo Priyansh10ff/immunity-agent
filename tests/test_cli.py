@@ -177,6 +177,50 @@ class TestImmunityUmbrella(unittest.TestCase):
         for shortcut in ("setup", "status", "audit", "info"):
             self.assertIn(shortcut, r.stdout)
 
+    def test_help_lists_every_command(self):
+        # Help is introspection-driven: every non-internal top-level command
+        # from the real parser must show up, so nothing can silently drop out.
+        import argparse
+        from warden.cli import build_parser
+        r = run_immunity("--help")
+        self.assertEqual(r.returncode, 0)
+        hidden = {"hook-dispatch"}  # internal, intentionally not listed
+        parser = build_parser()
+        commands = []
+        for action in parser._actions:
+            if isinstance(action, argparse._SubParsersAction):
+                commands = list(action.choices.keys())
+                break
+        for cmd in commands:
+            if cmd in hidden:
+                continue
+            self.assertIn(cmd, r.stdout, f"command '{cmd}' missing from --help")
+
+    def test_help_shows_subactions_and_modes(self):
+        # Sub-actions of domains and a command's "internal" mode flags must be
+        # discoverable straight from `immunity --help`.
+        r = run_immunity("--help")
+        self.assertEqual(r.returncode, 0)
+        for token in ("install", "show", "plant", "--redact", "--all", "--no-open"):
+            self.assertIn(token, r.stdout, f"'{token}' missing from --help")
+
+    def test_warden_bare_is_quiet(self):
+        # `immunity warden` with no subcommand must NOT dump the argparse usage
+        # wall — just a short deprecation pointer to `immunity help`.
+        r = run_immunity("warden")
+        self.assertEqual(r.returncode, 0)
+        self.assertIn("deprecated", r.stderr.lower())
+        self.assertIn("immunity help", r.stderr)
+        self.assertNotIn("positional arguments", r.stdout + r.stderr)
+        self.assertNotIn("{info,dashboard", r.stdout + r.stderr)
+
+    def test_warden_subcommand_still_forwards(self):
+        # `immunity warden status` keeps working (warns, then runs status).
+        r = run_immunity("warden", "status")
+        self.assertEqual(r.returncode, 0)
+        self.assertIn("deprecated", r.stderr.lower())
+        self.assertIn("status", r.stdout)
+
     def test_bare_invocation_prints_help(self):
         r = run_immunity()
         self.assertEqual(r.returncode, 0)
