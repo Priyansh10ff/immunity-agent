@@ -97,6 +97,11 @@ include = [
     "advisories/immunity-feed.json.sig",
     "keys/public.pub",
     "templates/",
+    # Bundled Claude skill — needed in the sdist so the wheel's force-include
+    # (build_wheel runs from the unpacked sdist) can find them. Only the .md
+    # files; the heavy unreferenced docs/demo.gif stays out.
+    "SKILL.md",
+    "docs/*.md",
     "PYPI.md",
     "LICENSE",
 ]

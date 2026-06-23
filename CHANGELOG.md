@@ -1,3 +1,25 @@
+## [1.8.0] — 2026-06-23
+
+CLI UX consolidation, Codex agent support, and supply-chain enforcement hardening.
+
+### Added
+
+- **Codex (OpenAI) agent support** — `--agent codex` wires Warden hooks into Codex CLI (`.codex/hooks.json`) for real-time monitoring.
+- **`immunity status --all`** — global overview across every registered workspace (the old `immunity dashboard` text view), with `--days N` to set the activity window.
+- **Bundled Claude skill** — `immunity setup` now installs the `immunity-agent` skill (SKILL.md + docs) into `<workspace>/.claude/skills/immunity-agent/` for Claude Code, so the agent learns to drive the CLI. The skill ships inside the wheel.
+
+### Changed
+
+- **`immunity dashboard` opens the web dashboard** — it now starts the local server *and* opens a browser tab (`--no-open` for headless). `immunity serve` is kept as a deprecated alias of `dashboard --no-open`.
+- **`immunity info` → real alias of `status`** — the duplicate workspace-info renderer is gone; `info` now delegates to `status`.
+- **Complete, introspection-driven `immunity help`** — every command is listed (previously `sandbox`/`learn` were omitted), grouped, with each domain's sub-actions and each command's mode flags (`sweep --redact/--clean/…`, `audit --fix`, `status --all`) shown inline. Generated from the live parser so it can't drift.
+- **`immunity warden` (bare) no longer dumps the argparse usage wall** — it prints a one-line deprecation pointer to `immunity help`. `immunity warden <cmd>` still warns and forwards.
+- **Install banner relabeled** — `Hooks` / `Skill` / `Guardrails` (was the conflated "Skills").
+
+### Fixed
+
+- **Supply-chain enforcement gap** — closes a gap across hooks, ecosystems, and dependency depth so install gating applies consistently; adds lockfile-integrity coverage.
+
 ## [1.7.1] — 2026-06-17
 
 Enterprise audit hardening and branding rename.
