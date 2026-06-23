@@ -78,3 +78,16 @@ def public_key_path() -> Path:
 
 def template_path(name: str) -> Path:
     return _resolve("templates", name)
+
+
+def skill_manifest_path() -> Path:
+    """Locate the bundled immunity-agent Claude skill manifest (SKILL.md).
+
+    Git checkout: ``<root>/SKILL.md``. Installed wheel: ``warden/data/SKILL.md``.
+    """
+    return _resolve("SKILL.md")
+
+
+def skill_docs_dir() -> Path:
+    """Locate the skill's ``docs/`` directory (reference material it links to)."""
+    return _resolve("docs")

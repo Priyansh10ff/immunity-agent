@@ -128,7 +128,7 @@ Warden uses a **YAML-based policy engine**. All detection rules, enforcement set
 | `warden/policy_engine.py` | Loads YAML rules, compiles regex patterns, evaluates events |
 | `warden/default_policy.yaml` | All default rules, settings (block_categories, manifest_patterns) |
 | `warden/policy_schema.json` | JSON Schema for validating policy files |
-| `warden/cli.py` | CLI entry point — check, status, sessions, info, policy, hooks |
+| `warden/cli.py` | CLI entry point — check, status, sessions, dashboard, policy, hooks |
 | `warden/hooks.py` | IDE hook installation and event normalization (Claude, Cursor, Windsurf, OpenClaw, Hermes) |
 | `warden/store.py` | SQLite + JSONL session storage |
 | `warden/feed.py` | Correlates findings with threat advisories |
@@ -159,10 +159,10 @@ Warden uses a **YAML-based policy engine**. All detection rules, enforcement set
 #### CLI commands:
 
 ```bash
-immunity info                                    # workspace, mode, rules, hooks at a glance
-immunity dashboard                               # global overview of all registered workspaces
+immunity status                                  # workspace, mode, cloak, latest session at a glance
+immunity status --all                            # global overview of all registered workspaces
+immunity dashboard                               # local web dashboard (opens a browser)
 immunity check "rm -rf /"                        # pre-check a command
-immunity status                                  # most recent session findings
 immunity sessions --findings-only                # flagged sessions sorted by risk
 immunity sessions --findings-only --global       # across all registered workspaces
 immunity policy show                             # active rules after merging
@@ -174,7 +174,7 @@ immunity install-hooks --agent openclaw --mode enforce
 immunity install-hooks --agent hermes --mode enforce
 ```
 
-**Workspace registry:** Workspaces are auto-registered in `~/.prismor/workspaces.json` whenever hooks are installed or events are dispatched. The `dashboard` and `--global` commands read from this registry — no filesystem scanning.
+**Workspace registry:** Workspaces are auto-registered in `~/.prismor/workspaces.json` whenever hooks are installed or events are dispatched. The `status --all` and `--global` commands read from this registry — no filesystem scanning.
 
 ### Cloaking (secret prevention layer)
 

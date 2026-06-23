@@ -174,10 +174,21 @@ class WardenRequestHandler(BaseHTTPRequestHandler):
         pass
 
 
-def run_server(host: str = "127.0.0.1", port: int = 7070) -> None:
-    """Start the warden HTTP API server (blocks until Ctrl-C)."""
+def run_server(host: str = "127.0.0.1", port: int = 7070, open_browser: bool = False) -> None:
+    """Start the warden HTTP API server (blocks until Ctrl-C).
+
+    When ``open_browser`` is set, opens the default browser to the dashboard
+    once the listening socket is bound. The socket is bound by the
+    ``HTTPServer(...)`` constructor, so the request lands even before
+    ``serve_forever()`` starts accepting.
+    """
     server = HTTPServer((host, port), WardenRequestHandler)
-    print(f"[warden] dashboard → http://{host}:{port}  (Ctrl-C to stop)", flush=True)
+    url = f"http://{host}:{port}"
+    print(f"[warden] dashboard → {url}  (Ctrl-C to stop)", flush=True)
+    if open_browser:
+        import threading
+        import webbrowser
+        threading.Timer(0.4, lambda: webbrowser.open(url)).start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:

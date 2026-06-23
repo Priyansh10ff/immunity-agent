@@ -26,35 +26,38 @@ across every project you've protected.
 
 ```
    workspace A ─┐
-   workspace B ─┼─► registered workspaces ─► dashboard / serve ─► you
+   workspace B ─┼─► registered workspaces ─► status --all / dashboard ─► you
    workspace C ─┘        (warden.db each)
 ```
 
 ---
 
-## Terminal: `immunity status` and `immunity dashboard`
+## Terminal: `immunity status` and `immunity status --all`
 
 ```bash
 immunity status        # THIS workspace: hooks, mode, cloak, latest session, next step
-immunity dashboard     # ALL workspaces: risk, findings, mode, last activity
+immunity status --all  # ALL workspaces: risk, findings, mode, last activity
 ```
 
 - **`status`** is the per-workspace health check — run it first every session. It
   ends with the single next action that matters (install hooks, switch to
   enforce, review findings, or "clean").
-- **`dashboard`** is the cross-project bird's-eye view: one line per registered
+- **`status --all`** is the cross-project bird's-eye view: one line per registered
   workspace with its latest risk score, finding count, mode, and how long ago it
-  was active.
+  was active. Add `--days N` to change the activity window (default 7).
 
 ---
 
-## Web: `immunity serve`
+## Web: `immunity dashboard`
 
 ```bash
-immunity serve                       # http://127.0.0.1:7070
-immunity serve --port 8080           # custom port
-immunity serve --host 127.0.0.1      # bind host (keep it local)
+immunity dashboard                   # opens http://127.0.0.1:7070 in your browser
+immunity dashboard --port 8080       # custom port
+immunity dashboard --host 127.0.0.1  # bind host (keep it local)
+immunity dashboard --no-open         # headless: start the server, don't open a browser
 ```
+
+> `immunity serve` is the deprecated alias of `immunity dashboard --no-open`.
 
 Serves a self-contained HTML dashboard plus a small JSON API over the registered
 workspace databases. The only external resource is a Chart.js CDN link loaded by
@@ -70,7 +73,7 @@ the browser; the data never leaves your machine.
 | `GET /api/events` | Paginated events (`?page&limit&verdict&agent`) |
 | `GET /api/supply-chain` | Supply-chain enforcement stats |
 
-If you run `serve` before installing hooks anywhere, it warns that no workspaces
+If you run `dashboard` before installing hooks anywhere, it warns that no workspaces
 are registered yet — install hooks in a project first to collect data.
 
 ---

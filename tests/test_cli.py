@@ -69,6 +69,37 @@ class TestCliExitCodes(unittest.TestCase):
         self.assertIn("--agent", r.stdout)
 
 
+class TestCliCommandConsolidation(unittest.TestCase):
+    """info→status, dashboard/serve, and status --all consolidation."""
+
+    def test_info_is_alias_of_status(self):
+        # `info` warns it's deprecated and renders the `status` overview.
+        r = run_cli("info")
+        self.assertEqual(r.returncode, 0)
+        self.assertIn("deprecated alias", r.stderr)
+        self.assertIn("status", r.stdout)
+        # The old separate "workspace info" renderer is gone.
+        self.assertNotIn("workspace info", r.stdout)
+
+    def test_status_all_flag_exists(self):
+        r = run_cli("status", "--help")
+        self.assertEqual(r.returncode, 0)
+        self.assertIn("--all", r.stdout)
+        self.assertIn("--days", r.stdout)
+
+    def test_dashboard_serves_web_dashboard(self):
+        # `dashboard` is now the web server, so it exposes --port/--host/--no-open.
+        r = run_cli("dashboard", "--help")
+        self.assertEqual(r.returncode, 0)
+        self.assertIn("--port", r.stdout)
+        self.assertIn("--no-open", r.stdout)
+
+    def test_serve_is_deprecated_alias(self):
+        r = run_cli("serve", "--help")
+        self.assertEqual(r.returncode, 0)
+        self.assertIn("--no-open", r.stdout)
+
+
 class TestCliAnalyze(unittest.TestCase):
     """Test the analyze command against the sample session."""
 
@@ -168,6 +199,37 @@ class TestImmunityUmbrella(unittest.TestCase):
         self.assertEqual(r.returncode, 0)
         for action in ("install", "uninstall", "add", "list", "remove", "status"):
             self.assertIn(action, r.stdout)
+
+
+class TestSkillInstall(unittest.TestCase):
+    """`immunity setup` bundles + installs the immunity-agent Claude skill."""
+
+    def test_install_skill_copies_manifest_and_docs(self):
+        import tempfile
+        from warden.setup_wizard import _install_skill
+        with tempfile.TemporaryDirectory() as ws:
+            ok, detail = _install_skill(Path(ws))
+            self.assertTrue(ok, detail)
+            skill = Path(ws) / ".claude" / "skills" / "immunity-agent"
+            self.assertTrue((skill / "SKILL.md").exists())
+            # Docs the SKILL.md links to come along, the heavy gif does not.
+            self.assertTrue((skill / "docs" / "warden.md").exists())
+            self.assertFalse((skill / "docs" / "demo.gif").exists())
+
+    def test_install_skill_is_idempotent(self):
+        import tempfile
+        from warden.setup_wizard import _install_skill
+        with tempfile.TemporaryDirectory() as ws:
+            _install_skill(Path(ws))
+            ok, detail = _install_skill(Path(ws))
+            self.assertTrue(ok)
+            self.assertEqual(detail, "already present")
+
+    def test_skill_is_bundled_in_resolver(self):
+        # The resolver must find the manifest in a git checkout (and, by the
+        # same suffix, an installed wheel).
+        from warden.paths import skill_manifest_path
+        self.assertTrue(skill_manifest_path().exists())
 
     def test_top_level_shortcut_dispatches(self):
         # `immunity analyze` should reach the warden analyze command.

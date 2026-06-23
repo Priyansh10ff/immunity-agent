@@ -37,7 +37,7 @@ def _c(text: str, code: str) -> str:
 # is purely curation for the help text and never drifts out of sync with routing.
 _TOP_LEVEL_SHORTCUTS = {
     # Common, frequently-typed:
-    "setup", "status", "audit", "info", "dashboard", "serve",
+    "setup", "status", "audit", "dashboard",
     "check", "scan", "deps", "semantic-check",
     "analyze", "ingest", "sessions", "session",
     "install-hooks", "uninstall-hooks", "hook-dispatch",
@@ -137,11 +137,12 @@ def _print_usage() -> None:
     print(f"    immunity setup              {d('Interactive onboarding wizard')}")
     print(f"    immunity update             {d('Check for and install the latest version')}")
     print(f"    immunity status             {d('One-shot health check: hooks, mode, cloak, latest session')}")
+    print(f"    immunity status --all       {d('Global overview across every registered workspace')}")
+    print(f"    immunity dashboard          {d('Open the web dashboard (local server + browser)')}")
     print(f"    immunity audit              {d('Full security posture audit')}")
     print(f"    immunity enroll <token>     {d('Enroll this machine into a Prismor org (central observability + policy)')}")
     print(f"    immunity enroll-status      {d('Show this device enrollment status')}")
     print(f"    immunity workspace          {d('Is THIS repo org-managed or personal? (scope org telemetry/policy per repo)')}")
-    print(f"    immunity info               {d('Workspace summary (deprecated alias of status)')}")
     print()
     print(f"  {b('Domains')}  {d('(each takes an action; see `immunity <domain> --help`)')}")
     print(f"    immunity cloak       <action>   {d('Secret cloaking at the tool boundary')}")
@@ -162,8 +163,6 @@ def _print_usage() -> None:
     print(f"    immunity analyze <file>     {d('Analyze a JSONL session file')}")
     print(f"    immunity install-hooks      {d('Install IDE hooks for real-time monitoring')}")
     print(f"    immunity uninstall-hooks    {d('Remove IDE hooks')}")
-    print(f"    immunity dashboard          {d('Global overview of all registered workspaces')}")
-    print(f"    immunity serve              {d('Start the local HTTP API server (web dashboard)')}")
     print()
     print(f"  {b('Supply-chain interception')}  {d('(also: pip3, pnpm, yarn, uv, cargo, go)')}")
     print(f"    immunity supplychain npm install <pkg>")
@@ -178,6 +177,8 @@ def _print_usage() -> None:
     print(f"  {b('Deprecated')}  {d('(kept working; will be removed in a future release)')}")
     print(f"    warden <command>            {d('the standalone warden CLI — use immunity instead')}")
     print(f"    immunity warden <command>   {d('drop the warden prefix: every warden command is a direct immunity command')}")
+    print(f"    immunity info               {d('use `immunity status`')}")
+    print(f"    immunity serve              {d('use `immunity dashboard --no-open`')}")
     print()
 
 

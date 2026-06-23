@@ -112,8 +112,9 @@ All `warden` commands available after setup.
 
 ```bash
 # Workspace overview
-immunity info
-immunity dashboard                               # all workspaces at a glance
+immunity status
+immunity status --all                            # all workspaces at a glance
+immunity dashboard                               # web dashboard (opens a browser)
 
 # Test a command against your policy
 immunity check "rm -rf /"

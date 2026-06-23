@@ -253,8 +253,9 @@ Disabled by default. See [docs/semantic-guard.md](docs/semantic-guard.md) for fu
 ## Self-Hosted Dashboard
 
 ```bash
-immunity serve           # http://127.0.0.1:7070
-immunity serve --port 8080
+immunity dashboard            # opens http://127.0.0.1:7070 in your browser
+immunity dashboard --port 8080
+immunity dashboard --no-open  # headless server only (was: immunity serve)
 ```
 
 Sessions, findings, threat categories, agent breakdowns, and a live event feed — all from local workspace DBs. No cloud.

@@ -486,6 +486,38 @@ def _spinner_run(label: str, fn) -> None:
 
 # ── Install ───────────────────────────────────────────────────────────────────
 
+def _install_skill(target: Path):
+    """Copy the bundled immunity-agent Claude skill into the workspace.
+
+    Installs to ``<target>/.claude/skills/immunity-agent/`` (SKILL.md plus its
+    docs/). Idempotent: if a SKILL.md is already present it's left untouched so
+    user edits survive re-runs. Returns ``(ok, detail)`` for the spinner.
+    """
+    try:
+        from warden.paths import skill_manifest_path, skill_docs_dir
+        skill_md = skill_manifest_path()
+        docs_src = skill_docs_dir()
+    except Exception as e:
+        return False, str(e)[:40]
+    if not skill_md.exists():
+        return True, "skipped (skill not bundled)"
+
+    dest = target / ".claude" / "skills" / "immunity-agent"
+    if (dest / "SKILL.md").exists():
+        return True, "already present"
+    try:
+        dest.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(skill_md, dest / "SKILL.md")
+        if docs_src.exists() and docs_src.is_dir():
+            docs_dest = dest / "docs"
+            docs_dest.mkdir(exist_ok=True)
+            for md in docs_src.glob("*.md"):
+                shutil.copy2(md, docs_dest / md.name)
+        return True, "installed"
+    except OSError as e:
+        return False, str(e)[:40]
+
+
 def _do_install(target: Path, mode: str, rules: List[dict], agents: List[str], cloak: bool = False) -> None:
     sys.stdout.write(ALT_OFF)
     sys.stdout.write("\033[H\033[J" + HIDE)
@@ -599,6 +631,10 @@ def _do_install(target: Path, mode: str, rules: List[dict], agents: List[str], c
         return True, "created"
     _spinner_run("Updating CLAUDE.md", _update_claude)
 
+    # 4b. Install the immunity-agent Claude skill (Claude Code only).
+    if "claude" in agents:
+        _spinner_run("Installing immunity-agent skill", lambda: _install_skill(target))
+
     # 5. Feed signature verification (use warden.paths resolver, skip shell script)
     def _verify_feed():
         try:
@@ -642,13 +678,16 @@ def _do_install(target: Path, mode: str, rules: List[dict], agents: List[str], c
     def _info(k: str, v: str) -> None:
         print(f"  {_w(k + ':', GRN)}  {_w(v, DIM)}")
 
-    _info("Skills",  "https://github.com/PrismorSec/security-playbook")
-    _info("Warden",  f"hooks installed  (mode: {mode})")
-    _info("Config",  str(target / "CLAUDE.md").replace(home, "~"))
-    _info("Command", "immunity status  ·  immunity sessions  ·  immunity check \"<cmd>\"")
+    _info("Hooks",      f"installed  (mode: {mode})")
+    if "claude" in agents:
+        _info("Skill",  str(target / ".claude" / "skills" / "immunity-agent").replace(home, "~"))
+    _info("Guardrails", "https://github.com/PrismorSec/security-playbook")
+    _info("Config",     str(target / "CLAUDE.md").replace(home, "~"))
+    _info("Command",    "immunity status  ·  immunity sessions  ·  immunity check \"<cmd>\"")
     print()
     print(_w("  Quick commands:", GRN))
-    print(f"    immunity status                       {_w('most recent session', DIM)}")
+    print(f"    immunity status                       {_w('this workspace health check', DIM)}")
+    print(f"    immunity status --all                 {_w('overview across all workspaces', DIM)}")
     print(f"    immunity sessions --findings-only     {_w('all flagged sessions by risk', DIM)}")
     print(f"    immunity check \"rm -rf /\"              {_w('pre-check a command', DIM)}")
     print(f"    immunity sweep                        {_w('scan AI tool configs for leaked secrets', DIM)}")
