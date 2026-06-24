@@ -1,3 +1,17 @@
+## [1.10.0] — 2026-06-24
+
+Setup wizard slimmed to 4 steps, live version banner, and removal of the security-playbook integration.
+
+### Changed
+
+- **Setup wizard is now 4 steps** — the detection-rules toggle step is gone; all rules ship enabled by default. The wizard flows mode → agents → cloak → scope.
+- **Version banner reads the live package version** — the banner now reflects `__version__` (mirrored in `scripts/setup.py` with a file-parse fallback) instead of a hardcoded value.
+- **Cloak install no longer shells out to the deprecated `warden` binary** — the "`warden` is deprecated" warning no longer appears during setup.
+
+### Removed
+
+- **All security-playbook references** — setup no longer wires the playbook into `CLAUDE.md` or prints a Guardrails link; references stripped from `CLAUDE.md`, `AGENTS.md`, and `PYPI.md`, pointing at local `SKILL.md`/docs instead.
+
 ## [1.9.0] — 2026-06-24
 
 Setup wizard install-scope control and CLI help/rules-list polish.
