@@ -177,11 +177,14 @@ def _print_usage() -> None:
         if name not in table:
             return
         help_text, nested, flags = table[name]
-        print(f"    {name.ljust(pad)}{d(help_text)}")
+        full_cmd = f"immunity {name}"
+        col = pad + 9
+        print(f"    {full_cmd.ljust(col)}{d(help_text)}")
         if nested:
-            print(f"    {' ' * pad}{d('· ' + ' · '.join(nested))}")
+            sub = " · ".join(f"immunity {name} {s}" for s in nested)
+            print(f"    {' ' * col}{d('· ' + sub)}")
         elif flags:
-            print(f"    {' ' * pad}{d('modes:  ' + '  '.join(flags))}")
+            print(f"    {' ' * col}{d('modes:  ' + '  '.join(flags))}")
 
     print()
     print(f"  {b('immunity')} — runtime security for AI coding agents")
@@ -208,16 +211,17 @@ def _print_usage() -> None:
         for n in sorted(leftover):
             _emit(n)
 
+    col = pad + 9
     print()
     print(f"  {b('Help & version')}")
-    print(f"    {'--help'.ljust(pad)}{d('This message')}")
-    print(f"    {'<cmd> --help'.ljust(pad)}{d('Flags + sub-actions for one command')}")
-    print(f"    {'--version'.ljust(pad)}{d('Show version')}")
+    print(f"    {'immunity --help'.ljust(col)}{d('This message')}")
+    print(f"    {'immunity <cmd> --help'.ljust(col)}{d('Flags + sub-actions for one command')}")
+    print(f"    {'immunity --version'.ljust(col)}{d('Show version')}")
     print()
     print(f"  {b('Deprecated')}  {d('(kept working; will be removed in a future release)')}")
-    print(f"    {'warden <cmd>'.ljust(pad)}{d('the standalone warden CLI — use immunity directly')}")
-    print(f"    {'info'.ljust(pad)}{d('use `immunity status`')}")
-    print(f"    {'serve'.ljust(pad)}{d('use `immunity dashboard --no-open`')}")
+    print(f"    {'immunity warden <cmd>'.ljust(col)}{d('the standalone warden CLI — use immunity directly')}")
+    print(f"    {'immunity info'.ljust(col)}{d('use `immunity status`')}")
+    print(f"    {'immunity serve'.ljust(col)}{d('use `immunity dashboard --no-open`')}")
     print()
 
 
