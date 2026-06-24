@@ -2,10 +2,9 @@
 
 This file is the canonical guidance for coding agents working in the Prismor repository.
 
-Prismor is a security package for AI coding agents. It has four connected surfaces:
+Prismor is a security package for AI coding agents. It has three connected surfaces:
 
 - a signed AI-security advisory feed in [`advisories/`](./advisories/)
-- agent-readable security skills in [security-playbook](https://github.com/PrismorSec/security-playbook) (separate repo)
 - a local runtime security utility (Warden) in [`warden/`](./warden/)
 - a cloaking prevention layer in [`warden/cloaking/`](./warden/cloaking/) that keeps real secrets out of model context, transcripts, and API requests
 
@@ -24,18 +23,12 @@ When working in this repo, optimize for these goals in order:
 
 Before doing substantial work, read these files in this order:
 
-1. [security-playbook/security.md](https://raw.githubusercontent.com/PrismorSec/security-playbook/main/security.md)
-2. [behavioral-security/SKILL.md](https://raw.githubusercontent.com/PrismorSec/security-playbook/main/behavioral-security/SKILL.md)
-3. [code-security/SKILL.md](https://raw.githubusercontent.com/PrismorSec/security-playbook/main/code-security/SKILL.md)
-4. [llm-security/SKILL.md](https://raw.githubusercontent.com/PrismorSec/security-playbook/main/llm-security/SKILL.md)
-
-If the task involves static analysis or custom rule authoring, also read:
-
-5. [static-analysis/SKILL.md](https://raw.githubusercontent.com/PrismorSec/security-playbook/main/static-analysis/SKILL.md)
+1. [`SKILL.md`](./SKILL.md) — the agent-facing decision tree for using immunity safely
+2. [`README.md`](./README.md) — product overview and capabilities
 
 If the task involves runtime monitoring, local hook installation, or session telemetry, also read:
 
-7. [`warden/`](./warden/) — start with `cli.py` and `policy_engine.py`
+3. [`warden/`](./warden/) — start with `cli.py` and `policy_engine.py`
 
 If the task involves secret handling, leak prevention, or the `@@SECRET:name@@` placeholder convention, also read:
 
@@ -64,7 +57,7 @@ When you change one of these areas, check whether the others should change too:
 
 Examples:
 
-- if you add a new threat category to the advisory feed, consider whether security-playbook skills and `warden/` should recognize it
+- if you add a new threat category to the advisory feed, consider whether `warden/` should recognize it
 - if you tighten behavioral guardrails, check whether Warden blocking logic should match
 - if you add a new runtime finding category, check whether the feed correlation logic should map to it
 
@@ -109,9 +102,7 @@ Relevant implementation files:
 
 ### Skills
 
-Security skills live in the [security-playbook](https://github.com/PrismorSec/security-playbook) repo. This repo does not own or modify them.
-
-When referencing or updating skill content, work in that repo directly. Keep `AGENTS.md` and `CLAUDE.md` in sync with the correct raw URLs if the skill structure changes.
+The agent-facing skill for this package is [`SKILL.md`](./SKILL.md) — the decision tree for using immunity safely. Capability deep dives live under [`docs/`](./docs/). Keep `SKILL.md` and the `docs/` pages in sync with runtime behavior when commands or flags change.
 
 ### Warden
 
@@ -205,7 +196,7 @@ The cloaking subsystem in [`warden/cloaking/`](./warden/cloaking/) is Prismor's 
 
 **Alignment with other surfaces:**
 
-- if you add a new detection category, update [behavioral-security/SKILL.md](https://github.com/PrismorSec/security-playbook/blob/main/behavioral-security/SKILL.md) in the security-playbook repo to reference the placeholder syntax where applicable
+- if you add a new detection category, update [`SKILL.md`](./SKILL.md) and the relevant [`docs/`](./docs/) page to reference the placeholder syntax where applicable
 - cloaking-related findings surfaced at runtime should route through the same session store as Warden (future work — not yet wired)
 - new placeholder-aware tools should be documented in [`warden/cloaking/README.md`](./warden/cloaking/README.md), not just in code
 
@@ -258,10 +249,9 @@ immunity cloak status                            # show install state + register
 
 ### If asked to improve Prismor security guidance
 
-1. Update the relevant skill file in the [security-playbook](https://github.com/PrismorSec/security-playbook) repo.
-2. Check whether `security-playbook/security.md` should reference the change.
-3. Check whether Warden should enforce or detect the same pattern.
-4. Check whether the advisory feed type mapping should reflect the new concept.
+1. Update [`SKILL.md`](./SKILL.md) and the relevant [`docs/`](./docs/) page.
+2. Check whether Warden should enforce or detect the same pattern.
+3. Check whether the advisory feed type mapping should reflect the new concept.
 
 ### If asked to add a new detection rule
 
@@ -274,7 +264,7 @@ immunity cloak status                            # show install state + register
 ### If asked to add a new threat category
 
 1. Update the schema and feed generation logic if needed.
-2. Add or adjust skill guidance in the [security-playbook](https://github.com/PrismorSec/security-playbook) repo.
+2. Add or adjust skill guidance in [`SKILL.md`](./SKILL.md) and the relevant [`docs/`](./docs/) page.
 3. Add or adjust Warden finding categorization and feed correlation.
 4. Update top-level docs only after the implementation model is coherent.
 
@@ -314,4 +304,4 @@ If you changed `default_policy.yaml`, also validate:
 immunity policy validate warden/default_policy.yaml
 ```
 
-If you changed a skill in security-playbook, re-read the affected skill files to make sure the wording still composes cleanly with the rest of the repo.
+If you changed [`SKILL.md`](./SKILL.md) or a [`docs/`](./docs/) page, re-read the affected files to make sure the wording still composes cleanly with the rest of the repo.

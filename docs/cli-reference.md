@@ -25,7 +25,7 @@ unchanged and prints a migration notice. Use `immunity`.
 
 | Command | What it does | Deep dive |
 |---|---|---|
-| `immunity setup` | Interactive 5-step onboarding wizard: pick mode, toggle rules, select agents, enable cloaking. | [Onboarding](#onboarding--lifecycle) |
+| `immunity setup` | Interactive 4-step onboarding wizard: pick mode, select agents, enable cloaking, choose install scope. | [Onboarding](#onboarding--lifecycle) |
 | `immunity status` | One-shot health check: workspace, hooks, mode, cloak, latest session, next action. | [Dashboard & sessions](dashboard.md) |
 | `immunity audit` | Full security-posture audit across every subsystem. `--fix` auto-remediates. | [Warden](warden.md#security-audit) |
 | `immunity --help` | The full command map. | — |
@@ -38,7 +38,7 @@ unchanged and prints a migration notice. Use `immunity`.
 immunity
 │
 ├─ Onboarding & lifecycle
-│   ├─ setup                  Interactive onboarding wizard (5-step TUI)
+│   ├─ setup                  Interactive onboarding wizard (4-step TUI)
 │   ├─ install-hooks          Wire Warden hooks into an agent/IDE
 │   ├─ uninstall-hooks        Remove hooks
 │   └─ status [--all]         Health check (this workspace / all workspaces)

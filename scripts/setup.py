@@ -25,7 +25,24 @@ from pathlib import Path
 
 # ── Constants ────────────────────────────────────────────────────────────────
 
-VERSION = "v0.2"
+def _pkg_version() -> str:
+    # Prefer the installed package; fall back to parsing warden/__init__.py
+    # next to this script (git-clone path where warden may not be importable).
+    try:
+        from warden import __version__ as v
+        return v
+    except Exception:
+        pass
+    try:
+        init = Path(__file__).resolve().parent.parent / "warden" / "__init__.py"
+        m = re.search(r'__version__\s*=\s*["\']([^"\']+)["\']', init.read_text())
+        if m:
+            return m.group(1)
+    except Exception:
+        pass
+    return "0.0.0"
+
+VERSION = f"v{_pkg_version()}"
 BACK = object()  # sentinel for "go back"
 
 # ── ANSI ─────────────────────────────────────────────────────────────────────
@@ -244,7 +261,7 @@ def step_mode(current="enforce"):
     sel = 0 if current == "observe" else 1
 
     while True:
-        lines = header_lines(1, 4, "ENFORCEMENT MODE")
+        lines = header_lines(1, 3, "ENFORCEMENT MODE")
         for i, (name, desc) in enumerate(opts):
             arrow = w("▸ ", CYAN) if i == sel else "  "
             dot   = w("●", GRN) if i == sel else w("○", DIM)
@@ -260,45 +277,7 @@ def step_mode(current="enforce"):
         elif key in (ENTER, '\n'): return opts[sel][0]
         elif key in ('q', 'Q', '\x03'): cleanup(); sys.exit(0)
 
-# ── Step 2: Detection Rules ──────────────────────────────────────────────────
-
-def step_rules(rules):
-    sel = 0
-
-    while True:
-        n_on = sum(1 for r in rules if r["on"])
-        lines = header_lines(2, 4, "DETECTION RULES")
-        lines.append(f"  {w(f'{n_on}/{len(rules)} enabled', DIM)}")
-        lines.append("")
-        tw = term_width()
-        max_title = max(tw - 52, 20)  # adapt to terminal width
-        for i, r in enumerate(rules):
-            arrow = w("▸ ", CYAN) if i == sel else "  "
-            dot   = w("●", GRN) if r["on"] else w("○", DIM)
-            sev   = pad(w(r["severity"], sev_color(r["severity"])), 12)
-            rid   = pad(w(r["id"], BOLD) if i == sel else r["id"], 26)
-            title = w(r["title"][:max_title], DIM)
-            lines.append(f"  {arrow}{dot}  {sev}{rid} {title}")
-        lines.append("")
-        lines.append(control_line([
-            ("↑↓", "move"), ("space", "toggle"), ("a", "all"),
-            ("n", "none"), ("←", "back"), ("enter", "next"),
-        ]))
-        render(lines)
-
-        key = read_key()
-        if key in (UP,):    sel = (sel - 1) % len(rules)
-        elif key in (DOWN,):  sel = (sel + 1) % len(rules)
-        elif key == SPACE:    rules[sel]["on"] = not rules[sel]["on"]
-        elif key in ('a','A'):
-            for r in rules: r["on"] = True
-        elif key in ('n','N'):
-            for r in rules: r["on"] = False
-        elif key in (LEFT, 'b', 'B'): return BACK
-        elif key in (ENTER, '\n'): return rules
-        elif key in ('q','Q','\x03'): cleanup(); sys.exit(0)
-
-# ── Step 3: Agent Selection ──────────────────────────────────────────────────
+# ── Step 2: Agent Selection ──────────────────────────────────────────────────
 
 def step_agents(target):
     detected = detect_agents(target)
@@ -314,7 +293,7 @@ def step_agents(target):
     sel = 0
 
     while True:
-        lines = header_lines(3, 4, "AGENTS")
+        lines = header_lines(2, 3, "AGENTS")
         lines.append(f"  {w('Select agents to install Warden hooks for:', DIM)}")
         lines.append("")
         for i, ag in enumerate(agents):
@@ -340,7 +319,7 @@ def step_agents(target):
             return chosen if chosen else ["claude"]
         elif key in ('q','Q','\x03'): cleanup(); sys.exit(0)
 
-# ── Step 4: Secret Cloaking ──────────────────────────────────────────────────
+# ── Step 3: Secret Cloaking ──────────────────────────────────────────────────
 
 def step_tokenize(current=True):
     """Yes/no toggle for the secret-cloaking prevention layer.
@@ -356,7 +335,7 @@ def step_tokenize(current=True):
     sel = 0 if current else 1
 
     while True:
-        lines = header_lines(4, 4, "SECRET CLOAKING")
+        lines = header_lines(3, 3, "SECRET CLOAKING")
         lines.append(f"  {w('Prevents real secrets from reaching model context, JSONL transcripts,', DIM)}")
         lines.append(f"  {w('or upstream API requests. See warden/cloaking/README.md.', DIM)}")
         lines.append("")
@@ -520,13 +499,14 @@ def do_install(target, mode, rules, agents, tokenize=False):
     def update_claude():
         md = target / "CLAUDE.md"
         block = (
-            "\n## Security (Prismor)\n\n"
-            "At the start of every session, read `https://raw.githubusercontent.com/PrismorSec/security-playbook/main/security.md` "
-            "and follow its instructions.\n\n"
-            "This loads behavioral guardrails, "
-            "secure coding rules (OWASP Top 10), and LLM security rules "
-            "(OWASP LLM Top 10).\n\n"
-            "For more info: https://github.com/PrismorSec/prismor\n"
+            "\n## Security (Prismor Immunity Agent)\n\n"
+            "This workspace is protected by Prismor Immunity Agent — runtime "
+            "security hooks that monitor tool calls in real time (destructive "
+            "commands, secret leaks, supply-chain risk, prompt injection).\n\n"
+            "Run `immunity status` at the start of a session to check protection "
+            "state. The full decision tree lives in "
+            "`.claude/skills/immunity-agent/SKILL.md`.\n\n"
+            "For more info: https://github.com/PrismorSec/immunity-agent\n"
         )
         if md.exists():
             content = md.read_text()
@@ -615,7 +595,7 @@ def do_install(target, mode, rules, agents, tokenize=False):
     info("Hooks",      f"installed (mode: {mode})")
     if "claude" in agents:
         info("Skill",  str(target / ".claude" / "skills" / "immunity-agent").replace(home, "~"))
-    info("Guardrails", "https://github.com/PrismorSec/security-playbook")
+    info("Docs",       "https://github.com/PrismorSec/immunity-agent")
     info("Feed",       str(PRISMOR_DIR / "advisories/immunity-feed.json").replace(home, "~"))
     info("Config",     str(target / "CLAUDE.md").replace(home, "~"))
     info("Command",    "immunity (restart shell if not found)")
@@ -650,10 +630,12 @@ def run_wizard(target):
     sys.stdout.flush()
     raw_on()
 
+    # Detection rules ship enabled by default — there is no per-rule toggle
+    # step. Rules are loaded only for the confirm-screen count and do_install.
     rules = load_rules()
     mode = "enforce"
     agents = None
-    tokenize = True  # default yes in wizard; user can toggle at step 4
+    tokenize = True  # default yes in wizard; user can toggle at step 3
     step = 1
 
     try:
@@ -663,27 +645,21 @@ def run_wizard(target):
                 mode = result
                 step = 2
             elif step == 2:
-                result = step_rules(rules)
-                if result is BACK:
-                    step = 1; continue
-                rules = result
-                step = 3
-            elif step == 3:
                 result = step_agents(target)
                 if result is BACK:
-                    step = 2; continue
+                    step = 1; continue
                 agents = result
-                step = 4
-            elif step == 4:
+                step = 3
+            elif step == 3:
                 result = step_tokenize(tokenize)
                 if result is BACK:
-                    step = 3; continue
+                    step = 2; continue
                 tokenize = result
-                step = 5
-            elif step == 5:
+                step = 4
+            elif step == 4:
                 result = step_confirm(target, mode, rules, agents, tokenize=tokenize)
                 if result is BACK:
-                    step = 4; continue
+                    step = 3; continue
                 break  # confirmed → install
     except Exception:
         rules = load_rules()

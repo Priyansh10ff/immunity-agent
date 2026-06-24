@@ -143,5 +143,4 @@ The pre-tool-use hook substitutes the real value at execution time. The post-too
 
 - **Repository**: https://github.com/PrismorSec/immunity-agent
 - **Docs**: https://docs.prismor.dev
-- **Security playbook** (loaded by the agent at session start): https://github.com/PrismorSec/security-playbook
 - **Dashboard**: https://prismor.dev

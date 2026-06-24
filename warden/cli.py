@@ -32,7 +32,7 @@ Commands:
   cloak remove NAME  Delete a registered secret
   cloak status    Show whether cloaking hooks are installed
   cloak pattern   Manage secret-detection regexes (list/add/remove)
-  setup           Interactive onboarding wizard (5-step TUI) — pick mode, toggle rules, select agents, enable cloaking
+  setup           Interactive onboarding wizard (4-step TUI) — pick mode, select agents, enable cloaking, choose scope
   setup --non-interactive  Scripted install via flags or env vars (PRISMOR_MODE, PRISMOR_CLOAK)
   iam list        List all defined agent identities
   iam init        Create a starter iam.yaml config (~/.prismor/iam.yaml)
@@ -2155,7 +2155,7 @@ def build_parser() -> argparse.ArgumentParser:
     # ── setup ────────────────────────────────────────────────────────────
     setup_parser = subparsers.add_parser(
         "setup",
-        help="Interactive onboarding wizard — pick mode, toggle rules, select agents, enable cloaking",
+        help="Interactive onboarding wizard — pick mode, select agents, enable cloaking, choose scope",
     )
     setup_parser.add_argument(
         "target",
