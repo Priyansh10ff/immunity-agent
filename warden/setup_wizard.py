@@ -275,7 +275,7 @@ def _step_mode(current: str = "enforce") -> str:
     sel = 0 if current == "observe" else 1
 
     while True:
-        lines = _header_lines(1, 4, "ENFORCEMENT MODE")
+        lines = _header_lines(1, 5, "ENFORCEMENT MODE")
         for i, (name, desc) in enumerate(opts):
             arrow = _w("▸ ", CYAN) if i == sel else "  "
             dot   = _w("●", GRN) if i == sel else _w("○", DIM)
@@ -294,38 +294,66 @@ def _step_mode(current: str = "enforce") -> str:
 
 # ── Step 2: Detection Rules ──────────────────────────────────────────────────
 
+_RULES_PREVIEW = 15
+_SEV_ORDER = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
+
+
 def _step_rules(rules: List[dict]) -> List[dict]:
+    # Sort: CRITICAL → HIGH → MEDIUM → LOW, stable within each tier.
+    rules = sorted(rules, key=lambda r: _SEV_ORDER.get(r["severity"].upper(), 9))
     sel = 0
+    expanded = False
 
     while True:
         n_on = sum(1 for r in rules if r["on"])
-        lines = _header_lines(2, 4, "DETECTION RULES")
+        visible = rules if expanded else rules[:_RULES_PREVIEW]
+
+        # Clamp cursor to visible range.
+        if sel >= len(visible):
+            sel = len(visible) - 1
+
+        lines = _header_lines(2, 5, "DETECTION RULES")
         lines.append(f"  {_w(f'{n_on}/{len(rules)} enabled', DIM)}")
         lines.append("")
         tw = _term_width()
         max_title = max(tw - 52, 20)
-        for i, r in enumerate(rules):
+        for i, r in enumerate(visible):
             arrow = _w("▸ ", CYAN) if i == sel else "  "
             dot   = _w("●", GRN) if r["on"] else _w("○", DIM)
             sev   = _pad(_w(r["severity"], _sev_color(r["severity"])), 12)
             rid   = _pad(_w(r["id"], BOLD) if i == sel else r["id"], 26)
             title = _w(r["title"][:max_title], DIM)
             lines.append(f"  {arrow}{dot}  {sev}{rid} {title}")
+
+        hidden = len(rules) - _RULES_PREVIEW
+        if not expanded and hidden > 0:
+            lines.append(f"  {_w(f'  … {hidden} more rules hidden', DIM)}")
+
         lines.append("")
-        lines.append(_control_line([
-            ("↑↓", "move"), ("space", "toggle"), ("a", "all"),
-            ("n", "none"), ("←", "back"), ("enter", "next"),
-        ]))
+        ctrl = [("↑↓", "move"), ("space", "toggle"), ("a", "all"), ("n", "none")]
+        if not expanded and hidden > 0:
+            ctrl.append(("e", "expand"))
+        elif expanded:
+            ctrl.append(("c", "collapse"))
+        ctrl += [("←", "back"), ("enter", "next")]
+        lines.append(_control_line(ctrl))
         _render(lines)
 
         key = _read_key()
-        if key == _UP:               sel = (sel - 1) % len(rules)
-        elif key == _DOWN:           sel = (sel + 1) % len(rules)
-        elif key == _SPACE:          rules[sel]["on"] = not rules[sel]["on"]
+        if key == _UP:               sel = (sel - 1) % len(visible)
+        elif key == _DOWN:           sel = (sel + 1) % len(visible)
+        elif key == _SPACE:
+            real_idx = rules.index(visible[sel])
+            rules[real_idx]["on"] = not rules[real_idx]["on"]
         elif key in ("a", "A"):
             for r in rules: r["on"] = True
         elif key in ("n", "N"):
             for r in rules: r["on"] = False
+        elif key in ("e", "E"):      expanded = True
+        elif key in ("c", "C"):
+            expanded = False
+            if sel >= _RULES_PREVIEW:
+                sel = _RULES_PREVIEW - 1
         elif key in (_LEFT, "b", "B"): return _BACK  # type: ignore[return-value]
         elif key in (_ENTER, "\n"):    return rules
         elif key in ("q", "Q", "\x03"): _cleanup(); sys.exit(0)
@@ -348,7 +376,7 @@ def _step_agents(target: Path) -> list:
     sel = 0
 
     while True:
-        lines = _header_lines(3, 4, "AGENTS")
+        lines = _header_lines(3, 5, "AGENTS")
         lines.append(f"  {_w('Select agents to install Warden hooks for:', DIM)}")
         lines.append("")
         for i, ag in enumerate(agents):
@@ -385,7 +413,7 @@ def _step_cloak(current: bool = True) -> bool:
     sel = 0 if current else 1
 
     while True:
-        lines = _header_lines(4, 4, "SECRET CLOAKING")
+        lines = _header_lines(4, 5, "SECRET CLOAKING")
         lines.append(f"  {_w('Prevents real secrets from reaching model context, JSONL transcripts,', DIM)}")
         lines.append(f"  {_w('or upstream API requests. See warden/cloaking/README.md.', DIM)}")
         lines.append("")
@@ -410,9 +438,42 @@ def _step_cloak(current: bool = True) -> bool:
         elif key in ("q", "Q", "\x03"): _cleanup(); sys.exit(0)
 
 
+# ── Step 5: Install Scope ────────────────────────────────────────────────────
+
+def _step_scope(current: str = "project") -> str:
+    opts = [
+        ("project", "This workspace only",    "Hooks written to .claude/settings.json in the current project"),
+        ("global",  "Global (all projects)",  "Hooks written to ~/.claude/settings.json — covers every workspace"),
+    ]
+    sel = 0 if current == "project" else 1
+
+    while True:
+        lines = _header_lines(5, 5, "INSTALL SCOPE")
+        lines.append(f"  {_w('Where should Immunity hooks be installed?', DIM)}")
+        lines.append("")
+        tw = _term_width()
+        for i, (key, label, desc) in enumerate(opts):
+            arrow = _w("▸ ", CYAN) if i == sel else "  "
+            dot   = _w("●", GRN) if i == sel else _w("○", DIM)
+            nm    = _pad(_w(label, BOLD) if i == sel else _w(label, DIM), 26)
+            lines.append(f"  {arrow}{dot}  {nm}{_w(desc[:max(tw - 36, 20)], DIM)}")
+        lines.append("")
+        lines.append(_control_line([
+            ("↑↓", "select"), ("←", "back"), ("enter", "next"), ("q", "quit"),
+        ]))
+        _render(lines)
+
+        key = _read_key()
+        if key == _UP:                  sel = (sel - 1) % len(opts)
+        elif key == _DOWN:              sel = (sel + 1) % len(opts)
+        elif key in (_LEFT, "b", "B"):  return _BACK  # type: ignore[return-value]
+        elif key in (_ENTER, "\n"):     return opts[sel][0]
+        elif key in ("q", "Q", "\x03"): _cleanup(); sys.exit(0)
+
+
 # ── Confirm ──────────────────────────────────────────────────────────────────
 
-def _step_confirm(target: Path, mode: str, rules: List[dict], agents: List[str], cloak: bool = False) -> bool:
+def _step_confirm(target: Path, mode: str, rules: List[dict], agents: List[str], cloak: bool = False, scope: str = "project") -> bool:
     home = str(Path.home())
     disp = str(target).replace(home, "~")
     n_on = sum(1 for r in rules if r["on"])
@@ -441,6 +502,8 @@ def _step_confirm(target: Path, mode: str, rules: List[dict], agents: List[str],
         lines.append(row(kv("Agents", ags)))
         lines.append(row(kv("Cloak", "yes  (secret prevention)" if cloak else "no",
                             GRN if cloak else DIM)))
+        lines.append(row(kv("Scope", "global (all projects)" if scope == "global" else "workspace only",
+                            YEL if scope == "global" else GRN)))
         lines.append(row())
         lines.append(bdr("╰", "─", "╯"))
         lines.append("")
@@ -518,7 +581,7 @@ def _install_skill(target: Path):
         return False, str(e)[:40]
 
 
-def _do_install(target: Path, mode: str, rules: List[dict], agents: List[str], cloak: bool = False) -> None:
+def _do_install(target: Path, mode: str, rules: List[dict], agents: List[str], cloak: bool = False, scope: str = "project") -> None:
     sys.stdout.write(ALT_OFF)
     sys.stdout.write("\033[H\033[J" + HIDE)
     sys.stdout.flush()
@@ -581,7 +644,7 @@ def _do_install(target: Path, mode: str, rules: List[dict], agents: List[str], c
                     repo_root=_REPO_ROOT,
                     workspace=target,
                     agent=a,
-                    scope="project",
+                    scope=scope,
                     mode=mode,
                 )
                 return True, ""
@@ -597,13 +660,13 @@ def _do_install(target: Path, mode: str, rules: List[dict], agents: List[str], c
             warden_cmd = shutil.which("warden")
             if warden_cmd:
                 r = subprocess.run(
-                    [warden_cmd, "cloak", "install", "--workspace", str(target), "--scope", "project"],
+                    [warden_cmd, "cloak", "install", "--workspace", str(target), "--scope", scope],
                     capture_output=True, timeout=30,
                 )
             else:
                 r = subprocess.run(
                     [sys.executable, str(_PKG_DIR / "cli.py"), "cloak", "install",
-                     "--workspace", str(target), "--scope", "project"],
+                     "--workspace", str(target), "--scope", scope],
                     capture_output=True, timeout=30,
                 )
             return r.returncode == 0, "enabled" if r.returncode == 0 else r.stderr.decode()[:40]
@@ -704,6 +767,7 @@ def run_non_interactive(
     mode: str = "observe",
     agents: Optional[List[str]] = None,
     cloak: bool = False,
+    scope: str = "project",
 ) -> None:
     """Run install without TUI. Args take precedence over env vars (resolution done by caller)."""
     rules = _load_rules()
@@ -711,12 +775,13 @@ def run_non_interactive(
         det = _detect_agents(target)
         agents = [n for n, ok in det.items() if ok] or ["claude"]
     cloak_tag = ", cloak=yes" if cloak else ""
-    print(f"[warden] Non-interactive setup  (mode={mode}, agents={','.join(agents)}{cloak_tag})")
-    _do_install(target, mode, rules, agents, cloak=cloak)
+    scope_tag = f", scope={scope}" if scope != "project" else ""
+    print(f"[warden] Non-interactive setup  (mode={mode}, agents={','.join(agents)}{cloak_tag}{scope_tag})")
+    _do_install(target, mode, rules, agents, cloak=cloak, scope=scope)
 
 
 def run_wizard(target: Path) -> None:
-    """Run the full 5-step interactive TUI wizard."""
+    """Run the full 6-step interactive TUI wizard."""
     sys.stdout.write(ALT_ON + HIDE)
     sys.stdout.flush()
     _raw_on()
@@ -725,6 +790,7 @@ def run_wizard(target: Path) -> None:
     mode = "enforce"
     agents = None
     cloak = True
+    scope = "project"
     step = 1
 
     try:
@@ -754,9 +820,16 @@ def run_wizard(target: Path) -> None:
                 cloak = result
                 step = 5
             elif step == 5:
-                result = _step_confirm(target, mode, rules, agents, cloak=cloak)
+                result = _step_scope(scope)
                 if result is _BACK:
                     step = 4
+                    continue
+                scope = result
+                step = 6
+            elif step == 6:
+                result = _step_confirm(target, mode, rules, agents, cloak=cloak, scope=scope)
+                if result is _BACK:
+                    step = 5
                     continue
                 break
     except Exception:
@@ -764,6 +837,7 @@ def run_wizard(target: Path) -> None:
         mode = "enforce"
         agents = ["claude"]
         cloak = False
+        scope = "project"
 
     _raw_off()
-    _do_install(target, mode, rules, agents, cloak=cloak)
+    _do_install(target, mode, rules, agents, cloak=cloak, scope=scope)
