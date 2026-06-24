@@ -1,6 +1,6 @@
 """Prismor Warden — interactive setup wizard, usable from both pip install and git clone.
 
-This module contains the full 5-step TUI wizard and the non-interactive install path.
+This module contains the full 4-step TUI wizard and the non-interactive install path.
 It is the backing implementation for ``immunity setup``.
 
 The original wizard in ``scripts/setup.py`` continues to work for git-clone users
@@ -23,7 +23,11 @@ from typing import List, Optional
 
 # ── Constants ────────────────────────────────────────────────────────────────
 
-_VERSION = "v0.2"
+try:
+    from warden import __version__ as _PKG_VERSION
+except Exception:
+    _PKG_VERSION = "0.0.0"
+_VERSION = f"v{_PKG_VERSION}"
 _BACK = object()  # sentinel for "go back"
 
 # repo_root for passing to install_hooks — parent of the warden/ package
@@ -275,7 +279,7 @@ def _step_mode(current: str = "enforce") -> str:
     sel = 0 if current == "observe" else 1
 
     while True:
-        lines = _header_lines(1, 5, "ENFORCEMENT MODE")
+        lines = _header_lines(1, 4, "ENFORCEMENT MODE")
         for i, (name, desc) in enumerate(opts):
             arrow = _w("▸ ", CYAN) if i == sel else "  "
             dot   = _w("●", GRN) if i == sel else _w("○", DIM)
@@ -292,74 +296,7 @@ def _step_mode(current: str = "enforce") -> str:
         elif key in ("q", "Q", "\x03"): _cleanup(); sys.exit(0)
 
 
-# ── Step 2: Detection Rules ──────────────────────────────────────────────────
-
-_RULES_PREVIEW = 15
-_SEV_ORDER = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
-
-
-def _step_rules(rules: List[dict]) -> List[dict]:
-    # Sort: CRITICAL → HIGH → MEDIUM → LOW, stable within each tier.
-    rules = sorted(rules, key=lambda r: _SEV_ORDER.get(r["severity"].upper(), 9))
-    sel = 0
-    expanded = False
-
-    while True:
-        n_on = sum(1 for r in rules if r["on"])
-        visible = rules if expanded else rules[:_RULES_PREVIEW]
-
-        # Clamp cursor to visible range.
-        if sel >= len(visible):
-            sel = len(visible) - 1
-
-        lines = _header_lines(2, 5, "DETECTION RULES")
-        lines.append(f"  {_w(f'{n_on}/{len(rules)} enabled', DIM)}")
-        lines.append("")
-        tw = _term_width()
-        max_title = max(tw - 52, 20)
-        for i, r in enumerate(visible):
-            arrow = _w("▸ ", CYAN) if i == sel else "  "
-            dot   = _w("●", GRN) if r["on"] else _w("○", DIM)
-            sev   = _pad(_w(r["severity"], _sev_color(r["severity"])), 12)
-            rid   = _pad(_w(r["id"], BOLD) if i == sel else r["id"], 26)
-            title = _w(r["title"][:max_title], DIM)
-            lines.append(f"  {arrow}{dot}  {sev}{rid} {title}")
-
-        hidden = len(rules) - _RULES_PREVIEW
-        if not expanded and hidden > 0:
-            lines.append(f"  {_w(f'  … {hidden} more rules hidden', DIM)}")
-
-        lines.append("")
-        ctrl = [("↑↓", "move"), ("space", "toggle"), ("a", "all"), ("n", "none")]
-        if not expanded and hidden > 0:
-            ctrl.append(("e", "expand"))
-        elif expanded:
-            ctrl.append(("c", "collapse"))
-        ctrl += [("←", "back"), ("enter", "next")]
-        lines.append(_control_line(ctrl))
-        _render(lines)
-
-        key = _read_key()
-        if key == _UP:               sel = (sel - 1) % len(visible)
-        elif key == _DOWN:           sel = (sel + 1) % len(visible)
-        elif key == _SPACE:
-            real_idx = rules.index(visible[sel])
-            rules[real_idx]["on"] = not rules[real_idx]["on"]
-        elif key in ("a", "A"):
-            for r in rules: r["on"] = True
-        elif key in ("n", "N"):
-            for r in rules: r["on"] = False
-        elif key in ("e", "E"):      expanded = True
-        elif key in ("c", "C"):
-            expanded = False
-            if sel >= _RULES_PREVIEW:
-                sel = _RULES_PREVIEW - 1
-        elif key in (_LEFT, "b", "B"): return _BACK  # type: ignore[return-value]
-        elif key in (_ENTER, "\n"):    return rules
-        elif key in ("q", "Q", "\x03"): _cleanup(); sys.exit(0)
-
-
-# ── Step 3: Agent Selection ──────────────────────────────────────────────────
+# ── Step 2: Agent Selection ──────────────────────────────────────────────────
 
 def _step_agents(target: Path) -> list:
     detected = _detect_agents(target)
@@ -376,7 +313,7 @@ def _step_agents(target: Path) -> list:
     sel = 0
 
     while True:
-        lines = _header_lines(3, 5, "AGENTS")
+        lines = _header_lines(2, 4, "AGENTS")
         lines.append(f"  {_w('Select agents to install Warden hooks for:', DIM)}")
         lines.append("")
         for i, ag in enumerate(agents):
@@ -403,7 +340,7 @@ def _step_agents(target: Path) -> list:
         elif key in ("q", "Q", "\x03"): _cleanup(); sys.exit(0)
 
 
-# ── Step 4: Secret Cloaking ──────────────────────────────────────────────────
+# ── Step 3: Secret Cloaking ──────────────────────────────────────────────────
 
 def _step_cloak(current: bool = True) -> bool:
     opts = [
@@ -413,7 +350,7 @@ def _step_cloak(current: bool = True) -> bool:
     sel = 0 if current else 1
 
     while True:
-        lines = _header_lines(4, 5, "SECRET CLOAKING")
+        lines = _header_lines(3, 4, "SECRET CLOAKING")
         lines.append(f"  {_w('Prevents real secrets from reaching model context, JSONL transcripts,', DIM)}")
         lines.append(f"  {_w('or upstream API requests. See warden/cloaking/README.md.', DIM)}")
         lines.append("")
@@ -438,7 +375,7 @@ def _step_cloak(current: bool = True) -> bool:
         elif key in ("q", "Q", "\x03"): _cleanup(); sys.exit(0)
 
 
-# ── Step 5: Install Scope ────────────────────────────────────────────────────
+# ── Step 4: Install Scope ────────────────────────────────────────────────────
 
 def _step_scope(current: str = "project") -> str:
     opts = [
@@ -448,7 +385,7 @@ def _step_scope(current: str = "project") -> str:
     sel = 0 if current == "project" else 1
 
     while True:
-        lines = _header_lines(5, 5, "INSTALL SCOPE")
+        lines = _header_lines(4, 4, "INSTALL SCOPE")
         lines.append(f"  {_w('Where should Immunity hooks be installed?', DIM)}")
         lines.append("")
         tw = _term_width()
@@ -657,18 +594,14 @@ def _do_install(target: Path, mode: str, rules: List[dict], agents: List[str], c
         def _install_cloak():
             if not shutil.which("jq"):
                 return False, "jq not found (brew install jq)"
-            warden_cmd = shutil.which("warden")
-            if warden_cmd:
-                r = subprocess.run(
-                    [warden_cmd, "cloak", "install", "--workspace", str(target), "--scope", scope],
-                    capture_output=True, timeout=30,
-                )
-            else:
-                r = subprocess.run(
-                    [sys.executable, str(_PKG_DIR / "cli.py"), "cloak", "install",
-                     "--workspace", str(target), "--scope", scope],
-                    capture_output=True, timeout=30,
-                )
+            # Route through warden/cli.py directly with the current interpreter.
+            # Don't shell out to a `warden` binary on PATH — that entry point is
+            # a deprecation shim and prints a "'warden' is deprecated" warning.
+            r = subprocess.run(
+                [sys.executable, str(_PKG_DIR / "cli.py"), "cloak", "install",
+                 "--workspace", str(target), "--scope", scope],
+                capture_output=True, timeout=30,
+            )
             return r.returncode == 0, "enabled" if r.returncode == 0 else r.stderr.decode()[:40]
         _spinner_run("Installing cloaking hooks", _install_cloak)
 
@@ -676,13 +609,14 @@ def _do_install(target: Path, mode: str, rules: List[dict], agents: List[str], c
     def _update_claude():
         md = target / "CLAUDE.md"
         block = (
-            "\n## Security (Prismor)\n\n"
-            "At the start of every session, read "
-            "`https://raw.githubusercontent.com/PrismorSec/security-playbook/main/security.md` "
-            "and follow its instructions.\n\n"
-            "This loads behavioral guardrails, secure coding rules (OWASP Top 10), "
-            "and LLM security rules (OWASP LLM Top 10).\n\n"
-            "For more info: https://github.com/PrismorSec/prismor\n"
+            "\n## Security (Prismor Immunity Agent)\n\n"
+            "This workspace is protected by Prismor Immunity Agent — runtime "
+            "security hooks that monitor tool calls in real time (destructive "
+            "commands, secret leaks, supply-chain risk, prompt injection).\n\n"
+            "Run `immunity status` at the start of a session to check protection "
+            "state. The full decision tree lives in "
+            "`.claude/skills/immunity-agent/SKILL.md`.\n\n"
+            "For more info: https://github.com/PrismorSec/immunity-agent\n"
         )
         if md.exists():
             content = md.read_text()
@@ -744,7 +678,7 @@ def _do_install(target: Path, mode: str, rules: List[dict], agents: List[str], c
     _info("Hooks",      f"installed  (mode: {mode})")
     if "claude" in agents:
         _info("Skill",  str(target / ".claude" / "skills" / "immunity-agent").replace(home, "~"))
-    _info("Guardrails", "https://github.com/PrismorSec/security-playbook")
+    _info("Docs",       "https://github.com/PrismorSec/immunity-agent")
     _info("Config",     str(target / "CLAUDE.md").replace(home, "~"))
     _info("Command",    "immunity status  ·  immunity sessions  ·  immunity check \"<cmd>\"")
     print()
@@ -781,11 +715,14 @@ def run_non_interactive(
 
 
 def run_wizard(target: Path) -> None:
-    """Run the full 6-step interactive TUI wizard."""
+    """Run the full 4-step interactive TUI wizard."""
     sys.stdout.write(ALT_ON + HIDE)
     sys.stdout.flush()
     _raw_on()
 
+    # All detection rules ship enabled by default — there is no per-rule toggle
+    # step. Rules are loaded only so the confirm screen can show the count and
+    # _do_install can write policy overrides if any are ever disabled.
     rules = _load_rules()
     mode = "enforce"
     agents = None
@@ -799,37 +736,30 @@ def run_wizard(target: Path) -> None:
                 mode = _step_mode(mode)
                 step = 2
             elif step == 2:
-                result = _step_rules(rules)
+                result = _step_agents(target)
                 if result is _BACK:
                     step = 1
                     continue
-                rules = result
+                agents = result
                 step = 3
             elif step == 3:
-                result = _step_agents(target)
+                result = _step_cloak(cloak)
                 if result is _BACK:
                     step = 2
                     continue
-                agents = result
+                cloak = result
                 step = 4
             elif step == 4:
-                result = _step_cloak(cloak)
+                result = _step_scope(scope)
                 if result is _BACK:
                     step = 3
                     continue
-                cloak = result
+                scope = result
                 step = 5
             elif step == 5:
-                result = _step_scope(scope)
-                if result is _BACK:
-                    step = 4
-                    continue
-                scope = result
-                step = 6
-            elif step == 6:
                 result = _step_confirm(target, mode, rules, agents, cloak=cloak, scope=scope)
                 if result is _BACK:
-                    step = 5
+                    step = 4
                     continue
                 break
     except Exception:

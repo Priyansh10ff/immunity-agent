@@ -66,7 +66,7 @@ Preferred path (works for any of 55+ agents):
 
 ```bash
 pip install immunity-agent
-immunity setup            # interactive 5-step TUI
+immunity setup            # interactive 4-step TUI
 ```
 
 For Claude Code, `immunity setup` also drops this skill into

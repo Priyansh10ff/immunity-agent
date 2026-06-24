@@ -98,7 +98,7 @@ See [`SKILL.md`](SKILL.md) for the full decision tree and hard rules.
 
 ```bash
 pip install immunity-agent
-immunity setup          # interactive 5-step onboarding wizard
+immunity setup          # interactive 4-step onboarding wizard
 ```
 
 `immunity setup` lets you pick enforcement mode, toggle detection rules, select agents, and optionally enable secret cloaking. Pass `--non-interactive` to skip the TUI.
