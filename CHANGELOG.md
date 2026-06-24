@@ -1,3 +1,16 @@
+## [1.9.0] — 2026-06-24
+
+Setup wizard install-scope control and CLI help/rules-list polish.
+
+### Added
+
+- **Install-scope step in `immunity setup`** — a new wizard step lets you choose between installing Warden hooks for the current workspace only (`.claude/settings.json`) or globally for every project (`~/.claude/settings.json`). The chosen scope now flows through hook and cloak installation (previously hard-coded to `project`). Exposed on `run_non_interactive` via `scope=`.
+
+### Changed
+
+- **Detection-rules step is sorted and truncated** — rules are ordered CRITICAL → HIGH → MEDIUM → LOW and the list shows the top 15 by default with an `e` to expand / `c` to collapse, so long rule sets stay readable.
+- **`immunity help` shows full command names** — commands, sub-actions, and the Help/Deprecated sections now render the full `immunity <cmd>` form instead of bare names, so entries are copy-pasteable.
+
 ## [1.8.0] — 2026-06-23
 
 CLI UX consolidation, Codex agent support, and supply-chain enforcement hardening.
