@@ -1,3 +1,13 @@
+## [1.11.0] — 2026-06-26
+
+Supply-chain block/observe output now includes safe version recommendations, and setup writes agent context files for all supported agents.
+
+### Added
+
+- **Safe version recommendations in supply-chain output** — `_score_package()` now calls `recommend_safe_version()` and embeds `safe_version` and `remediation` fields in every `dependency_risk` finding. Block messages print the recommended fix version on stderr; observe mode emits all findings (not just the first) with remediation hints so agents know exactly which packages to pin.
+- **Agent context files written on onboarding** — `immunity setup` now calls `_write_agent_context()` unconditionally, writing the key immunity commands (`immunity status`, `supplychain`, `check`, `deps`) into `.cursorrules`, `.windsurfrules`, or `AGENTS.md` depending on the agents selected. Cursor, Windsurf, Codex, Copilot, Hermes, and OpenClaw users all get the reference on first install.
+- **SKILL.md installed for all agents** — removed the `if "claude" in agents` gate; SKILL.md now lands in every workspace regardless of agent choice.
+
 ## [1.10.0] — 2026-06-24
 
 Setup wizard slimmed to 4 steps, live version banner, and removal of the security-playbook integration.
