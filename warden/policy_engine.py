@@ -1094,6 +1094,12 @@ class PolicyEngine:
         if top_signals:
             evidence += f": {top_signals}"
 
+        try:
+            from supplychain.scoring.safe_version import recommend_safe_version
+            _sv = recommend_safe_version(spec.name, ecosystem, exclude_version=spec.version)
+        except Exception:
+            _sv = None
+
         finding_id = f"pkg-install-vulnerable-version-{index}-{spec.name}"
         prefixed_id = f"{session_id}:{finding_id}" if session_id else finding_id
         return {
@@ -1108,6 +1114,8 @@ class PolicyEngine:
             "eventIndex": index,
             "ruleId": "pkg-install-vulnerable-version",
             "action": "block" if verdict.verdict == "block" else "warn",
+            "safe_version": _sv.version if _sv else None,
+            "remediation": f"Use {_sv.version} instead ({_sv.reason})" if _sv else None,
             # Same default as every other dependency_risk rule: no per-rule
             # override exists here, so inherit the policy's default_mode
             # exactly as a YAML rule without an explicit `mode` would.
