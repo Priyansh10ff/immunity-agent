@@ -182,7 +182,17 @@ def run_server(host: str = "127.0.0.1", port: int = 7070, open_browser: bool = F
     ``HTTPServer(...)`` constructor, so the request lands even before
     ``serve_forever()`` starts accepting.
     """
-    server = HTTPServer((host, port), WardenRequestHandler)
+    import errno as _errno
+    while True:
+        try:
+            server = HTTPServer((host, port), WardenRequestHandler)
+            break
+        except OSError as exc:
+            if exc.errno == _errno.EADDRINUSE:
+                print(f"[warden] port {port} in use, trying {port + 1}…", flush=True)
+                port += 1
+            else:
+                raise
     url = f"http://{host}:{port}"
     print(f"[warden] dashboard → {url}  (Ctrl-C to stop)", flush=True)
     if open_browser:
