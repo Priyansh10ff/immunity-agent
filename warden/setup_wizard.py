@@ -484,6 +484,45 @@ def _spinner_run(label: str, fn) -> None:
     sys.stdout.flush()
 
 
+
+_AGENT_CONTEXT_BLOCK = (
+    "\n## Security (Prismor Immunity Agent)\n\n"
+    "This workspace is protected by Prismor Immunity Agent. "
+    "Run `immunity status` at the start of every session.\n\n"
+    "Key commands:\n\n"
+    "| Action | Command |\n"
+    "|---|---|\n"
+    "| Check protection state | `immunity status` |\n"
+    "| Install packages safely | `immunity supplychain <pm> install <pkg>` |\n"
+    "| Pre-check a risky command | `immunity check \"<cmd>\"` |\n"
+    "| Scan for dep vulnerabilities | `immunity deps` |\n"
+    "| Harden package config | `immunity supplychain harden` |\n\n"
+    "Full decision tree: `.claude/skills/immunity-agent/SKILL.md`\n"
+)
+
+_AGENTS_MD_AGENTS = {"codex", "openclaw", "hermes", "copilot"}
+
+
+def _write_agent_context(target: Path, agents: List[str]) -> None:
+    """Write the immunity-agent command reference into agent-specific context files."""
+    agent_files = {
+        "cursor": target / ".cursorrules",
+        "windsurf": target / ".windsurfrules",
+    }
+    for agent, path in agent_files.items():
+        if agent not in agents:
+            continue
+        content = path.read_text(encoding="utf-8") if path.exists() else ""
+        if "Prismor" not in content:
+            path.write_text(content + _AGENT_CONTEXT_BLOCK, encoding="utf-8")
+
+    if any(a in agents for a in _AGENTS_MD_AGENTS):
+        path = target / "AGENTS.md"
+        content = path.read_text(encoding="utf-8") if path.exists() else ""
+        if "Prismor" not in content:
+            path.write_text(content + _AGENT_CONTEXT_BLOCK, encoding="utf-8")
+
+
 # ── Install ───────────────────────────────────────────────────────────────────
 
 def _install_skill(target: Path):
@@ -628,9 +667,17 @@ def _do_install(target: Path, mode: str, rules: List[dict], agents: List[str], c
         return True, "created"
     _spinner_run("Updating CLAUDE.md", _update_claude)
 
-    # 4b. Install the immunity-agent Claude skill (Claude Code only).
-    if "claude" in agents:
-        _spinner_run("Installing immunity-agent skill", lambda: _install_skill(target))
+    # 4b. Install SKILL.md for all workspaces — any agent can read it.
+    _spinner_run("Installing immunity-agent skill", lambda: _install_skill(target))
+
+    # 4c. Agent-specific context files (cursorrules, windsurfrules, AGENTS.md).
+    def _write_context():
+        try:
+            _write_agent_context(target, agents)
+            return True, ""
+        except OSError as e:
+            return False, str(e)[:50]
+    _spinner_run("Writing agent context", _write_context)
 
     # 5. Feed signature verification (use warden.paths resolver, skip shell script)
     def _verify_feed():
