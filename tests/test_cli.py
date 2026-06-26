@@ -269,6 +269,76 @@ class TestSkillInstall(unittest.TestCase):
             self.assertTrue(ok)
             self.assertEqual(detail, "already present")
 
+
+    def test_install_skill_runs_without_claude_agent(self):
+        """SKILL.md must be installed regardless of which agents are selected."""
+        import tempfile
+        from warden.setup_wizard import _install_skill
+        with tempfile.TemporaryDirectory() as ws:
+            ok, detail = _install_skill(Path(ws))
+            self.assertTrue(ok, detail)
+            self.assertTrue((Path(ws) / ".claude" / "skills" / "immunity-agent" / "SKILL.md").exists())
+
+
+class TestWriteAgentContext(unittest.TestCase):
+    """_write_agent_context writes command reference to agent-specific files."""
+
+    def setUp(self):
+        import tempfile
+        self._tmp = tempfile.mkdtemp()
+        self.ws = Path(self._tmp)
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self._tmp, ignore_errors=True)
+
+    def test_cursor_writes_cursorrules(self):
+        from warden.setup_wizard import _write_agent_context
+        _write_agent_context(self.ws, ["cursor"])
+        content = (self.ws / ".cursorrules").read_text()
+        self.assertIn("immunity status", content)
+        self.assertIn("immunity supplychain", content)
+
+    def test_windsurf_writes_windsurfrules(self):
+        from warden.setup_wizard import _write_agent_context
+        _write_agent_context(self.ws, ["windsurf"])
+        content = (self.ws / ".windsurfrules").read_text()
+        self.assertIn("immunity status", content)
+
+    def test_agents_md_written_for_codex(self):
+        from warden.setup_wizard import _write_agent_context
+        _write_agent_context(self.ws, ["codex"])
+        content = (self.ws / "AGENTS.md").read_text()
+        self.assertIn("immunity status", content)
+
+    def test_agents_md_written_for_copilot_and_hermes(self):
+        from warden.setup_wizard import _write_agent_context
+        _write_agent_context(self.ws, ["copilot", "hermes"])
+        self.assertTrue((self.ws / "AGENTS.md").exists())
+
+    def test_idempotent_does_not_duplicate(self):
+        from warden.setup_wizard import _write_agent_context
+        _write_agent_context(self.ws, ["cursor"])
+        first = (self.ws / ".cursorrules").read_text()
+        _write_agent_context(self.ws, ["cursor"])
+        second = (self.ws / ".cursorrules").read_text()
+        self.assertEqual(first, second, "second call must not append again")
+
+    def test_appends_to_existing_file(self):
+        from warden.setup_wizard import _write_agent_context
+        (self.ws / ".cursorrules").write_text("# My existing rules\n")
+        _write_agent_context(self.ws, ["cursor"])
+        content = (self.ws / ".cursorrules").read_text()
+        self.assertIn("# My existing rules", content)
+        self.assertIn("immunity status", content)
+
+    def test_claude_only_skips_cursor_and_windsurf(self):
+        from warden.setup_wizard import _write_agent_context
+        _write_agent_context(self.ws, ["claude"])
+        self.assertFalse((self.ws / ".cursorrules").exists())
+        self.assertFalse((self.ws / ".windsurfrules").exists())
+        self.assertFalse((self.ws / "AGENTS.md").exists())
+
     def test_skill_is_bundled_in_resolver(self):
         # The resolver must find the manifest in a git checkout (and, by the
         # same suffix, an installed wheel).

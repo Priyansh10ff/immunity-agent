@@ -1006,18 +1006,25 @@ def main(argv: Optional[List[str]] = None) -> None:
                 reason = f"[{blocking['severity']}] {blocking['title']}"
                 if blocking.get("evidence"):
                     reason += f"\n{blocking['evidence']}"
+                if blocking.get("remediation"):
+                    reason += f"\nRecommended fix: {blocking['remediation']}"
                 sys.stdout.write(json.dumps({"permissionDecision": "deny", "permissionDecisionReason": reason}) + "\n")
             else:
                 sys.stderr.write(f"Prismor Immunity Agent blocked this action: [{blocking['severity']}] {blocking['title']}\n")
                 if blocking.get("evidence"):
                     sys.stderr.write(f"{blocking['evidence']}\n")
+                if blocking.get("remediation"):
+                    sys.stderr.write(f"Recommended fix: {blocking['remediation']}\n")
                 raise SystemExit(2)
         elif current_findings:
-            # Observe: surface the most relevant finding so humans/agents see
-            # feedback without the call being blocked. Prefer a would-be-blocking
-            # finding (mode=enforce but dry-run) else the first finding.
+            # Observe: surface all findings so agents know every package to fix.
+            # Prefer a would-be-blocking finding for the dismissal record.
             top = blocking or current_findings[0]
-            sys.stderr.write(_color(f"[warden] ", _YELLOW) + f"[{top['severity']}] {top['title']}\n")
+            for _f in current_findings:
+                _line = _color("[warden] ", _YELLOW) + f"[{_f['severity']}] {_f['title']}"
+                if _f.get("remediation"):
+                    _line += f" → {_f['remediation']}"
+                sys.stderr.write(_line + "\n")
             # Record as dismissal for learning (observe = user saw but continued).
             try:
                 from warden.learning import record_dismissal as _record_dismissal
