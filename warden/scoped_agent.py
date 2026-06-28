@@ -239,6 +239,9 @@ def check_scoped_rules(
 
     Returns a finding dict if the event is blocked, None if allowed.
     """
+    if rules.get("paused", False):
+        return None  # immunity paused by human operator via dashboard
+
     event_type = event.get("type", "")
     tool_name = _resolve_tool_name(event)
 

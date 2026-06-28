@@ -1187,7 +1187,8 @@ def get_events_page(
             where = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
             for row in conn.execute(
                 f"""
-                SELECT e.ts, s.agent, e.type as action_type,
+                SELECT e.ts, e.session_id, s.agent, s.workspace_path,
+                       e.type as action_type,
                        e.command_text, e.path_text, e.url_text,
                        f.severity,
                        CASE WHEN s.findings_count > 0 THEN 'blocked' ELSE 'allowed' END as verdict
@@ -1215,6 +1216,8 @@ def get_events_page(
                     "action": ": ".join(action_parts) if action_parts else "event",
                     "verdict": row["verdict"] or "allowed",
                     "severity": (row["severity"] or "low").lower(),
+                    "sessionId": row["session_id"] or "",
+                    "workspace": row["workspace_path"] or str(ws),
                 })
         except Exception:
             pass
@@ -1591,3 +1594,179 @@ def get_supply_chain_stats(hours: int = 24) -> Dict[str, Any]:
         "recentBlocks": recent_blocks,
         "installsBySession": by_session,
     }
+
+
+# ── Policy management helpers ─────────────────────────────────────────────────
+
+def _global_policy_path() -> Path:
+    return Path.home() / ".prismor" / "policy.yaml"
+
+
+def _project_policy_path(workspace: Path) -> Path:
+    return workspace / ".prismor-warden" / "policy.yaml"
+
+
+def get_enrollment() -> Optional[Dict[str, Any]]:
+    """Return enterprise enrollment info, or None if unenrolled."""
+    identity = Path.home() / ".prismor" / "identity.json"
+    if not identity.exists():
+        return None
+    try:
+        data = json.loads(identity.read_text(encoding="utf-8"))
+        if not isinstance(data, dict) or not data.get("device_key"):
+            return None
+        return {
+            "enrolled": True,
+            "org_id": data.get("org_id"),
+            "device_id": data.get("device_id"),
+            "api_base": data.get("api_base", "https://prismor.dev"),
+        }
+    except Exception:
+        return None
+
+
+def _enterprise_remote_cache() -> Optional[str]:
+    cache = Path.home() / ".prismor" / "remote_policy_cache.json"
+    if not cache.exists():
+        return None
+    try:
+        d = json.loads(cache.read_text(encoding="utf-8"))
+        return d.get("yaml") or d.get("policy_yaml")
+    except Exception:
+        return None
+
+
+def read_policy_layer(scope: str, workspace: Optional[Path] = None) -> Dict[str, Any]:
+    """Read one policy layer.  scope: 'global' | 'project' | 'enterprise'"""
+    if scope == "global":
+        path = _global_policy_path()
+        if not path.exists():
+            return {"exists": False, "yaml": "", "path": str(path)}
+        try:
+            return {
+                "exists": True,
+                "yaml": path.read_text(encoding="utf-8"),
+                "path": str(path),
+                "mtime": path.stat().st_mtime,
+            }
+        except Exception as exc:
+            return {"exists": False, "yaml": "", "path": str(path), "error": str(exc)}
+
+    if scope == "project":
+        if not workspace:
+            return {"exists": False, "yaml": "", "path": ""}
+        path = _project_policy_path(workspace)
+        if not path.exists():
+            return {"exists": False, "yaml": "", "path": str(path)}
+        try:
+            return {
+                "exists": True,
+                "yaml": path.read_text(encoding="utf-8"),
+                "path": str(path),
+                "mtime": path.stat().st_mtime,
+            }
+        except Exception as exc:
+            return {"exists": False, "yaml": "", "path": str(path), "error": str(exc)}
+
+    if scope == "enterprise":
+        yaml_content = _enterprise_remote_cache()
+        enrollment = get_enrollment()
+        return {
+            "exists": yaml_content is not None,
+            "yaml": yaml_content or "",
+            "enrollment": enrollment,
+            "readonly": True,
+        }
+
+    return {"exists": False, "yaml": "", "error": "unknown scope"}
+
+
+def write_policy_layer(scope: str, content: str, workspace: Optional[Path] = None) -> Dict[str, Any]:
+    """Write a policy layer.  Returns {ok, path?, error?}"""
+    if scope == "enterprise":
+        return {"ok": False, "error": "Enterprise policy is managed by org admin — edit it in the Prismor web dashboard."}
+
+    if scope == "global":
+        path = _global_policy_path()
+    elif scope == "project":
+        if not workspace:
+            return {"ok": False, "error": "workspace path required for project scope"}
+        path = _project_policy_path(workspace)
+    else:
+        return {"ok": False, "error": f"unknown scope: {scope}"}
+
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+        return {"ok": True, "path": str(path)}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+def get_session_scoped_detail(workspace: Path, session_id: str) -> Dict[str, Any]:
+    """Return scoped rules + recent blocked findings for a session."""
+    from warden.scoped_agent import load_scoped_rules
+    scoped = load_scoped_rules(workspace, session_id)
+
+    recent_blocked: List[Dict[str, Any]] = []
+    db = get_db_path(workspace)
+    if db.exists():
+        try:
+            conn = sqlite3.connect(str(db), check_same_thread=False)
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT title, category, severity, evidence, created_at
+                FROM findings
+                WHERE session_id = ? AND action = 'block'
+                ORDER BY created_at DESC LIMIT 5
+                """,
+                (session_id,),
+            )
+            recent_blocked = [
+                {"title": r[0], "category": r[1], "severity": r[2], "evidence": r[3], "ts": r[4]}
+                for r in cur.fetchall()
+            ]
+            conn.close()
+        except Exception:
+            pass
+
+    return {
+        "session_id": session_id,
+        "scoped": scoped,
+        "paused": bool(scoped.get("paused")) if scoped else False,
+        "recent_blocked": recent_blocked,
+    }
+
+
+def update_session_control(
+    workspace: Path, session_id: str, action: str, data: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
+    """Control session immunity.  action: 'pause' | 'resume' | 'clear' | 'update'"""
+    from warden.scoped_agent import load_scoped_rules, save_scoped_rules, clear_scoped_rules
+
+    if action == "clear":
+        clear_scoped_rules(workspace, session_id)
+        return {"ok": True, "action": "clear"}
+
+    if action == "pause":
+        scoped: Dict[str, Any] = load_scoped_rules(workspace, session_id) or {}
+        scoped["paused"] = True
+        save_scoped_rules(workspace, session_id, scoped)
+        return {"ok": True, "action": "pause", "scoped": scoped}
+
+    if action == "resume":
+        scoped = load_scoped_rules(workspace, session_id) or {}
+        scoped["paused"] = False
+        save_scoped_rules(workspace, session_id, scoped)
+        return {"ok": True, "action": "resume", "scoped": scoped}
+
+    if action == "update" and data:
+        scoped = load_scoped_rules(workspace, session_id) or {}
+        for field in ("allowed_tools", "deny_tools", "deny_network", "allowed_paths"):
+            if field in data:
+                scoped[field] = data[field]
+        save_scoped_rules(workspace, session_id, scoped)
+        return {"ok": True, "action": "update", "scoped": scoped}
+
+    return {"ok": False, "error": f"unknown action: {action}"}

@@ -168,7 +168,7 @@ def main(argv: Optional[List[str]] = None) -> None:
         # dashboard opens a browser by default; serve stays headless. --no-open
         # forces headless for dashboard too.
         open_browser = args.command == "dashboard" and not getattr(args, "no_open", False)
-        run_server(host=args.host, port=args.port, open_browser=open_browser)
+        run_server(host=args.host, port=args.port, open_browser=open_browser, workspace=workspace)
         return
 
     # ── info: deprecated alias of status ────────────────────────────────
