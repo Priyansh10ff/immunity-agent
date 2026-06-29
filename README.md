@@ -1,6 +1,6 @@
 <h1 align="center">Immunity Agent</h1>
 
-<h3 align="center">Runtime security for AI coding agents. Policy enforcement, secret prevention,<br>supply chain blocking, and secret cleanup in one package.</h3>
+<h3 align="center">Runtime security hooks for Claude Code, Cursor, and other AI coding agents.<br>Blocks dangerous commands, prevents secret leaks, and stops prompt injection in real time.</h3>
 
 <p align="center">
   <a href="https://pypi.org/project/immunity-agent/"><img src="https://img.shields.io/pypi/v/immunity-agent" alt="PyPI"/></a>
