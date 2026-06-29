@@ -248,9 +248,12 @@ def _dispatcher_command(*, repo_root: Path, workspace: Path, agent: str, mode: s
     # — rather than a raw path to warden/cli.py — keeps the hook working across
     # editable installs (no physical file to vanish) and avoids depending on the
     # `immunity` console-script being on PATH inside the IDE's hook environment.
+    #
+    # PYTHONPATH is prepended so the hook works regardless of how the IDE/agent
+    # launcher configures the environment (Claude Code strips user site-packages).
     py = sys.executable or "python3"
     return (
-        f'"{py}" -m warden.immunity_cli hook-dispatch '
+        f'PYTHONPATH="{repo_root}" "{py}" -m warden.immunity_cli hook-dispatch '
         f'--agent {agent} --workspace "{workspace}" --mode {mode}'
     )
 
