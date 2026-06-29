@@ -8,7 +8,7 @@ Runtime security for AI coding agents. Policy enforcement, secret prevention, su
 
 ## What it does
 
-AI coding agents execute shell commands, read files, call APIs, and install packages autonomously. Immunity Agent sits between the agent and the operating system to:
+AI coding agents execute shell commands, read files, call APIs, and install packages autonomously. Prismor sits between the agent and the operating system to:
 
 - **Block dangerous actions** before they run — destructive commands, privilege escalation, reverse shells, secret exfiltration
 - **Intercept package installs** and score them for supply-chain risk before they touch your disk

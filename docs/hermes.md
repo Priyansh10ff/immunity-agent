@@ -2,7 +2,7 @@
 
 **Status:** ✅ Shipped (v1.6.0)
 
-Immunity Agent's secret cloaking layer is available for [Hermes Agent](https://hermes-agent.nousresearch.com) (Nous Research's AI agent platform). This doc covers setup, architecture, and behavior.
+Prismor's secret cloaking layer is available for [Hermes Agent](https://hermes-agent.nousresearch.com) (Nous Research's AI agent platform). This doc covers setup, architecture, and behavior.
 
 ---
 

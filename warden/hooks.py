@@ -405,7 +405,7 @@ function dispatch(payload) {
   } catch (err) {
     if (err.status === 2) {
       const stderr = (err.stderr || "").toString().trim();
-      return { block: true, reason: stderr || "Blocked by Prismor Immunity Agent" };
+      return { block: true, reason: stderr || "Blocked by Prismor" };
     }
     return { block: false };
   }
@@ -541,7 +541,7 @@ function dispatch(payload) {
   } catch (err) {
     if (err.status === 2) {
       const stderr = (err.stderr || "").toString().trim();
-      return { block: true, reason: stderr || "Blocked by Prismor Immunity Agent" };
+      return { block: true, reason: stderr || "Blocked by Prismor" };
     }
     return { block: false };
   }

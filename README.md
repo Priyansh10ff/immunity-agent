@@ -42,7 +42,7 @@ Standard OS-level and endpoint security tools monitor the kernel and filesystem.
 
 ## Capabilities
 
-![Immunity Agent Architecture](assets/immunity-highlevel.png)
+![Prismor Architecture](assets/immunity-highlevel.png)
 
 - 🛡️ [Warden](docs/warden.md) covers the policy engine, session logs, security audit, and CLI reference
 - 📦 [Supply Chain](docs/supply-chain.md) covers install-time enforcement, IOC matching, and risk scoring
@@ -80,7 +80,7 @@ Detects your environment and uses the right install method automatically.
 
 **Option B: give your agent a skill (zero-interrupt setup):**
 
-Point your agent at [`SKILL.md`](SKILL.md). It is a standing instruction file: the agent reads it at session start, checks whether Immunity is installed, and follows the decision tree throughout the session without pausing your workflow.
+Point your agent at [`SKILL.md`](SKILL.md). It is a standing instruction file: the agent reads it at session start, checks whether Prismor is installed, and follows the decision tree throughout the session without pausing your workflow.
 
 For Claude Code, add to your `CLAUDE.md`:
 
@@ -158,7 +158,7 @@ prismor install-hooks --agent all --mode enforce    # honor policy enforce rules
 
 ---
 
-## Disabling Immunity Agent
+## Disabling Prismor
 
 There are three independent layers that can each restrict an agent session. Disabling one does not disable the others — pick the layer that matches what you're actually trying to turn off.
 

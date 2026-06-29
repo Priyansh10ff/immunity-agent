@@ -276,7 +276,7 @@ def header_lines(step=None, total=None, label=None):
     tw = term_width()
     out = [
         "",
-        f"  {w('PRISMOR IMMUNITY AGENT', BOLD, CYAN)}  {w('· ' + VERSION, DIM)}",
+        f"  {w('PRISMOR', BOLD, CYAN)}  {w('· ' + VERSION, DIM)}",
     ]
     if step and label:
         out.append(f"  {w(f'Step {step}/{total}', DIM)}  {w(label, BOLD)}")
@@ -473,7 +473,7 @@ def do_install(target, mode, rules, agents, hooks=None):
     sys.stdout.write(ALT_OFF)
     sys.stdout.write("\033[H\033[J" + HIDE)
     sys.stdout.flush()
-    print(w("  Installing Prismor Immunity Agent...\n", BOLD, CYAN))
+    print(w("  Installing Prismor...\n", BOLD, CYAN))
 
     if hooks is None:
         hooks = _default_hooks()
@@ -546,8 +546,8 @@ def do_install(target, mode, rules, agents, hooks=None):
     def update_claude():
         md = target / "CLAUDE.md"
         block = (
-            "\n## Security (Prismor Immunity Agent)\n\n"
-            "This workspace is protected by Prismor Immunity Agent — runtime "
+            "\n## Security (Prismor)\n\n"
+            "This workspace is protected by Prismor — runtime "
             "security hooks that monitor tool calls in real time (destructive "
             "commands, secret leaks, supply-chain risk, prompt injection).\n\n"
             "Run `prismor status` at the start of a session to check protection "
@@ -634,7 +634,7 @@ def do_install(target, mode, rules, agents, hooks=None):
     home = str(Path.home())
     print()
     print(w("  ╭───────────────────────────────────────────╮", DIM))
-    print(w("  │", DIM) + w("  Prismor Immunity Agent installed successfully!    ", GRN, BOLD) + w("│", DIM))
+    print(w("  │", DIM) + w("  Prismor installed successfully!    ", GRN, BOLD) + w("│", DIM))
     print(w("  ╰───────────────────────────────────────────╯", DIM))
     print()
     def info(k, v):

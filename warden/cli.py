@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prismor Immunity Agent CLI — local session-security utility for AI coding agents.
+"""Prismor CLI — local session-security utility for AI coding agents.
 
 Commands:
   check         Quick pre-check a command or file path against policy rules
@@ -478,7 +478,7 @@ def main(argv: Optional[List[str]] = None) -> None:
         summary = result["summary"]
 
         print()
-        print(f"  {_color('PRISMOR IMMUNITY AGENT', _BOLD)}  skill scanner")
+        print(f"  {_color('PRISMOR', _BOLD)}  skill scanner")
         print(f"  {_color('─' * 50, _DIM)}")
         print()
 
@@ -543,7 +543,7 @@ def main(argv: Optional[List[str]] = None) -> None:
             return
 
         print()
-        print(f"  {_color('PRISMOR IMMUNITY AGENT', _BOLD)}  dependency check")
+        print(f"  {_color('PRISMOR', _BOLD)}  dependency check")
         print(f"  {_color('─' * 50, _DIM)}")
         print()
 
@@ -614,7 +614,7 @@ def main(argv: Optional[List[str]] = None) -> None:
             return
 
         print()
-        print(f"  {_color('PRISMOR IMMUNITY AGENT', _BOLD)}  security audit")
+        print(f"  {_color('PRISMOR', _BOLD)}  security audit")
         print(f"  {_color('─' * 58, _DIM)}")
         print()
 
@@ -1010,7 +1010,7 @@ def main(argv: Optional[List[str]] = None) -> None:
                     reason += f"\nRecommended fix: {blocking['remediation']}"
                 sys.stdout.write(json.dumps({"permissionDecision": "deny", "permissionDecisionReason": reason}) + "\n")
             else:
-                sys.stderr.write(f"Prismor Immunity Agent blocked this action: [{blocking['severity']}] {blocking['title']}\n")
+                sys.stderr.write(f"Prismor blocked this action: [{blocking['severity']}] {blocking['title']}\n")
                 if blocking.get("evidence"):
                     sys.stderr.write(f"{blocking['evidence']}\n")
                 if blocking.get("remediation"):
@@ -1084,7 +1084,7 @@ def main(argv: Optional[List[str]] = None) -> None:
                 print(json.dumps(report, indent=2))
                 return
             print()
-            print(f"  {_color('PRISMOR IMMUNITY AGENT', _BOLD)}  sandbox status")
+            print(f"  {_color('PRISMOR', _BOLD)}  sandbox status")
             print(f"  {_color('─' * 50, _DIM)}")
             print()
             print(f"  {_color('Enabled:', _GREEN)}      {report['enabled']}")
@@ -1182,7 +1182,7 @@ def main(argv: Optional[List[str]] = None) -> None:
 
         if subcmd == "list" or subcmd is None:
             active = _get_agent_id()
-            print(f"\n  {_color('PRISMOR IMMUNITY AGENT', _BOLD)}  agent identities\n")
+            print(f"\n  {_color('PRISMOR', _BOLD)}  agent identities\n")
             if not agent_ids:
                 print(f"  {_color('No agents defined.', _DIM)}")
                 print(f"  Run: prismor iam init\n")
@@ -1562,7 +1562,7 @@ def main(argv: Optional[List[str]] = None) -> None:
             if not entries:
                 print("No canaries planted. Try:  prismor canary plant ~/.aws/credentials.canary --type aws")
                 return
-            print(f"  {_color('PRISMOR IMMUNITY AGENT', _BOLD)}  canaries")
+            print(f"  {_color('PRISMOR', _BOLD)}  canaries")
             print(f"  {_color('─' * 50, _DIM)}")
             for e in entries:
                 print(f"  {e['id']}  {e['type']:7s}  {e['path']}")
@@ -1650,7 +1650,7 @@ def main(argv: Optional[List[str]] = None) -> None:
             if not sessions:
                 print("No active scoped sessions.")
                 return
-            print(f"  {_color('PRISMOR IMMUNITY AGENT', _BOLD)}  scoped sessions")
+            print(f"  {_color('PRISMOR', _BOLD)}  scoped sessions")
             print(f"  {_color('─' * 50, _DIM)}")
             for s in sessions:
                 tools = ", ".join(s["rules"].get("allowed_tools", []))
@@ -1726,7 +1726,7 @@ def main(argv: Optional[List[str]] = None) -> None:
             if not pending:
                 print("No pending candidate rules.")
                 return
-            print(f"  {_color('PRISMOR IMMUNITY AGENT', _BOLD)}  candidate rules")
+            print(f"  {_color('PRISMOR', _BOLD)}  candidate rules")
             print(f"  {_color('─' * 50, _DIM)}")
             for c in pending:
                 rule = c["rule"]
@@ -1805,7 +1805,7 @@ def build_parser() -> argparse.ArgumentParser:
         # usage/error strings to it instead of leaking the module filename
         # (argparse otherwise shows "immunity_cli.py" in subcommand usage/errors).
         prog="immunity",
-        description="Prismor Immunity Agent — runtime security for AI coding agents.",
+        description="Prismor — runtime security for AI coding agents.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--workspace", help="Workspace path (applies to all commands)")
@@ -2318,7 +2318,7 @@ def _print_dashboard(days: int = 7) -> None:
 
     # ── Header ────────────────────────────────────────────────────────────
     print()
-    print(f"  {_color('PRISMOR IMMUNITY AGENT', _BOLD)}  all workspaces")
+    print(f"  {_color('PRISMOR', _BOLD)}  all workspaces")
     print(f"  {'─' * 50}")
     print()
 
@@ -2496,7 +2496,7 @@ def _print_status_overview(workspace: Path) -> None:
     ws_display = str(workspace).replace(home, "~")
 
     print()
-    print(f"  {_color('PRISMOR IMMUNITY AGENT', _BOLD)}  status")
+    print(f"  {_color('PRISMOR', _BOLD)}  status")
     print(f"  {_color('─' * 50, _DIM)}")
     print()
     print(f"  {_color('Workspace:', _GREEN)}   {ws_display}")
@@ -2672,7 +2672,7 @@ def _policy_test(workspace: Path, test_file: Optional[str] = None) -> None:
 
     result = run_cases(cases, workspace=workspace)
     print()
-    print(f"  {_color('PRISMOR IMMUNITY AGENT', _BOLD)}  policy tests ({path.name})")
+    print(f"  {_color('PRISMOR', _BOLD)}  policy tests ({path.name})")
     print(f"  {_color('─' * 50, _DIM)}")
     print()
 
@@ -2830,7 +2830,7 @@ def _policy_edit(workspace: Path) -> None:
 
         n_on = sum(1 for r in all_rules if r["on"])
         buf = "\033[H\033[J\033[?25l"  # home, clear, hide cursor
-        buf += f"\n  {_BOLD}PRISMOR IMMUNITY AGENT{_NC}  policy edit"
+        buf += f"\n  {_BOLD}PRISMOR{_NC}  policy edit"
         buf += f"   {_DIM}{n_on}/{len(all_rules)} enabled"
         if query:
             buf += f"  ·  filter {_CYAN}“{query}”{_NC}{_DIM} → {len(vis)}"
@@ -3012,7 +3012,7 @@ def format_sarif(
         "runs": [{
             "tool": {
                 "driver": {
-                    "name": "Prismor Immunity Agent",
+                    "name": "Prismor",
                     "version": __version__,
                     "informationUri": "https://github.com/PrismorSec/prismor",
                     "rules": sarif_rules,
@@ -3129,7 +3129,7 @@ def _redact_evidence(evidence: str) -> str:
 
 def format_sessions(payload: Dict[str, Any]) -> str:
     sessions = payload["sessions"]
-    lines = ["Prismor Immunity Agent Sessions", "======================"]
+    lines = ["Prismor Sessions", "======================"]
     if not sessions:
         lines.append("No sessions stored.")
         return "\n".join(lines)
@@ -3157,7 +3157,7 @@ def format_sessions(payload: Dict[str, Any]) -> str:
 
 def format_analysis(result: Dict[str, Any]) -> str:
     lines = [
-        "Prismor Immunity Agent Report",
+        "Prismor Report",
         "=====================",
         f"Events: {result['summary']['totalEvents']}",
         f"Findings: {result['summary']['totalFindings']}",

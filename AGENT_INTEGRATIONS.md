@@ -66,7 +66,7 @@ _Last updated: 2026-06-17._
 
 ### Hermes (NousResearch gateway)
 
-Immunity Agent integrates with Hermes at two complementary layers:
+Prismor integrates with Hermes at two complementary layers:
 
 **1. Runtime hooks** (for policy enforcement and session monitoring):
 - **Config:** `~/.hermes/config.json` — registers a JS plugin scaffolded at `warden/hermes-plugin/`.
