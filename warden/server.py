@@ -63,7 +63,7 @@ _SERVER_WORKSPACE: Optional[Path] = None
 
 
 class WardenRequestHandler(BaseHTTPRequestHandler):
-    """Minimal HTTP handler for the immunity dashboard API."""
+    """Minimal HTTP handler for the prismor dashboard API."""
 
     def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
         pass

@@ -243,11 +243,11 @@ def _config_path(agent: str, scope: str, workspace: Path) -> Path:
 
 
 def _dispatcher_command(*, repo_root: Path, workspace: Path, agent: str, mode: str) -> str:
-    # Route through the immunity CLI for consistency (one canonical entry point),
+    # Route through the prismor CLI for consistency (one canonical entry point),
     # invoked as a module with the current interpreter. Using `-m` + sys.executable
     # — rather than a raw path to warden/cli.py — keeps the hook working across
     # editable installs (no physical file to vanish) and avoids depending on the
-    # `immunity` console-script being on PATH inside the IDE's hook environment.
+    # `prismor` console-script being on PATH inside the IDE's hook environment.
     #
     # PYTHONPATH is prepended so the hook works regardless of how the IDE/agent
     # launcher configures the environment (Claude Code strips user site-packages).

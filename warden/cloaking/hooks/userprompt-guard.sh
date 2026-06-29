@@ -40,7 +40,7 @@ fi
 
 # ── Detection patterns ────────────────────────────────────────────────────
 # Loaded from the shared single-source-of-truth file (builtin_patterns.txt)
-# plus any org-specific patterns the user added via `immunity cloak pattern add`.
+# plus any org-specific patterns the user added via `prismor cloak pattern add`.
 prismor_load_patterns
 [[ "${#PATTERNS[@]}" -gt 0 ]] || exit 0
 

@@ -515,7 +515,7 @@ def do_install(target, mode, rules, agents, hooks=None):
         for agent in agents:
             def install(a=agent):
                 if not cli.exists():
-                    return False, "immunity entry point not found"
+                    return False, "prismor entry point not found"
                 r = subprocess.run([sys.executable, str(cli), "install-hooks",
                                     "--agent", a, "--workspace", str(target),
                                     "--scope", "project", "--mode", mode],
@@ -527,7 +527,7 @@ def do_install(target, mode, rules, agents, hooks=None):
     if hooks.get("cloak-core", True) and "claude" in agents:
         def install_cloak():
             if not cli.exists():
-                return False, "immunity entry point not found"
+                return False, "prismor entry point not found"
             if not shutil.which("jq"):
                 return False, "jq not found (brew install jq)"
             cmd = [sys.executable, str(cli), "cloak", "install",
@@ -550,10 +550,10 @@ def do_install(target, mode, rules, agents, hooks=None):
             "This workspace is protected by Prismor Immunity Agent — runtime "
             "security hooks that monitor tool calls in real time (destructive "
             "commands, secret leaks, supply-chain risk, prompt injection).\n\n"
-            "Run `immunity status` at the start of a session to check protection "
+            "Run `prismor status` at the start of a session to check protection "
             "state. The full decision tree lives in "
             "`.claude/skills/immunity-agent/SKILL.md`.\n\n"
-            "For more info: https://github.com/PrismorSec/immunity-agent\n"
+            "For more info: https://github.com/PrismorSec/prismor\n"
         )
         if md.exists():
             content = md.read_text()
@@ -600,19 +600,19 @@ def do_install(target, mode, rules, agents, hooks=None):
         return r.returncode == 0, "verified" if r.returncode == 0 else "failed"
     spinner_run("Verifying feed signature", verify)
 
-    # 6. Add immunity to PATH
+    # 6. Add prismor to PATH
     def add_to_path():
-        wrapper = PRISMOR_DIR / "scripts" / "immunity"
+        wrapper = PRISMOR_DIR / "scripts" / "prismor"
         if not wrapper.exists():
             return False, "wrapper script not found"
         # Symlink into /usr/local/bin if writable, else add to PATH in rc
         local_bin = Path("/usr/local/bin")
-        link = local_bin / "immunity"
+        link = local_bin / "prismor"
         if local_bin.exists() and os.access(str(local_bin), os.W_OK):
             if link.exists() or link.is_symlink():
                 link.unlink()
             link.symlink_to(wrapper)
-            return True, "linked to /usr/local/bin/immunity"
+            return True, "linked to /usr/local/bin/prismor"
         # Fallback: add scripts dir to PATH in shell rc
         export_line = f'export PATH="{PRISMOR_DIR}/scripts:$PATH"'
         shell = os.environ.get("SHELL", "/bin/zsh")
@@ -626,9 +626,9 @@ def do_install(target, mode, rules, agents, hooks=None):
             rc.write_text(content)
         if str(PRISMOR_DIR / "scripts") in content:
             return True, "already in " + rc.name
-        rc.write_text(content.rstrip() + f"\n\n# Prismor immunity\n{export_line}\n")
+        rc.write_text(content.rstrip() + f"\n\n# Prismor\n{export_line}\n")
         return True, f"PATH added to {rc.name}"
-    spinner_run("Adding immunity command", add_to_path)
+    spinner_run("Adding prismor command", add_to_path)
 
     # Done
     home = str(Path.home())
@@ -643,16 +643,16 @@ def do_install(target, mode, rules, agents, hooks=None):
     info("Hooks",      f"{n_hooks}/{len(HOOK_DEFS)} installed  (mode: {mode})")
     if "claude" in agents:
         info("Skill",  str(target / ".claude" / "skills" / "immunity-agent").replace(home, "~"))
-    info("Docs",       "https://github.com/PrismorSec/immunity-agent")
+    info("Docs",       "https://github.com/PrismorSec/prismor")
     info("Feed",       str(PRISMOR_DIR / "advisories/immunity-feed.json").replace(home, "~"))
     info("Config",     str(target / "CLAUDE.md").replace(home, "~"))
-    info("Command",    "immunity (restart shell if not found)")
+    info("Command",    "prismor (restart shell if not found)")
     print()
     print(w("  Quick commands:", GRN))
-    print(f"    immunity status                      {w('this workspace health check', DIM)}")
-    print(f"    immunity status --all                {w('overview across all workspaces', DIM)}")
-    print(f"    immunity sessions --findings-only     {w('all flagged sessions by risk', DIM)}")
-    print(f"    immunity check \"rm -rf /\"             {w('pre-check a command', DIM)}")
+    print(f"    prismor status                      {w('this workspace health check', DIM)}")
+    print(f"    prismor status --all                {w('overview across all workspaces', DIM)}")
+    print(f"    prismor sessions --findings-only     {w('all flagged sessions by risk', DIM)}")
+    print(f"    prismor check \"rm -rf /\"             {w('pre-check a command', DIM)}")
     print()
     sys.stdout.write(SHOW)
     sys.stdout.flush()
