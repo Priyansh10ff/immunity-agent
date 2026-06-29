@@ -1,6 +1,6 @@
 # Supply Chain Enforcement
 
-Immunity Agent wraps your package manager so every install is evaluated before it runs. The `prismor` CLI intercepts the command, scores each package against live threat intelligence, then either passes through to the real package manager or blocks with a reason.
+Prismor wraps your package manager so every install is evaluated before it runs. The `prismor` CLI intercepts the command, scores each package against live threat intelligence, then either passes through to the real package manager or blocks with a reason.
 
 ---
 

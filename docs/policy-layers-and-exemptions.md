@@ -1,6 +1,6 @@
 # Layered Policy & Admin-Granted Exemptions
 
-*How Immunity policy applies at global / project / repo levels, and how a
+*How Prismor policy applies at global / project / repo levels, and how a
 developer gets an exemption for a specific repo without being able to silently
 bypass security — with full telemetry visibility. Companion to the
 scoped-agent design ([docs/scoped-agent.md](scoped-agent.md)) and
