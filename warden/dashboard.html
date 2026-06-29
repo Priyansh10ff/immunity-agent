@@ -937,7 +937,7 @@
 <div id="page-sessions" class="page">
   <div class="section" style="margin-top:0">
     <h2>Live Sessions</h2><div class="rule"></div>
-    <span class="hint">pause immunity, clear scope, or unblock a stuck agent</span>
+    <span class="hint">pause Prismor, clear scope, or unblock a stuck agent</span>
   </div>
 
   <div id="enrollBannerSess"></div>
@@ -1123,7 +1123,7 @@
       <div class="banner-text" id="enterpriseBannerText">
         <strong>Not enrolled</strong>
         Enroll this device in a Prismor org to receive centrally-managed policies.
-        Run: <code>immunity enroll &lt;token&gt;</code>
+        Run: <code>prismor enroll &lt;token&gt;</code>
       </div>
     </div>
     <textarea id="enterprisePolicyEditor" class="yaml-editor" readonly spellcheck="false"
@@ -1367,12 +1367,12 @@ function renderDrawerContent(sessId, ws, data) {
   const footerEl = document.getElementById('sessDrawerFooter');
   if (paused) {
     footerEl.innerHTML =
-      '<button class="drawer-toggle resume" onclick="drawerAction(\'resume\')">▶ Resume immunity</button>' +
+      '<button class="drawer-toggle resume" onclick="drawerAction(\'resume\')">▶ Resume Prismor</button>' +
       '<button class="drawer-toggle clear"  onclick="drawerAction(\'clear\')">Clear scope</button>' +
       '<div class="drawer-status" id="drawerActionStatus"></div>';
   } else {
     footerEl.innerHTML =
-      '<button class="drawer-toggle pause" onclick="drawerAction(\'pause\')">⏸ Pause immunity</button>' +
+      '<button class="drawer-toggle pause" onclick="drawerAction(\'pause\')">⏸ Pause Prismor</button>' +
       '<button class="drawer-toggle clear" onclick="drawerAction(\'clear\')">Clear scope</button>' +
       '<div class="drawer-status" id="drawerActionStatus"></div>';
   }
@@ -2122,7 +2122,7 @@ function renderSessDetail(el, data, idx) {
     const allowed = (scoped.allowed_tools || []).map(t => '<span class="scoped-tag tag-allow">' + safe(t) + '</span>').join('');
     const denied = (scoped.deny_tools || []).map(t => '<span class="scoped-tag tag-deny">' + safe(t) + '</span>').join('');
     const net = scoped.deny_network ? '<span class="scoped-tag tag-deny">network denied</span>' : '<span class="scoped-tag tag-net">network allowed</span>';
-    const paused = scoped.paused ? '<span class="scoped-tag" style="background:#fef9c3;color:#92400e">⏸ immunity paused</span>' : '';
+    const paused = scoped.paused ? '<span class="scoped-tag" style="background:#fef9c3;color:#92400e">⏸ prismor paused</span>' : '';
     scopedHtml = '<div style="margin-bottom:8px">' +
       '<div style="font-size:10px;color:var(--gray-400);margin-bottom:4px">Scoped rules</div>' +
       paused +
@@ -2266,12 +2266,12 @@ function renderPolicyTab(data) {
   } else {
     enBanner.className = 'banner banner-warn';
     enText.innerHTML = '<strong>Not enrolled</strong>' +
-      'Enroll this device to receive centrally-managed org policies: <code>immunity enroll &lt;token&gt;</code>';
+      'Enroll this device to receive centrally-managed org policies: <code>prismor enroll &lt;token&gt;</code>';
   }
   document.getElementById('enterprisePolicyEditor').value = e.yaml || (
     enrolled
       ? '# Enrolled in org ' + ((data.enrollment||{}).org_id||'') + ' — no policy has been pushed to this device yet.\n# Your org admin can push a policy from prismor.dev/admin.'
-      : '# No enterprise policy — device is not enrolled.\n# Run: immunity enroll <token>'
+      : '# No enterprise policy — device is not enrolled.\n# Run: prismor enroll <token>'
   );
 
   // Effective (simple stacked view)
@@ -2282,7 +2282,7 @@ function renderPolicyTab(data) {
   ].filter(Boolean);
   document.getElementById('effectivePolicyEditor').value = layers.length
     ? layers.join('\n\n')
-    : '# No custom policies — built-in Warden defaults apply.\n# Run: immunity policy init   to create a project policy.';
+    : '# No custom policies — built-in Warden defaults apply.\n# Run: prismor policy init   to create a project policy.';
 
   const effectiveStatus = [];
   if (g.exists) effectiveStatus.push('global');

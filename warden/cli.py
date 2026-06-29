@@ -1801,7 +1801,7 @@ def main(argv: Optional[List[str]] = None) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        # `immunity` is the canonical entrypoint that forwards here, so anchor
+        # `prismor` is the canonical entrypoint that forwards here, so anchor
         # usage/error strings to it instead of leaking the module filename
         # (argparse otherwise shows "immunity_cli.py" in subcommand usage/errors).
         prog="immunity",

@@ -3,7 +3,7 @@
 `prismor supplychain harden [--dry-run]` scans the project root for package manager
 manifests, detects existing configs, and applies security hardening that
 shrinks the install-script attack surface and tightens version pinning to
-complement immunity's runtime age-gate checks.
+complement prismor's runtime age-gate checks.
 
 Supported targets:
   .npmrc               npm / pnpm / bun

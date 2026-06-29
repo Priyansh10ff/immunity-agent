@@ -12,7 +12,7 @@ Hermes Agent supports two plugin discovery mechanisms for Python plugins:
 
 1. **pip entry point** — when `prismor` is pip-installed, Hermes auto-discovers the `prismor-warden-cloak` plugin via the `hermes_agent.plugins` entry-point group defined in `pyproject.toml`. No filesystem setup needed.
 
-2. **Filesystem install** — `immunity cloak install --agent hermes` copies the plugin files to `~/.hermes/plugins/prismor-warden-cloak/` and enables it in Hermes' `config.yaml`.
+2. **Filesystem install** — `prismor cloak install --agent hermes` copies the plugin files to `~/.hermes/plugins/prismor-warden-cloak/` and enables it in Hermes' `config.yaml`.
 
 Both paths converge on the same `register()` function in `warden.cloaking.hermes_plugin_entry`.
 
@@ -25,24 +25,24 @@ Both paths converge on the same `register()` function in `warden.cloaking.hermes
 pip install prismor
 
 # Register your first secret
-immunity cloak add stripe_key
+prismor cloak add stripe_key
 ```
 
 ```bash
 # Option B: explicit filesystem install
 pip install prismor
-immunity cloak install --agent hermes --scope user
+prismor cloak install --agent hermes --scope user
 ```
 
 ```bash
 # Install for both Claude Code + Hermes in one command
-immunity cloak install --agent all
+prismor cloak install --agent all
 ```
 
 ### Verify
 
 ```bash
-immunity cloak status
+prismor cloak status
 ```
 
 Expected output:
@@ -63,8 +63,8 @@ Registered:     1 placeholder(s)
 ### Uninstall
 
 ```bash
-immunity cloak uninstall --agent hermes
-immunity cloak uninstall --agent all    # removes both
+prismor cloak uninstall --agent hermes
+prismor cloak uninstall --agent all    # removes both
 ```
 
 ---
@@ -176,11 +176,11 @@ hooks:
 ## Test Plan
 
 - [x] pip install → Hermes auto-discovers `prismor-warden-cloak` entry point
-- [x] `immunity cloak install --agent hermes` → filesystem install succeeds
-- [x] `immunity cloak status` → shows Hermes as `installed`
+- [x] `prismor cloak install --agent hermes` → filesystem install succeeds
+- [x] `prismor cloak status` → shows Hermes as `installed`
 - [x] `pre_gateway_dispatch` hook detects and auto-vaults pasted Stripe/OpenAI/AWS keys
 - [x] `pre_tool_call` hook substitutes `@@SECRET:stripe_key@@` → real value at exec time
 - [x] `transform_terminal_output` scrubs real values from tool output
 - [x] `!!allow ` prefix bypasses paste guard
-- [x] `immunity cloak uninstall --agent hermes` → clean removal
+- [x] `prismor cloak uninstall --agent hermes` → clean removal
 - [x] Agent sees `@@SECRET:auto_xxx@@` not the raw pasted secret

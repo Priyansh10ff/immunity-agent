@@ -1329,7 +1329,7 @@ def write_supply_chain_event(
     verdicts: list,
     recommendations: Optional[Dict[str, str]] = None,
 ) -> None:
-    """Record immunity CLI scoring results into the warden DB. Fail-open.
+    """Record prismor CLI scoring results into the warden DB. Fail-open.
 
     ``recommendations`` maps ``spec.raw`` → safe version string so the
     dashboard can show "blocked X, suggested Y" instead of just "blocked X".

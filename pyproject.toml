@@ -67,7 +67,7 @@ packages = ["warden", "supplychain"]
 "warden/cloaking/hermes-plugin/plugin.yaml" = "warden/data/cloaking/hermes-plugin/plugin.yaml"
 "warden/cloaking/hermes-plugin/__init__.py" = "warden/data/cloaking/hermes-plugin/__init__.py"
 # Bundle the immunity-agent Claude skill (SKILL.md + its docs/, minus the heavy
-# unreferenced demo.gif) so `immunity setup` can install it into a workspace's
+# unreferenced demo.gif) so `prismor setup` can install it into a workspace's
 # .claude/skills/ directory. Files are listed explicitly — a `docs/` directory
 # mapping would drag in demo.gif (force-include ignores wheel `exclude`).
 "SKILL.md" = "warden/data/SKILL.md"

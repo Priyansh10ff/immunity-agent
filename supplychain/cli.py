@@ -1,4 +1,4 @@
-"""Supply-chain enforcement layer for the unified ``immunity`` CLI.
+"""Supply-chain enforcement layer for the unified ``prismor`` CLI.
 
 Reachable as:
 
@@ -202,7 +202,7 @@ def _exec(argv: List[str]) -> None:
         if "externally-managed-environment" in probe.stderr:
             packages = " ".join(a for a in argv[2:] if not a.startswith("-"))
             sys.stderr.write(
-                f"immunity: pip is externally managed on this system (PEP 668).\n"
+                f"prismor: pip is externally managed on this system (PEP 668).\n"
                 f"  Use a virtual environment:\n"
                 f"    python3 -m venv .venv && .venv/bin/pip install {packages}\n"
                 f"  Or install system-wide (not recommended):\n"
@@ -229,7 +229,7 @@ def _record_to_store(event, verdicts, recommendations=None) -> None:
         }
         write_supply_chain_event(
             workspace=workspace,
-            session_id=f"immunity-{uuid.uuid4().hex[:16]}",
+            session_id=f"prismor-{uuid.uuid4().hex[:16]}",
             ts=datetime.now(timezone.utc).isoformat(),
             ecosystem=event.ecosystem,
             install_cmd=" ".join(sys.argv[1:]),

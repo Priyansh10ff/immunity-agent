@@ -15,7 +15,7 @@ Supported sink types (configured under ``settings.outputs`` in policy.yaml):
       format: json     # or: cef
     - type: prismor              # first-party control-plane sink
       # No config needed — the device key + endpoint come from the enrolled
-      # identity at ~/.prismor/identity.json (see `immunity enroll`). Sends a
+      # identity at ~/.prismor/identity.json (see `prismor enroll`). Sends a
       # *redacted* telemetry record by default; full content only when the
       # org's resolved policy sets full_capture: true.
 
@@ -175,7 +175,7 @@ def _dispatch_prismor(
     to prismor-web using the enrolled device key.
 
     No-op (silent) when the machine is not enrolled — the sink can be left on
-    in default policy without effect until `immunity enroll` runs.
+    in default policy without effect until `prismor enroll` runs.
     """
     import urllib.request
     import urllib.error
@@ -280,7 +280,7 @@ def upload_telemetry(
             _identity.mark_revoked(f"telemetry upload rejected ({exc.code})")
             sys.stderr.write(
                 "[warden] control plane rejected this device's key "
-                f"({exc.code}) — telemetry paused. Re-enroll with: immunity enroll <token>\n"
+                f"({exc.code}) — telemetry paused. Re-enroll with: prismor enroll <token>\n"
             )
             return
         _spool.append(batch)

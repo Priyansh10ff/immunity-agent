@@ -34,46 +34,46 @@ Requires Python ≥ 3.8 and PyYAML (installed automatically).
 **Install Warden hooks into your project** (enforces policy on every agent tool call):
 
 ```bash
-immunity install-hooks --agent claude --workspace . --mode observe
+prismor install-hooks --agent claude --workspace . --mode observe
 ```
 
 Start in `observe` mode to log would-be blocks without interrupting the agent. Switch to `enforce` when ready:
 
 ```bash
-immunity install-hooks --agent claude --workspace . --mode enforce
+prismor install-hooks --agent claude --workspace . --mode enforce
 ```
 
 **Wrap your package manager** to score installs before they run:
 
 ```bash
-immunity supplychain npm install express
-immunity supplychain pip install requests
-immunity supplychain cargo add serde
+prismor supplychain npm install express
+prismor supplychain pip install requests
+prismor supplychain cargo add serde
 ```
 
 **Check a command against policy** before running it:
 
 ```bash
-immunity check "rm -rf /"
+prismor check "rm -rf /"
 # BLOCK  destructive_command  CRITICAL
 ```
 
 **Audit your workspace** security posture:
 
 ```bash
-immunity audit
+prismor audit
 ```
 
 **Scan AI tool configs** for leaked secrets:
 
 ```bash
-immunity sweep
+prismor sweep
 ```
 
 **Launch the self-hosted dashboard** (reads from local SQLite, no cloud):
 
 ```bash
-immunity dashboard   # opens http://127.0.0.1:7070 in your browser
+prismor dashboard   # opens http://127.0.0.1:7070 in your browser
 ```
 
 ---
@@ -101,10 +101,10 @@ Rules are defined in YAML and fully customizable per-project.
 
 ## Supply chain enforcement
 
-The `immunity` CLI wraps your package manager and evaluates every install against live threat intelligence before it runs. Packages are scored on age, maintainer count, install scripts, and known IOCs. Ships with IOC coverage for recent attacks including the **AntV hijacked-maintainer attack** (May 2026) and the **mini-shai-hulud** campaign (May 2026).
+The `prismor` CLI wraps your package manager and evaluates every install against live threat intelligence before it runs. Packages are scored on age, maintainer count, install scripts, and known IOCs. Ships with IOC coverage for recent attacks including the **AntV hijacked-maintainer attack** (May 2026) and the **mini-shai-hulud** campaign (May 2026).
 
 ```
-immunity supplychain npm install @tanstack/react-router
+prismor supplychain npm install @tanstack/react-router
   BLOCK  score 100  @tanstack/react-router
          42 @tanstack/* packages compromised via CI/CD cache poisoning
 ```
@@ -118,7 +118,7 @@ Verdicts: `< 30` allow · `30–59` warn · `≥ 60` block. IOC matches always b
 Register a secret under a placeholder name:
 
 ```bash
-immunity cloak add stripe_key
+prismor cloak add stripe_key
 # prompts for the value — never stored in shell history
 ```
 
