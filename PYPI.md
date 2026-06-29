@@ -20,7 +20,7 @@ Supports Claude Code, Cursor, Windsurf, and more.
 ## Install
 
 ```bash
-pip install immunity-agent
+pip install prismor
 ```
 
 Requires Python ≥ 3.8 and PyYAML (installed automatically).
@@ -141,6 +141,6 @@ The pre-tool-use hook substitutes the real value at execution time. The post-too
 
 ## Links
 
-- **Repository**: https://github.com/PrismorSec/immunity-agent
+- **Repository**: https://github.com/PrismorSec/prismor
 - **Docs**: https://docs.prismor.dev
 - **Dashboard**: https://prismor.dev

@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "immunity-agent"
+name = "prismor"
 dynamic = ["version"]
 description = "Runtime security for AI coding agents: policy enforcement, secret prevention, and supply-chain blocking."
 readme = "PYPI.md"
@@ -38,11 +38,12 @@ dev = ["build", "pytest"]
 
 [project.urls]
 Homepage = "https://prismor.dev"
-Repository = "https://github.com/PrismorSec/immunity-agent"
+Repository = "https://github.com/PrismorSec/prismor"
 Documentation = "https://docs.prismor.dev"
 
 [project.scripts]
-immunity = "warden.immunity_cli:main"
+prismor = "warden.immunity_cli:main"
+immunity = "warden.immunity_cli:main"   # deprecated alias — prints a notice; removed in a future release
 warden = "warden.immunity_cli:_warden_shim"
 
 # Hermes Agent plugin auto-discovery entry point

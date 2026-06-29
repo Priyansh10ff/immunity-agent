@@ -10,7 +10,7 @@ Immunity Agent's secret cloaking layer is available for [Hermes Agent](https://h
 
 Hermes Agent supports two plugin discovery mechanisms for Python plugins:
 
-1. **pip entry point** — when `immunity-agent` is pip-installed, Hermes auto-discovers the `prismor-warden-cloak` plugin via the `hermes_agent.plugins` entry-point group defined in `pyproject.toml`. No filesystem setup needed.
+1. **pip entry point** — when `prismor` is pip-installed, Hermes auto-discovers the `prismor-warden-cloak` plugin via the `hermes_agent.plugins` entry-point group defined in `pyproject.toml`. No filesystem setup needed.
 
 2. **Filesystem install** — `immunity cloak install --agent hermes` copies the plugin files to `~/.hermes/plugins/prismor-warden-cloak/` and enables it in Hermes' `config.yaml`.
 
@@ -22,7 +22,7 @@ Both paths converge on the same `register()` function in `warden.cloaking.hermes
 
 ```bash
 # Option A: pip install + auto-discovery (recommended)
-pip install immunity-agent
+pip install prismor
 
 # Register your first secret
 immunity cloak add stripe_key
@@ -30,7 +30,7 @@ immunity cloak add stripe_key
 
 ```bash
 # Option B: explicit filesystem install
-pip install immunity-agent
+pip install prismor
 immunity cloak install --agent hermes --scope user
 ```
 
@@ -123,7 +123,7 @@ The flow is fully automatic — you mostly do nothing:
 Hermes discovers the plugin via two mechanisms:
 
 ```
-pip install immunity-agent
+pip install prismor
         │
         ▼
   Hermes auto-discovers

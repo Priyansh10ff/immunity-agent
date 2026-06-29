@@ -3,7 +3,7 @@
 <h3 align="center">Runtime security hooks for Claude Code, Cursor, and other AI coding agents.<br>Blocks dangerous commands, prevents secret leaks, and stops prompt injection in real time.</h3>
 
 <p align="center">
-  <a href="https://pypi.org/project/immunity-agent/"><img src="https://img.shields.io/pypi/v/immunity-agent" alt="PyPI"/></a>
+  <a href="https://pypi.org/project/prismor/"><img src="https://img.shields.io/pypi/v/prismor" alt="PyPI"/></a>
   <a href="https://github.com/PrismorSec/prismor/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License" /></a>
   <a href="https://github.com/PrismorSec/prismor"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg" alt="PRs Welcome" /></a>
   <a href="https://x.com/prismor_dev"><img src="https://img.shields.io/badge/@prismor__dev-black?logo=x&logoColor=white" alt="X" /></a>
@@ -89,7 +89,7 @@ Read `SKILL.md` and follow its instructions for runtime security.
 Or via raw URL (works in any agent config file: CLAUDE.md, AGENTS.md, .cursorrules, .windsurfrules):
 
 ```markdown
-Read `https://raw.githubusercontent.com/PrismorSec/immunity-agent/main/SKILL.md` and follow its instructions.
+Read `https://raw.githubusercontent.com/PrismorSec/prismor/main/SKILL.md` and follow its instructions.
 ```
 
 See [`SKILL.md`](SKILL.md) for the full decision tree and hard rules.
@@ -97,7 +97,7 @@ See [`SKILL.md`](SKILL.md) for the full decision tree and hard rules.
 **Option C: pip:**
 
 ```bash
-pip install immunity-agent
+pip install prismor
 immunity setup          # interactive 4-step onboarding wizard
 ```
 
@@ -107,7 +107,7 @@ immunity setup          # interactive 4-step onboarding wizard
 
 ```bash
 pip3 install pyyaml                          # required dependency
-git clone https://github.com/PrismorSec/immunity-agent.git ~/.prismor
+git clone https://github.com/PrismorSec/prismor.git ~/.prismor
 PRISMOR_MODE=enforce PRISMOR_CLOAK=1 bash ~/.prismor/scripts/init.sh .
 ```
 
@@ -345,11 +345,11 @@ PRs are welcome. Guidelines:
 
 ## Star History
 
-<a href="https://www.star-history.com/?repos=PrismorSec%2Fimmunity-agent&type=date&legend=top-left">
+<a href="https://www.star-history.com/?repos=PrismorSec%2Fprismor&type=date&legend=top-left">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=PrismorSec/immunity-agent&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=PrismorSec/immunity-agent&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=PrismorSec/immunity-agent&type=date&legend=top-left" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=PrismorSec/prismor&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=PrismorSec/prismor&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=PrismorSec/prismor&type=date&legend=top-left" />
  </picture>
 </a>
 

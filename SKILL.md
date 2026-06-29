@@ -65,7 +65,7 @@ If `immunity` is not on PATH, the workspace has never been set up. Go to [Setup]
 Preferred path (works for any of 55+ agents):
 
 ```bash
-pip install immunity-agent
+pip install prismor
 immunity setup            # interactive 4-step TUI
 ```
 
@@ -76,7 +76,7 @@ that's where this file came from if you're reading it locally.
 Non-interactive / CI / piped:
 
 ```bash
-pip install immunity-agent
+pip install prismor
 immunity install-hooks --agent claude --mode observe --workspace .
 # switch to enforce when the user is ready:
 immunity install-hooks --agent claude --mode enforce --workspace .

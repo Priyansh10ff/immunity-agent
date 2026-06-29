@@ -157,13 +157,13 @@ def main(argv: Optional[List[str]] = None) -> None:
         from warden.server import run_server
         if args.command == "serve":
             sys.stderr.write(
-                "Note: 'immunity serve' is a deprecated alias — use 'immunity dashboard --no-open'.\n"
+                "Note: 'prismor serve' is a deprecated alias — use 'prismor dashboard --no-open'.\n"
             )
         registered = list_registered_workspaces()
         if not registered:
             sys.stderr.write(
                 "[warden] Warning: no registered workspaces found.\n"
-                "         Run 'immunity install-hooks' in a project first to collect data.\n"
+                "         Run 'prismor install-hooks' in a project first to collect data.\n"
             )
         # dashboard opens a browser by default; serve stays headless. --no-open
         # forces headless for dashboard too.
@@ -173,7 +173,7 @@ def main(argv: Optional[List[str]] = None) -> None:
 
     # ── info: deprecated alias of status ────────────────────────────────
     if args.command == "info":
-        sys.stderr.write("Note: 'immunity info' is a deprecated alias — use 'immunity status'.\n")
+        sys.stderr.write("Note: 'prismor info' is a deprecated alias — use 'prismor status'.\n")
         _print_status_overview(workspace)
         return
 
@@ -185,7 +185,7 @@ def main(argv: Optional[List[str]] = None) -> None:
             sys.stderr.write(
                 "error: enrollment token required\n"
                 "  Generate one in the Prismor dashboard (Admin → Devices → Enroll)\n"
-                "  then run:  immunity enroll <token>\n"
+                "  then run:  prismor enroll <token>\n"
             )
             raise SystemExit(1)
         try:
@@ -213,14 +213,14 @@ def main(argv: Optional[List[str]] = None) -> None:
         from warden.enterprise import identity as _identity
         ident = _identity.load_identity()
         if not ident:
-            print("Not enrolled. Run `immunity enroll <token>` to link this machine to an org.")
+            print("Not enrolled. Run `prismor enroll <token>` to link this machine to an org.")
             return
         revoked = _identity.revoked_info()
         if revoked:
             print("Enrolled — but the control plane REJECTED this device's key")
             print(f"  reason:     {revoked.get('reason') or 'rejected (401/403)'}")
             print("  This device was likely revoked by an org admin. Local protection")
-            print("  still applies (last good policy). Re-link with: immunity enroll <token>")
+            print("  still applies (last good policy). Re-link with: prismor enroll <token>")
         else:
             print("Enrolled")
         print(f"  org:        {ident.get('org_name') or ident.get('org_id')}")
@@ -297,12 +297,12 @@ def main(argv: Optional[List[str]] = None) -> None:
             print(f"  org:        {ident.get('org_name') or ident.get('org_id')}")
             print("  → Org policy applies and redacted telemetry is reported to your org.")
             if reason in ("default_all", "opt_in"):
-                print("  → Personal repo? Run `immunity scope personal` to keep it local-only.")
+                print("  → Personal repo? Run `prismor scope personal` to keep it local-only.")
         else:
             why = {"opt_out": "you marked it personal", "personal": "not an org-claimed repo"}.get(reason, reason)
             print(f"  scope:      personal / local-only — {why}")
             print("  → Local protection is active, but NOTHING is reported to your org")
-            print("    and no org policy applies. Use `immunity scope managed` to opt in.")
+            print("    and no org policy applies. Use `prismor scope managed` to opt in.")
         pats = _scope.org_managed_patterns()
         if pats:
             print(f"  org claims: {', '.join(pats)}")
@@ -313,7 +313,7 @@ def main(argv: Optional[List[str]] = None) -> None:
         from warden.enterprise import identity as _identity, workspace_scope as _scope
         ident = _identity.load_identity()
         if not ident:
-            print("This machine is not enrolled. Run `immunity enroll <token>` first.")
+            print("This machine is not enrolled. Run `prismor enroll <token>` first.")
             return
         remote = _scope.detect_git_remote(workspace)
         if not remote:
@@ -321,7 +321,7 @@ def main(argv: Optional[List[str]] = None) -> None:
             return
         reason = getattr(args, "reason", None)
         if not reason:
-            print("A reason is required: immunity exempt request --reason \"why this repo needs it\"")
+            print("A reason is required: prismor exempt request --reason \"why this repo needs it\"")
             return
         import json as _json, urllib.request, urllib.error
         base = str(ident.get("api_base") or _identity.api_base()).rstrip("/")
@@ -686,7 +686,7 @@ def main(argv: Optional[List[str]] = None) -> None:
             print(f"  {issues} issue(s): {', '.join(parts)}  |  {_color(f'{passed} passed', _GREEN)}")
 
             if fixable > 0:
-                print(f"  {_color(f'{fixable} issue(s) can be auto-fixed', _CYAN)} — run {_color('immunity audit --fix', _BOLD)}")
+                print(f"  {_color(f'{fixable} issue(s) can be auto-fixed', _CYAN)} — run {_color('prismor audit --fix', _BOLD)}")
 
         print()
 
@@ -699,7 +699,7 @@ def main(argv: Optional[List[str]] = None) -> None:
                 print(f"    {_color('FIXED', _GREEN)}  {action}")
             if actions:
                 print()
-                print(f"  {_color(f'{len(actions)} fix(es) applied.', _GREEN)} Run {_color('immunity audit', _BOLD)} again to verify.")
+                print(f"  {_color(f'{len(actions)} fix(es) applied.', _GREEN)} Run {_color('prismor audit', _BOLD)} again to verify.")
             else:
                 print(f"    {_color('No fixes were applied.', _DIM)}")
             print()
@@ -1124,7 +1124,7 @@ def main(argv: Optional[List[str]] = None) -> None:
                     pieces = pieces[1:]
                 cmd = " ".join(pieces)
             if not cmd:
-                sys.stderr.write("error: command required (use `immunity sandbox run -- <cmd>`)\n")
+                sys.stderr.write("error: command required (use `prismor sandbox run -- <cmd>`)\n")
                 raise SystemExit(1)
             if getattr(args, "mode", None):
                 cfg["mode"] = args.mode
@@ -1185,7 +1185,7 @@ def main(argv: Optional[List[str]] = None) -> None:
             print(f"\n  {_color('PRISMOR IMMUNITY AGENT', _BOLD)}  agent identities\n")
             if not agent_ids:
                 print(f"  {_color('No agents defined.', _DIM)}")
-                print(f"  Run: immunity iam init\n")
+                print(f"  Run: prismor iam init\n")
                 return
             for aid in agent_ids:
                 marker = _color(" ← active", _GREEN) if aid == active else ""
@@ -1379,7 +1379,7 @@ def main(argv: Optional[List[str]] = None) -> None:
             print(f"Secrets directory: {_sdir}")
             print()
             print("Next step: register your first secret with")
-            print(f"  {_color('immunity cloak add <name>', _CYAN)}  (reads the value from stdin)")
+            print(f"  {_color('prismor cloak add <name>', _CYAN)}  (reads the value from stdin)")
             return
 
         if sub == "uninstall":
@@ -1524,11 +1524,11 @@ def main(argv: Optional[List[str]] = None) -> None:
                 for p in custom:
                     print(f"  {_color('•', _CYAN)} {p}")
             else:
-                print(f"  {_color('none — add with: immunity cloak pattern add <regex>', _DIM)}")
+                print(f"  {_color('none — add with: prismor cloak pattern add <regex>', _DIM)}")
             print()
             return
 
-        raise SystemExit("Usage: immunity cloak {install|uninstall|add|list|remove|status|pattern}")
+        raise SystemExit("Usage: prismor cloak {install|uninstall|add|list|remove|status|pattern}")
 
     # ── canary subcommands ─────────────────────────────────────────────
     if args.command == "canary":
@@ -1560,7 +1560,7 @@ def main(argv: Optional[List[str]] = None) -> None:
         if sub == "list" or sub is None:
             entries = canary_mod.list_canaries()
             if not entries:
-                print("No canaries planted. Try:  immunity canary plant ~/.aws/credentials.canary --type aws")
+                print("No canaries planted. Try:  prismor canary plant ~/.aws/credentials.canary --type aws")
                 return
             print(f"  {_color('PRISMOR IMMUNITY AGENT', _BOLD)}  canaries")
             print(f"  {_color('─' * 50, _DIM)}")
@@ -1609,7 +1609,7 @@ def main(argv: Optional[List[str]] = None) -> None:
         # No action given → print usage instead of the cryptic
         # "Unsupported command: policy" (the command IS supported; it needs an action).
         sys.stderr.write(
-            "Usage: immunity policy {init|validate|show|edit|test}\n"
+            "Usage: prismor policy {init|validate|show|edit|test}\n"
             "  init      Write a starter .prismor-warden/policy.yaml\n"
             "  validate  Check a policy file against the schema + floor\n"
             "  show      Print the effective policy for this workspace\n"
@@ -1640,7 +1640,7 @@ def main(argv: Optional[List[str]] = None) -> None:
                 if not sessions:
                     print("No active scoped sessions.")
                     return
-                print("Showing all scoped sessions — pass an id for full rules: immunity scope show <session-id>")
+                print("Showing all scoped sessions — pass an id for full rules: prismor scope show <session-id>")
                 for s in sessions:
                     tools = ", ".join(s["rules"].get("allowed_tools", []))
                     print(f"  {s['session_id']}  tools: [{tools}]")
@@ -1675,7 +1675,7 @@ def main(argv: Optional[List[str]] = None) -> None:
             return
         # No action → print usage instead of dumping every session's full box.
         sys.stderr.write(
-            "Usage: immunity scope {list|show|edit|clear} [session-id]\n"
+            "Usage: prismor scope {list|show|edit|clear} [session-id]\n"
             "  list             List active scoped sessions (compact)\n"
             "  show [session]   Show rules — compact for all, full for one session\n"
             "  edit <session>   Edit a session's scoped rules in $EDITOR\n"
@@ -1735,7 +1735,7 @@ def main(argv: Optional[List[str]] = None) -> None:
                 if c.get("sample_evidence"):
                     print(f"       Sample: {c['sample_evidence'][:100]}")
                 print()
-            print(f"Use {_color('immunity learn --apply ID', _BOLD)} to accept a rule.")
+            print(f"Use {_color('prismor learn --apply ID', _BOLD)} to accept a rule.")
             return
 
         # Run full learning analysis
@@ -1773,16 +1773,16 @@ def main(argv: Optional[List[str]] = None) -> None:
             ) as resp:
                 latest = json.loads(resp.read())["info"]["version"]
         except (urllib.error.URLError, KeyError, OSError) as exc:
-            sys.stderr.write(f"immunity update: could not reach PyPI — {exc}\n")
+            sys.stderr.write(f"prismor update: could not reach PyPI — {exc}\n")
             raise SystemExit(1)
 
         if latest == _current:
-            print(f"immunity {_current} is already the latest version.")
+            print(f"prismor {_current} is already the latest version.")
             return
 
         print(f"Update available: {_current} → {latest}")
         if check_only:
-            print("Run 'immunity update' (without --check) to install.")
+            print("Run 'prismor update' (without --check) to install.")
             return
 
         result = subprocess.run(
@@ -2356,7 +2356,7 @@ def _print_dashboard(days: int = 7) -> None:
 
     if not workspaces:
         print(f"  {_color('No registered workspaces found.', _DIM)}")
-        print(f"  Run {_color('immunity install-hooks --agent all --mode enforce', _CYAN)} in a project to register it.")
+        print(f"  Run {_color('prismor install-hooks --agent all --mode enforce', _CYAN)} in a project to register it.")
         print()
         return
 
@@ -2487,7 +2487,7 @@ def _print_status(session: Dict[str, Any]) -> None:
 def _print_status_overview(workspace: Path) -> None:
     """One-shot health check: mode, hooks, cloak, latest session.
 
-    Designed so an agent (or a human) can run `immunity status` once at
+    Designed so an agent (or a human) can run `prismor status` once at
     session start instead of stitching together `info` + `cloak status` +
     the prior session-only `status`. Output is intentionally compact and
     ends with the single next action that matters.
@@ -2565,12 +2565,12 @@ def _print_status_overview(workspace: Path) -> None:
     # Next-step nudge — one action, picked by current state
     print()
     if not agents_with_hooks:
-        print(f"  {_color('Next:', _CYAN)} immunity install-hooks --agent claude --mode observe")
+        print(f"  {_color('Next:', _CYAN)} prismor install-hooks --agent claude --mode observe")
     elif mode == "observe":
         print(f"  {_color('Tip:', _DIM)}  observe mode logs only. Switch with:")
-        print(f"        immunity install-hooks --agent all --mode enforce")
+        print(f"        prismor install-hooks --agent all --mode enforce")
     elif sessions and sessions[0].get("findingsCount", 0) > 0:
-        print(f"  {_color('Next:', _CYAN)} immunity sessions --findings-only")
+        print(f"  {_color('Next:', _CYAN)} prismor sessions --findings-only")
     else:
         print(f"  {_color('OK:', _GREEN)}   workspace is clean")
     print()
@@ -2618,7 +2618,7 @@ allowlists:
 settings:
   # Optional Docker-backed sandbox for Claude Bash tool calls. Warden still
   # evaluates the original command first; allowed commands are rewritten to
-  # `immunity sandbox run`.
+  # `prismor sandbox run`.
   # sandbox:
   #   enabled: true
   #   mode: enforce
@@ -2940,7 +2940,7 @@ def _policy_edit(workspace: Path) -> None:
             policy_file.write_text('version: "1.0"\n\nrules: []\n\nallowlists: []\n')
         print(f"  {_color('✓', _GREEN)} All rules enabled (using defaults)")
 
-    print(f"\n  Run {_color('immunity policy show', _CYAN)} to verify.")
+    print(f"\n  Run {_color('prismor policy show', _CYAN)} to verify.")
 
 
 # ── SARIF output ────────────────────────────────────────────────────────

@@ -553,7 +553,7 @@ def do_install(target, mode, rules, agents, hooks=None):
             "Run `immunity status` at the start of a session to check protection "
             "state. The full decision tree lives in "
             "`.claude/skills/immunity-agent/SKILL.md`.\n\n"
-            "For more info: https://github.com/PrismorSec/immunity-agent\n"
+            "For more info: https://github.com/PrismorSec/prismor\n"
         )
         if md.exists():
             content = md.read_text()
@@ -643,7 +643,7 @@ def do_install(target, mode, rules, agents, hooks=None):
     info("Hooks",      f"{n_hooks}/{len(HOOK_DEFS)} installed  (mode: {mode})")
     if "claude" in agents:
         info("Skill",  str(target / ".claude" / "skills" / "immunity-agent").replace(home, "~"))
-    info("Docs",       "https://github.com/PrismorSec/immunity-agent")
+    info("Docs",       "https://github.com/PrismorSec/prismor")
     info("Feed",       str(PRISMOR_DIR / "advisories/immunity-feed.json").replace(home, "~"))
     info("Config",     str(target / "CLAUDE.md").replace(home, "~"))
     info("Command",    "immunity (restart shell if not found)")
