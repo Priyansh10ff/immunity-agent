@@ -1,10 +1,73 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import sqlite3
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+
+# ── Re-cloaking: never persist a raw secret value to the audit store ─────────
+#
+# A decloak hook substitutes the real secret into a command for execution. The
+# PostToolUse event therefore carries the resolved command (and possibly the
+# command's stdout/stderr). Storing that verbatim would leak the secret into the
+# session log and SQLite store — defeating the whole cloaking guarantee. We scrub
+# every registered secret value back to its @@SECRET:name@@ placeholder at the
+# single persistence choke point, so no event can ever land a raw value on disk.
+
+def _secrets_dir() -> Path:
+    env = os.environ.get("PRISMOR_SECRETS_DIR")
+    if env:
+        return Path(env)
+    return Path.home() / ".prismor" / "secrets"
+
+
+def _load_secret_map() -> List[tuple[str, str]]:
+    """Return [(real_value, placeholder), …], longest value first so that a
+    value which is a substring of another is replaced after the longer one.
+    Only values of length >= 8 are considered, to avoid over-eager replacement
+    of short, low-entropy strings."""
+    sdir = _secrets_dir()
+    if not sdir.is_dir():
+        return []
+    pairs: List[tuple[str, str]] = []
+    for f in sdir.iterdir():
+        if not f.is_file():
+            continue
+        try:
+            value = f.read_text(encoding="utf-8").strip()
+        except (OSError, UnicodeDecodeError):
+            continue
+        if len(value) >= 8:
+            pairs.append((value, f"@@SECRET:{f.name}@@"))
+    pairs.sort(key=lambda p: len(p[0]), reverse=True)
+    return pairs
+
+
+def _recloak_event(event: Dict[str, Any]) -> Dict[str, Any]:
+    """Replace any raw secret value with its placeholder across all string
+    fields of an event (recursively). Returns a scrubbed copy; the input is not
+    mutated. A no-op when the vault is empty or no value appears in the event."""
+    secret_map = _load_secret_map()
+    if not secret_map:
+        return event
+
+    def scrub(obj: Any) -> Any:
+        if isinstance(obj, str):
+            s = obj
+            for real, placeholder in secret_map:
+                if real in s:
+                    s = s.replace(real, placeholder)
+            return s
+        if isinstance(obj, list):
+            return [scrub(x) for x in obj]
+        if isinstance(obj, dict):
+            return {k: scrub(v) for k, v in obj.items()}
+        return obj
+
+    return scrub(event)
 
 
 # ── Global workspace registry ────────────────────────────────────────────────
@@ -82,6 +145,7 @@ def session_log_path(workspace: Path, session_id: str) -> Path:
 
 def append_session_event(workspace: Path, session_id: str, event: Dict[str, Any]) -> Path:
     ensure_data_dirs(workspace)
+    event = _recloak_event(event)
     log_path = session_log_path(workspace, session_id)
     with log_path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(event))
@@ -235,6 +299,9 @@ def save_session_snapshot(
     analysis: Dict[str, Any],
 ) -> Path:
     db_path = initialize_database(workspace)
+    # Defense in depth: ensure no raw secret value reaches the SQLite store,
+    # even if a caller passes events that did not pass through append_session_event.
+    events = [_recloak_event(e) for e in events]
     timestamps = sorted(event.get("ts") for event in events if event.get("ts"))
     started_at = timestamps[0] if timestamps else None
     updated_at = timestamps[-1] if timestamps else None
@@ -1701,6 +1768,89 @@ def write_policy_layer(scope: str, content: str, workspace: Optional[Path] = Non
         return {"ok": True, "path": str(path)}
     except Exception as exc:
         return {"ok": False, "error": str(exc)}
+
+
+def get_policy_rule_catalog(workspace: Optional[Path] = None) -> List[Dict[str, Any]]:
+    """Return every rule from the bundled default policy with its current
+    enabled state — the data behind the dashboard's per-rule toggle list.
+    A rule is "off" when the project override lists it with enabled: false.
+    """
+    from warden.policy_engine import _load_yaml
+
+    disabled: set = set()
+    if workspace:
+        ppath = _project_policy_path(workspace)
+        if ppath.exists():
+            try:
+                pdata = _load_yaml(ppath) or {}
+                for r in pdata.get("rules", []):
+                    if isinstance(r, dict) and not r.get("enabled", True):
+                        disabled.add(r.get("id"))
+            except Exception:
+                pass
+
+    default_path = Path(__file__).resolve().parent / "default_policy.yaml"
+    rules: List[Dict[str, Any]] = []
+    try:
+        data = _load_yaml(default_path) or {}
+        for r in data.get("rules", []):
+            rid = r.get("id")
+            if not rid:
+                continue
+            rules.append({
+                "id": rid,
+                "severity": r.get("severity", "MEDIUM"),
+                "category": r.get("category", ""),
+                "title": r.get("title", rid),
+                "action": r.get("action", ""),
+                "enabled": rid not in disabled,
+            })
+    except Exception:
+        pass
+    return rules
+
+
+def set_project_rule_states(workspace: Path, disabled_ids: List[str]) -> Dict[str, Any]:
+    """Persist per-rule enable/disable to the project policy, preserving any
+    other settings (mode, allowlists) already in the file. ``disabled_ids`` is
+    the list of rule ids to turn off; everything else stays enabled."""
+    if not workspace:
+        return {"ok": False, "error": "workspace required"}
+    from warden.policy_engine import _load_yaml
+
+    ppath = _project_policy_path(workspace)
+    data: Dict[str, Any] = {}
+    if ppath.exists():
+        try:
+            loaded = _load_yaml(ppath)
+            if isinstance(loaded, dict):
+                data = loaded
+        except Exception:
+            data = {}
+
+    data.setdefault("version", "1.0")
+    seen: List[str] = []
+    rules_block: List[Dict[str, Any]] = []
+    for rid in disabled_ids or []:
+        if rid and rid not in seen:
+            seen.append(rid)
+            rules_block.append({"id": rid, "enabled": False})
+    data["rules"] = rules_block
+
+    try:
+        import yaml
+        content = yaml.safe_dump(data, sort_keys=False, default_flow_style=False)
+    except Exception:
+        lines = [f'version: "{data.get("version", "1.0")}"', "", "rules:"]
+        if rules_block:
+            for r in rules_block:
+                lines.append(f"  - id: {r['id']}")
+                lines.append("    enabled: false")
+        else:
+            lines[-1] = "rules: []"
+        content = "\n".join(lines) + "\n"
+
+    return write_policy_layer("project", content, workspace)
 
 
 def get_session_scoped_detail(workspace: Path, session_id: str) -> Dict[str, Any]:

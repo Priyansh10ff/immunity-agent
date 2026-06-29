@@ -1375,7 +1375,8 @@ def main(argv: Optional[List[str]] = None) -> None:
                 print(f"Installed Hermes Agent cloaking plugin at {h_result['pluginDir']}")
                 for label in h_result["hooksInstalled"]:
                     print(f"  + {label}")
-            print(f"Secrets directory: {result.get('secretsDir', h_result.get('secretsDir', str(Path.home() / '.prismor' / 'secrets')))}")
+            _sdir = (result if cloak_agent in ("claude", "all") else h_result).get("secretsDir", str(Path.home() / ".prismor" / "secrets"))
+            print(f"Secrets directory: {_sdir}")
             print()
             print("Next step: register your first secret with")
             print(f"  {_color('immunity cloak add <name>', _CYAN)}  (reads the value from stdin)")
@@ -2776,52 +2777,137 @@ def _policy_edit(workspace: Path) -> None:
     _atexit.register(_restore)
     tty.setcbreak(fd)
 
-    def _read_key():
-        ch = sys.stdin.read(1)
-        if ch == '\x1b':
-            ch2 = sys.stdin.read(1)
-            if ch2 == '[':
-                ch3 = sys.stdin.read(1)
-                return 'ESC[' + ch3
-            return ch
-        return ch
+    import select
 
-    sel = 0
+    def _read_key():
+        # Read at the raw fd level (unbuffered). Mixing select() with
+        # sys.stdin.read() breaks here: read() buffers the rest of an escape
+        # sequence in Python, so select() on the fd sees nothing and a lone ESC
+        # is wrongly reported. os.read goes straight to the OS buffer.
+        ch = os.read(fd, 1)
+        if ch == b'\x1b':
+            # Distinguish a bare ESC from an arrow/cursor sequence via a short
+            # poll. Handle both CSI ("\x1b[") and SS3 ("\x1bO") cursor keys.
+            r, _, _ = select.select([fd], [], [], 0.05)
+            if not r:
+                return '\x1b'
+            ch2 = os.read(fd, 1)
+            if ch2 in (b'[', b'O'):
+                ch3 = os.read(fd, 1)
+                return 'ESC[' + ch3.decode('latin-1', 'ignore')
+            return '\x1b'
+        try:
+            return ch.decode('utf-8')
+        except UnicodeDecodeError:
+            return ''
+
+    import shutil
+
+    sel = 0          # index into the currently-visible (filtered) list
+    top = 0          # first visible row of the scroll viewport
+    query = ""       # active search filter
+    searching = False  # True while typing a search query
+
+    def _visible():
+        if not query:
+            return all_rules
+        q = query.lower()
+        return [r for r in all_rules if q in r["id"].lower() or q in r["title"].lower()]
+
     while True:
+        term = shutil.get_terminal_size((100, 30))
+        cols, rows = term.columns, term.lines
+        vis = _visible()
+        sel = 0 if not vis else max(0, min(sel, len(vis) - 1))
+
+        # Viewport height = terminal rows minus fixed chrome (header + footer).
+        view_h = max(3, rows - 10)
+        if sel < top:
+            top = sel
+        elif sel >= top + view_h:
+            top = sel - view_h + 1
+        top = max(0, min(top, max(0, len(vis) - view_h)))
+
         n_on = sum(1 for r in all_rules if r["on"])
         buf = "\033[H\033[J\033[?25l"  # home, clear, hide cursor
-        buf += f"\n  {_BOLD}PRISMOR IMMUNITY AGENT{_NC}  policy edit\n"
-        buf += f"  {_DIM}Workspace: {workspace}{_NC}\n"
-        buf += f"  {_DIM}{'─' * 64}{_NC}\n\n"
-        buf += f"  {n_on}/{len(all_rules)} rules enabled\n\n"
+        buf += f"\n  {_BOLD}PRISMOR IMMUNITY AGENT{_NC}  policy edit"
+        buf += f"   {_DIM}{n_on}/{len(all_rules)} enabled"
+        if query:
+            buf += f"  ·  filter {_CYAN}“{query}”{_NC}{_DIM} → {len(vis)}"
+        buf += f"{_NC}\n"
+        buf += f"  {_DIM}{'─' * min(max(cols - 4, 20), 80)}{_NC}\n"
 
-        for i, r in enumerate(all_rules):
-            arrow = f"{_CYAN}▸ {_NC}" if i == sel else "  "
+        # top scroll indicator
+        buf += (f"  {_DIM}↑ {top} more{_NC}\n" if top > 0 else "\n")
+
+        # Title column starts after: 2 + arrow(2) + dot(1) + 2 + sev(10) + rid(28) + 1
+        title_col = 46
+        title_max = max(12, cols - title_col - 2)
+        if not vis:
+            buf += f"  {_DIM}— no rules match “{query}” —{_NC}\n"
+        for idx in range(top, min(top + view_h, len(vis))):
+            r = vis[idx]
+            arrow = f"{_CYAN}▸ {_NC}" if idx == sel else "  "
             dot = f"{_GREEN}●{_NC}" if r["on"] else f"{_DIM}○{_NC}"
             sev = r["severity"]
             sev_c = _RED if sev == "CRITICAL" else _YELLOW if sev == "HIGH" else _DIM
             sev_s = f"{sev_c}{sev:<10}{_NC}"
-            rid = f"{_BOLD}{r['id']:<28}{_NC}" if i == sel else f"{r['id']:<28}"
-            title = f"{_DIM}{r['title']}{_NC}"
-            buf += f"  {arrow}{dot}  {sev_s}{rid} {title}\n"
+            rid = f"{_BOLD}{r['id']:<28}{_NC}" if idx == sel else f"{r['id']:<28}"
+            t = r["title"]
+            if len(t) > title_max:
+                t = t[:title_max - 1] + "…"
+            buf += f"  {arrow}{dot}  {sev_s}{rid} {_DIM}{t}{_NC}\n"
 
-        buf += f"\n  {_CYAN}{_BOLD}↑↓{_NC}{_DIM} move  ·  {_NC}"
-        buf += f"{_CYAN}{_BOLD}space{_NC}{_DIM} toggle  ·  {_NC}"
-        buf += f"{_CYAN}{_BOLD}a{_NC}{_DIM} all  ·  {_NC}"
-        buf += f"{_CYAN}{_BOLD}n{_NC}{_DIM} none  ·  {_NC}"
-        buf += f"{_CYAN}{_BOLD}enter{_NC}{_DIM} save  ·  {_NC}"
-        buf += f"{_CYAN}{_BOLD}q{_NC}{_DIM} cancel{_NC}\n"
+        # bottom scroll indicator
+        remaining = len(vis) - (top + view_h)
+        buf += (f"  {_DIM}↓ {remaining} more{_NC}\n" if remaining > 0 else "\n")
+
+        if searching:
+            buf += f"  {_CYAN}{_BOLD}/{_NC}{query}{_BOLD}▏{_NC}   {_DIM}type to filter · enter apply · esc clear{_NC}\n"
+        else:
+            buf += f"  {_CYAN}{_BOLD}↑↓{_NC}{_DIM} move · {_NC}"
+            buf += f"{_CYAN}{_BOLD}space{_NC}{_DIM} toggle · {_NC}"
+            buf += f"{_CYAN}{_BOLD}/{_NC}{_DIM} search · {_NC}"
+            buf += f"{_CYAN}{_BOLD}a{_NC}{_DIM}/{_NC}{_CYAN}{_BOLD}n{_NC}{_DIM} all/none · {_NC}"
+            buf += f"{_CYAN}{_BOLD}enter{_NC}{_DIM} save · {_NC}"
+            buf += f"{_CYAN}{_BOLD}q{_NC}{_DIM} cancel{_NC}\n"
         sys.stdout.write(buf)
         sys.stdout.flush()
 
         key = _read_key()
-        if key == 'ESC[A':    sel = (sel - 1) % len(all_rules)
-        elif key == 'ESC[B':  sel = (sel + 1) % len(all_rules)
-        elif key == ' ':      all_rules[sel]["on"] = not all_rules[sel]["on"]
-        elif key in ('a','A'):
-            for r in all_rules: r["on"] = True
-        elif key in ('n','N'):
-            for r in all_rules: r["on"] = False
+
+        if searching:
+            # While searching: printable chars filter live; arrows still move.
+            if key in ('\r', '\n'):
+                searching = False
+            elif key == '\x1b':            # bare ESC clears the filter
+                searching = False; query = ""; sel = 0; top = 0
+            elif key in ('\x7f', '\b'):
+                query = query[:-1]; sel = 0; top = 0
+            elif key == 'ESC[A':
+                if vis: sel = (sel - 1) % len(vis)
+            elif key == 'ESC[B':
+                if vis: sel = (sel + 1) % len(vis)
+            elif len(key) == 1 and key.isprintable():
+                query += key; sel = 0; top = 0
+            continue
+
+        if key == 'ESC[A':
+            if vis: sel = (sel - 1) % len(vis)
+        elif key == 'ESC[B':
+            if vis: sel = (sel + 1) % len(vis)
+        elif key == 'ESC[H':            # Home
+            sel = 0
+        elif key == 'ESC[F':            # End
+            sel = max(0, len(vis) - 1)
+        elif key == ' ':
+            if vis: vis[sel]["on"] = not vis[sel]["on"]
+        elif key == '/':
+            searching = True
+        elif key in ('a', 'A'):         # all (within current filter)
+            for r in vis: r["on"] = True
+        elif key in ('n', 'N'):         # none (within current filter)
+            for r in vis: r["on"] = False
         elif key in ('\r', '\n'):
             break  # save
         elif key in ('q', 'Q', '\x03'):

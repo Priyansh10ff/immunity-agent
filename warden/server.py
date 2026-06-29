@@ -44,6 +44,8 @@ from warden.store import (
     get_enrollment,
     read_policy_layer,
     write_policy_layer,
+    get_policy_rule_catalog,
+    set_project_rule_states,
     get_session_scoped_detail,
     update_session_control,
 )
@@ -158,6 +160,19 @@ class WardenRequestHandler(BaseHTTPRequestHandler):
             self._send_json(result)
             return
 
+        if path == "/api/policy/rules":
+            workspace = self._resolve_workspace(qs)
+            try:
+                rules = get_policy_rule_catalog(workspace)
+            except Exception as exc:
+                self._send_json({"error": str(exc)}, status=500)
+                return
+            self._send_json({
+                "rules": rules,
+                "workspace": str(workspace) if workspace else None,
+            })
+            return
+
         if path == "/api/stats":
             try:
                 days = max(1, qint("days", 7))
@@ -264,6 +279,24 @@ class WardenRequestHandler(BaseHTTPRequestHandler):
                     return
                 result = write_policy_layer("project", content, workspace)
                 self._send_json(result, status=200 if result["ok"] else 400)
+            except Exception as exc:
+                self._send_json({"ok": False, "error": str(exc)}, status=500)
+            return
+
+        if path == "/api/policy/rules":
+            try:
+                body = self._read_json_body()
+                disabled = body.get("disabled", [])
+                ws_str = body.get("workspace")
+                workspace = Path(ws_str) if ws_str else _SERVER_WORKSPACE
+                if not workspace:
+                    self._send_json({"ok": False, "error": "workspace required"}, status=400)
+                    return
+                if not isinstance(disabled, list):
+                    self._send_json({"ok": False, "error": "disabled must be a list"}, status=400)
+                    return
+                result = set_project_rule_states(workspace, [str(x) for x in disabled])
+                self._send_json(result, status=200 if result.get("ok") else 400)
             except Exception as exc:
                 self._send_json({"ok": False, "error": str(exc)}, status=500)
             return

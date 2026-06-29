@@ -390,6 +390,67 @@
   .policy-scope-pane { display: none; }
   .policy-scope-pane.active { display: block; }
 
+  /* Per-rule toggle list */
+  .rules-toolbar { display:flex; align-items:center; gap:8px; margin:12px 0; }
+  .rules-search {
+    flex:1; font-family:inherit; font-size:13px; padding:8px 12px;
+    border:1px solid var(--gray-200); border-radius:6px; color:var(--gray-900);
+    background:#fff; outline:none;
+  }
+  .rules-search:focus { border-color: var(--accent, #5b6cff); }
+  .rules-count { font-size:12px; color:var(--gray-500); white-space:nowrap; }
+  .rules-list {
+    border:1px solid var(--gray-200); border-radius:8px; overflow:hidden;
+    max-height:520px; overflow-y:auto; background:#fff;
+  }
+  .rule-row {
+    display:flex; align-items:center; gap:12px; padding:10px 14px;
+    border-bottom:1px solid var(--gray-100);
+  }
+  .rule-row:last-child { border-bottom:none; }
+  .rule-row.off { background: var(--gray-50, #fafafa); }
+  .rule-row.off .rule-id, .rule-row.off .rule-title { opacity:.5; }
+  .rule-main { flex:1; min-width:0; }
+  .rule-id { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12.5px; font-weight:600; color:var(--gray-900); }
+  .rule-title { font-size:12px; color:var(--gray-500); margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .rule-sev {
+    font-size:10px; font-weight:700; letter-spacing:.04em; padding:2px 7px;
+    border-radius:4px; white-space:nowrap;
+  }
+  .rule-sev.CRITICAL { background:#fde8e8; color:#c81e1e; }
+  .rule-sev.HIGH     { background:#fef3c7; color:#b45309; }
+  .rule-sev.MEDIUM   { background:#e0f2fe; color:#0369a1; }
+  .rule-sev.LOW      { background:var(--gray-100); color:var(--gray-500); }
+  /* toggle switch */
+  .rule-toggle { position:relative; width:38px; height:22px; flex:0 0 auto; cursor:pointer; }
+  .rule-toggle input { opacity:0; width:0; height:0; position:absolute; }
+  .rule-track {
+    position:absolute; inset:0; background:var(--gray-300,#cbd5e1); border-radius:22px;
+    transition:.15s;
+  }
+  .rule-track::before {
+    content:""; position:absolute; height:16px; width:16px; left:3px; top:3px;
+    background:#fff; border-radius:50%; transition:.15s;
+  }
+  .rule-toggle input:checked + .rule-track { background:#16a34a; }
+  .rule-toggle input:checked + .rule-track::before { transform:translateX(16px); }
+  .rules-dirty { color:#b45309; }
+
+  /* "More from Prismor" CTA */
+  .prismor-cta {
+    margin-top:20px; padding:18px 20px; border-radius:10px;
+    background:linear-gradient(135deg,#1e1b4b,#312e81); color:#e0e7ff;
+    display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap;
+  }
+  .prismor-cta-text strong { display:block; font-size:14px; color:#fff; margin-bottom:3px; }
+  .prismor-cta-text span { font-size:12.5px; color:#c7d2fe; }
+  .prismor-cta-btn {
+    background:#fff; color:#312e81; font-weight:600; font-size:13px;
+    padding:9px 18px; border-radius:7px; text-decoration:none; white-space:nowrap;
+    transition:.15s;
+  }
+  .prismor-cta-btn:hover { background:#eef2ff; }
+
   .policy-header {
     display: flex; align-items: center; justify-content: space-between;
     margin-bottom: 12px; flex-wrap: wrap; gap: 8px;
@@ -949,14 +1010,41 @@
   <div id="workspaceBanner"></div>
 
   <div class="policy-scope-nav">
-    <button class="policy-scope-btn active" data-pscope="global">Global</button>
+    <button class="policy-scope-btn active" data-pscope="rules">Rules</button>
+    <button class="policy-scope-btn" data-pscope="global">Global</button>
     <button class="policy-scope-btn" data-pscope="project">Project</button>
     <button class="policy-scope-btn" data-pscope="enterprise">Enterprise</button>
     <button class="policy-scope-btn" data-pscope="effective">Effective (merged)</button>
   </div>
 
+  <!-- Per-rule toggle list (project-scoped) -->
+  <div id="pscope-rules" class="policy-scope-pane active">
+    <div class="banner banner-info">
+      <span class="banner-icon">🛡️</span>
+      <div class="banner-text">
+        <strong>Detection rules</strong>
+        Toggle individual rules for <strong>this project</strong>. Disabling a rule stops it
+        blocking <em>and</em> flagging. Saved to <code>.prismor-warden/policy.yaml</code>;
+        live agents pick it up within 30&nbsp;s.
+      </div>
+    </div>
+    <div class="rules-toolbar">
+      <input id="rulesSearch" class="rules-search" type="text" spellcheck="false"
+             placeholder="Search rules by name, category, or description…" />
+      <span id="rulesCount" class="rules-count">—</span>
+      <button class="btn-ghost" id="rulesAll">Enable all</button>
+      <button class="btn-ghost" id="rulesNone">Disable all</button>
+    </div>
+    <div id="rulesList" class="rules-list"><div class="empty">Loading…</div></div>
+    <div class="policy-actions">
+      <button class="btn-primary" id="rulesSave">Save rules</button>
+      <button class="btn-ghost" id="rulesDiscard">Discard changes</button>
+      <span id="rulesSaveStatus" class="policy-status"></span>
+    </div>
+  </div>
+
   <!-- Global policy -->
-  <div id="pscope-global" class="policy-scope-pane active">
+  <div id="pscope-global" class="policy-scope-pane">
     <div class="banner banner-info">
       <span class="banner-icon">🌐</span>
       <div class="banner-text">
@@ -1068,6 +1156,15 @@
   </div>
 </div>
 
+<!-- ═══ MORE FROM PRISMOR (CTA) ══════════════════════════════════════════ -->
+<div class="prismor-cta">
+  <div class="prismor-cta-text">
+    <strong>Want team dashboards, signed remote policy &amp; audit history?</strong>
+    <span>This is the local agent. Prismor Cloud adds org-wide fleet visibility, centrally-managed policy, and long-term audit trails.</span>
+  </div>
+  <a class="prismor-cta-btn" href="https://prismor.dev?utm_source=immunity_dashboard&utm_medium=cta" target="_blank" rel="noopener">Explore Prismor Cloud →</a>
+</div>
+
 <!-- ═══ LOADING SCREEN ═══════════════════════════════════════════════════ -->
 <div id="loadingScreen">
   <div id="loadingCard">
@@ -1144,6 +1241,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
       // Render from cache instantly, refresh in background
       if (_policyCache) renderPolicyTab(_policyCache);
       loadPolicy();           // silent background refresh
+      loadRules();            // per-rule toggle list
     }
   });
 });
@@ -2217,6 +2315,92 @@ function setPolicySaveStatus(elId, msg, cls) {
     setTimeout(() => { el.textContent = ''; el.className = 'policy-status'; }, 3500);
   }
 }
+
+// ── Per-rule toggle list ────────────────────────────────────────────────────
+let _rulesCatalog = [];   // [{id,severity,category,title,action,enabled}]
+let _rulesState   = {};   // id -> desired enabled state
+
+async function loadRules() {
+  const ws = _serverWorkspace;
+  const params = ws ? ('?workspace=' + encodeURIComponent(ws)) : '';
+  try {
+    const data = await apiFetch('/api/policy/rules' + params);
+    _rulesCatalog = data.rules || [];
+    _rulesState = {};
+    _rulesCatalog.forEach(r => { _rulesState[r.id] = r.enabled; });
+    renderRules();
+  } catch (e) {
+    document.getElementById('rulesList').innerHTML = '<div class="empty">Failed to load rules.</div>';
+  }
+}
+
+function _rulesDirty() {
+  return _rulesCatalog.some(r => _rulesState[r.id] !== r.enabled);
+}
+
+function renderRules() {
+  const q = (document.getElementById('rulesSearch').value || '').toLowerCase();
+  const list = document.getElementById('rulesList');
+  const vis = _rulesCatalog.filter(r =>
+    !q || r.id.toLowerCase().includes(q)
+       || (r.title || '').toLowerCase().includes(q)
+       || (r.category || '').toLowerCase().includes(q));
+  const onCount = _rulesCatalog.filter(r => _rulesState[r.id]).length;
+  document.getElementById('rulesCount').innerHTML =
+    onCount + '/' + _rulesCatalog.length + ' on'
+    + (_rulesDirty() ? ' <span class="rules-dirty">• unsaved</span>' : '');
+  if (!vis.length) { list.innerHTML = '<div class="empty">No rules match.</div>'; return; }
+  list.innerHTML = vis.map(r => {
+    const on = _rulesState[r.id];
+    return '<div class="rule-row ' + (on ? '' : 'off') + '">'
+      + '<span class="rule-sev ' + safeAttr(r.severity) + '">' + safe(r.severity) + '</span>'
+      + '<div class="rule-main"><div class="rule-id">' + safe(r.id) + '</div>'
+      + '<div class="rule-title">' + safe(r.title) + '</div></div>'
+      + '<label class="rule-toggle"><input type="checkbox" data-rid="' + safeAttr(r.id) + '"'
+      + (on ? ' checked' : '') + '><span class="rule-track"></span></label>'
+      + '</div>';
+  }).join('');
+  list.querySelectorAll('input[data-rid]').forEach(cb => {
+    cb.addEventListener('change', () => {
+      _rulesState[cb.dataset.rid] = cb.checked;
+      renderRules();
+    });
+  });
+}
+
+document.getElementById('rulesSearch').addEventListener('input', renderRules);
+document.getElementById('rulesAll').addEventListener('click', () => {
+  _rulesCatalog.forEach(r => { _rulesState[r.id] = true; }); renderRules();
+});
+document.getElementById('rulesNone').addEventListener('click', () => {
+  _rulesCatalog.forEach(r => { _rulesState[r.id] = false; }); renderRules();
+});
+document.getElementById('rulesDiscard').addEventListener('click', () => {
+  _rulesCatalog.forEach(r => { _rulesState[r.id] = r.enabled; }); renderRules();
+});
+document.querySelector('.policy-scope-btn[data-pscope="rules"]')?.addEventListener('click', loadRules);
+document.getElementById('rulesSave').addEventListener('click', async () => {
+  const ws = _serverWorkspace;
+  if (!ws) { setPolicySaveStatus('rulesSaveStatus', 'No project workspace detected', 'status-err'); return; }
+  const disabled = _rulesCatalog.filter(r => !_rulesState[r.id]).map(r => r.id);
+  setPolicySaveStatus('rulesSaveStatus', 'Saving…', 'status-saving');
+  try {
+    const result = await apiFetch('/api/policy/rules', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workspace: ws, disabled }),
+    });
+    if (result.ok) {
+      _rulesCatalog.forEach(r => { r.enabled = _rulesState[r.id]; });
+      setPolicySaveStatus('rulesSaveStatus', '✓ Saved · ' + disabled.length + ' disabled', 'status-ok');
+      renderRules();
+    } else {
+      setPolicySaveStatus('rulesSaveStatus', '✗ ' + (result.error || 'Save failed'), 'status-err');
+    }
+  } catch (e) {
+    setPolicySaveStatus('rulesSaveStatus', '✗ ' + e, 'status-err');
+  }
+});
 
 // Global policy save / discard / reset
 document.getElementById('globalPolicySave').addEventListener('click', async () => {
