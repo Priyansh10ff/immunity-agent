@@ -1,4 +1,6 @@
-<h1 align="center">Immunity Agent</h1>
+<h1 align="center">Prismor</h1>
+
+<p align="center"><sub>formerly <strong>Immunity Agent</strong></sub></p>
 
 <h3 align="center">Runtime security hooks for Claude Code, Cursor, and other AI coding agents.<br>Blocks dangerous commands, prevents secret leaks, and stops prompt injection in real time.</h3>
 
