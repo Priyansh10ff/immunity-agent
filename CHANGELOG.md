@@ -1,3 +1,15 @@
+## [1.13.0] — 2026-06-29
+
+First release published to PyPI under the new **`prismor`** package name. `immunity-agent` is now a deprecated redirect package.
+
+### Changed
+
+- **`prismor` is the canonical PyPI package** — `pip install prismor` is the supported install path going forward. The package ships the full Warden runtime, supply-chain engine, and CLI (`prismor`, with `immunity` kept as a deprecated alias).
+
+### Deprecated
+
+- **`immunity-agent` is now a thin redirect package** — `pip install immunity-agent` installs `prismor` as a dependency and surfaces a "renamed to prismor" notice on its PyPI page. It carries no code of its own; existing installs keep working via the bundled `prismor` CLI. Use `pip install -U prismor` instead.
+
 ## [1.11.0] — 2026-06-26
 
 Supply-chain block/observe output now includes safe version recommendations, and setup writes agent context files for all supported agents.
